@@ -415,6 +415,40 @@
             </div>
         </div>
 
+        <!-- Aircraft Settings (hidden when aircraft layer is off) -->
+        <div class="card" id="aircraft-card" style="display:none">
+            <div class="card-title card-title-row">Aircraft (ADS-B) <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Live aircraft around your QTH from the adsb.lol community network (free), updated every 30 seconds and moved smoothly in between. Colour shows altitude (green low &rarr; violet high); amber outline = military; red ring = emergency squawk.</p>
+            <div class="form-group">
+                <label for="ac_radius">Area</label>
+                <select id="ac_radius" class="form-control" data-conf="AIRCRAFT_RADIUS_NM">
+                    <option value="50">Within 50 nm</option>
+                    <option value="100">Within 100 nm</option>
+                    <option value="150">Within 150 nm (default)</option>
+                    <option value="250">Within 250 nm (maximum)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="ac_labels">Labels</label>
+                <select id="ac_labels" class="form-control" data-conf="AIRCRAFT_LABELS">
+                    <option value="0">None</option>
+                    <option value="1">Military and emergencies (default)</option>
+                    <option value="2">All (callsign + flight level)</option>
+                </select>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="AIRCRAFT_MIL"> Also show military aircraft worldwide</label>
+            </div>
+            <div class="form-group">
+                <label for="ac_local">Local Receiver (optional)</label>
+                <input type="text" id="ac_local" class="form-control" data-conf="AIRCRAFT_LOCAL" placeholder="e.g. piaware.local:8080" maxlength="96">
+                <div class="hint">If you run readsb, dump1090 or tar1090 on your network, enter its host:port to use your own receiver instead of adsb.lol.</div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('aircraft-card', 'Aircraft')">Save</button>
+            </div>
+        </div>
+
         <!-- Ticker Sources (hidden when ticker layer is off) -->
         <div class="card" id="ticker-sources-card" style="display:none">
             <div class="card-title card-title-row">News Ticker <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>

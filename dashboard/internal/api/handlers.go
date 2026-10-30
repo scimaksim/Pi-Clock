@@ -194,6 +194,7 @@ var layerDefs = []struct {
 	{"earthquakes", "Earthquakes", false, 1.0},
 	{"volcanoes", "Volcanoes", false, 1.0},
 	{"storms", "Hurricanes / Tropical Storms", false, 1.0},
+	{"aircraft", "Aircraft (ADS-B)", false, 1.0},
 	{"wxalerts", "NWS Weather Alerts (US)", false, 1.0},
 	{"precip", "Rain Forecast (GFS model)", false, 1.0},
 	{"radar", "Live Radar (US NEXRAD)", false, 0.8},

@@ -40,6 +40,7 @@ static const struct { const char *key; const char *label; } layer_order[] = {
     {"dxspots",       "DX Cluster Spots"},
     {"satellites",    "Satellite Tracker"},
     {"starlink",      "Starlink Trains"},
+    {"aircraft",      "Aircraft"},
     {"lightning",     "Lightning Strikes"},
     {"earthquakes",   "Earthquakes"},
     {"volcanoes",     "Volcanoes"},

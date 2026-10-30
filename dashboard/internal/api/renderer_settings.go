@@ -48,7 +48,11 @@ func enumSetting(def string, allowed ...string) rendererSetting {
 
 // hostPortRe accepts "host:port" or a bare host — used for optional
 // local data sources such as an ADS-B receiver on the LAN.
-var hostPortRe = regexp.MustCompile(`^[A-Za-z0-9.\-]{0,253}(:[0-9]{1,5})?$`)
+var hostPortRe = regexp.MustCompile(`^[A-Za-z0-9.\-]{1,253}(:[0-9]{1,5})?$`)
+
+func hostPortSetting() rendererSetting {
+	return rendererSetting{"", func(v string) bool { return v == "" || hostPortRe.MatchString(v) }}
+}
 
 var rendererSettingDefs = map[string]rendererSetting{
 	// Volcanoes
@@ -70,6 +74,12 @@ var rendererSettingDefs = map[string]rendererSetting{
 
 	// Air quality
 	"AQ_BADGE": boolSetting("1"),
+
+	// Aircraft
+	"AIRCRAFT_RADIUS_NM": intSetting("150", 25, 250),
+	"AIRCRAFT_MIL":       boolSetting("0"),
+	"AIRCRAFT_LABELS":    enumSetting("1", "0", "1", "2"),
+	"AIRCRAFT_LOCAL":     hostPortSetting(),
 
 	// Starlink trains
 	"STARLINK_MAX_AGE_D": intSetting("10", 1, 30),
