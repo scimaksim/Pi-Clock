@@ -93,9 +93,11 @@ void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
     pic_aircraft_t *d = (pic_aircraft_t *)user_data;
     double zoom = 360.0 / (pic_config.view_span_lon > 0.0001 ?
                            pic_config.view_span_lon : 360.0);
-    /* Glyphs grow a little with zoom so they stay recognisable */
-    double s = height / 260.0 * (zoom > 4 ? 1.6 : 1.0 + 0.15 * zoom);
-    double fs = height / 125.0;
+    /* Glyph half-size ~8 px at 1080p full-world view, growing with zoom
+     * (up to ~14 px at the 3x maximum) so aircraft stay readable on a
+     * TV across the room. */
+    double s = height / 135.0 * (1.0 + 0.35 * (zoom - 1.0));
+    double fs = height / 75.0;
     double dt;
     int i, pass, nlab = 0;
     static rect_t labs[MAX_LABELS];
@@ -174,9 +176,10 @@ void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
                 /* Emergencies always get their label */
                 if (!a->emergency && overlaps(labs, nlab, &q)) continue;
                 if (nlab < MAX_LABELS) labs[nlab++] = q;
-                cairo_set_source_rgba(cr, 0, 0, 0, 0.7);
-                cairo_move_to(cr, x + s * 1.3 + 1, y + fs * 0.35 + 1);
-                cairo_show_text(cr, label);
+                /* Dark backing so the text reads over any map colour */
+                cairo_set_source_rgba(cr, 0, 0, 0, 0.6);
+                cairo_rectangle(cr, q.x0, q.y0, q.x1 - q.x0, q.y1 - q.y0);
+                cairo_fill(cr);
                 if (a->emergency) cairo_set_source_rgba(cr, 1, 0.35, 0.35, 1);
                 else if (a->military) cairo_set_source_rgba(cr, 1, 0.8, 0.3, 1);
                 else cairo_set_source_rgba(cr, 0.9, 0.9, 0.9, 0.95);

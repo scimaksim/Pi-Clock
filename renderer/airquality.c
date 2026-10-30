@@ -174,8 +174,12 @@ static void *aq_thread_func(void *arg)
             printf("airquality: fetch failed\n");
         }
 
-        for (i = 0; i < wait && aq_running; i++)
+        /* Refetch early if the QTH moves (e.g. corrected in the dashboard) */
+        for (i = 0; i < wait && aq_running; i++) {
             sleep(1);
+            if (pic_config.qth_lat != qlat || pic_config.qth_lon != qlon)
+                break;
+        }
     }
 
     free(buf);

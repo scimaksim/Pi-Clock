@@ -32,6 +32,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 #define ASTRO_URL "https://v2-api-public.astrospheric.com/api/GetForecastData"
 #define MAX_RESPONSE (512 * 1024)
@@ -186,6 +187,51 @@ int pic_astro_parse_forecast(const char *js, size_t len,
     return n;
 }
 
+/*
+ * describe_bad_response - Turn an unparseable reply into a short status
+ * line. Prefers the API's own error text ({"ErrorInfo": "..."} and
+ * similar), otherwise shows the start of the body. The raw reply is
+ * saved to /tmp (tmpfs, root-only) for troubleshooting; replies never
+ * contain the API key.
+ */
+static void describe_bad_response(const char *buf, int n, char *out, size_t size)
+{
+    static const char *keys[] = { "ErrorInfo", "Error", "error", "Message",
+                                  "message", NULL };
+    pic_json_t j;
+    char msg[96] = "";
+    int k;
+    FILE *f;
+
+    f = fopen("/tmp/pi-clock-astro-response.txt", "w");
+    if (f) {
+        fchmod(fileno(f), 0600);
+        fwrite(buf, 1, (size_t)n, f);
+        fclose(f);
+    }
+    printf("astro: unexpected response (%d bytes): %.300s\n", n, buf);
+
+    if (pic_json_parse(&j, buf, (size_t)n) == 0) {
+        if (pic_json_is_object(&j, 0))
+            for (k = 0; keys[k] && !msg[0]; k++)
+                pic_json_str(&j, pic_json_get(&j, 0, keys[k]), msg, sizeof(msg));
+        else
+            pic_json_str(&j, 0, msg, sizeof(msg));   /* bare JSON string */
+        pic_json_free(&j);
+    }
+    if (!msg[0]) {
+        /* Not JSON (e.g. an HTML error page): show the first text */
+        int i, w = 0;
+        for (i = 0; i < n && w < (int)sizeof(msg) - 1; i++) {
+            unsigned char c = (unsigned char)buf[i];
+            if (c >= 0x20 && c < 0x7f) msg[w++] = (char)c;
+            else if (w && msg[w - 1] != ' ') msg[w++] = ' ';
+        }
+        msg[w] = '\0';
+    }
+    snprintf(out, size, "Astrospheric: %.50s", msg[0] ? msg : "empty reply");
+}
+
 /* ── Thread ───────────────────────────────────────────────────── */
 
 /* Read the API key; accept only plausible key characters so the value
@@ -272,7 +318,9 @@ static void *astro_thread_func(void *arg)
                     printf("astro: %d forecast hours, %d credits left\n",
                            n, credits);
                 } else {
-                    set_status("Unexpected Astrospheric response");
+                    char why[64];
+                    describe_bad_response(buf, (int)strlen(buf), why, sizeof(why));
+                    set_status(why);
                 }
             }
         }

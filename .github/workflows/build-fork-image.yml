@@ -403,6 +403,9 @@ jobs:
         sudo rm /mnt/root/build-fork.sh
 
         sudo install -Dm755 pi-clock-dashboard-fork /mnt/root/usr/bin/pi-clock-dashboard
+        # Standalone binaries for quick in-place updates (no reflash)
+        cp /mnt/root/usr/bin/pi-clock "$GITHUB_WORKSPACE/pi-clock-armhf"
+        cp pi-clock-dashboard-fork "$GITHUB_WORKSPACE/pi-clock-dashboard-armhf"
         file /mnt/root/usr/bin/pi-clock /mnt/root/usr/bin/pi-clock-dashboard || true
 
         sudo umount /mnt/root/dev/pts 2>/dev/null || true
@@ -643,6 +646,8 @@ jobs:
         mv "/tmp/${IMAGE_PREFIX}-${VERSION}.rootfs.tar.xz" artifacts/
         mv "/tmp/${IMAGE_PREFIX}-${VERSION}.rootfs.tar.xz.sha256" artifacts/
         mv /tmp/manifest.txt artifacts/
+        mv pi-clock-armhf pi-clock-dashboard-armhf artifacts/
+        (cd artifacts && sha256sum pi-clock-armhf pi-clock-dashboard-armhf > binaries.sha256)
 
         echo "Artifacts:"
         ls -lh artifacts/
@@ -668,6 +673,9 @@ jobs:
           artifacts/*.rootfs.tar.xz
           artifacts/*.rootfs.tar.xz.sha256
           artifacts/manifest.txt
+          artifacts/pi-clock-armhf
+          artifacts/pi-clock-dashboard-armhf
+          artifacts/binaries.sha256
         body: |
           # Pi-Clock OS - ${{ env.VERSION }}
 
