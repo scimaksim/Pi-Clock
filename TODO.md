@@ -86,6 +86,21 @@
 - [x] Wind tmpfs cleanup — delete gfs.bin.gz/gfs.bin after parsing (saves 1.6MB)
 - [x] Post-composite legend rendering (independent of layer opacity)
 
+## Renderer — Geochron-style layers (scimaksim fork)
+- [x] Naked-eye satellites (Tiangong, Hubble, BlueWalker 3, Envisat)
+- [x] Volcanoes — Smithsonian/USGS weekly report
+- [x] Hurricanes / tropical storms — GDACS (NHC forecasts in the Atlantic)
+- [x] NWS weather alerts — warning polygons + home QTH banner
+- [x] Live US radar — IEM NEXRAD N0Q mosaic
+- [x] Air quality — Open-Meteo US AQI field + QTH badge
+- [x] Starlink trains with visible-pass prediction
+- [x] Aircraft — adsb.lol or local readsb/dump1090
+- [x] Tonight's Sky applet — Astrospheric cloud/transparency/seeing, sun/moon times
+- [ ] Global radar fallback outside the US (e.g. RainViewer)
+- [ ] Wildfire detections (NASA FIRMS) and smoke plumes (NOAA HMS)
+- [ ] User-defined satellites by NORAD ID from the dashboard
+- [ ] Full SGP4 (drag terms) for longer TLE ages and pass accuracy
+
 ## Renderer — Next
 - [ ] DXCC entity boundaries
 - [ ] POTA/SOTA active spots

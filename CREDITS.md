@@ -10,6 +10,11 @@ and datasets used in the project.
 Single-header JPEG/PNG image loader. Public domain.
 https://github.com/nothings/stb
 
+**jsmn** — Serge Zaitsev
+Minimal single-header JSON tokenizer, used by the JSON feed parsers
+(json.c). MIT licence (text retained in renderer/jsmn.h).
+https://github.com/zserge/jsmn
+
 ## Algorithms and References
 
 **Solar Position** — Jean Meeus, *Astronomical Algorithms* (2nd ed., 1998)
@@ -46,6 +51,38 @@ standard SGP4 algorithm simplified for amateur satellite tracking.
 
 ## Data Sources
 
+**Smithsonian / USGS Weekly Volcanic Activity Report** — Smithsonian
+Institution Global Volcanism Program and USGS Volcano Hazards Program.
+CAP feed of volcanoes with new or continuing activity.
+https://volcano.si.edu/
+
+**GDACS** — Global Disaster Alert and Coordination System (European
+Commission Joint Research Centre / UN OCHA). Current tropical cyclones,
+tracks and forecast cones; Atlantic/E. Pacific forecasts originate from
+the US National Hurricane Center, others from JTWC and regional centres.
+https://www.gdacs.org/
+
+**US National Weather Service** — Active watches, warnings and
+advisories (public domain) via the NWS API.
+https://api.weather.gov/
+
+**Iowa Environmental Mesonet** — Iowa State University. NEXRAD base
+reflectivity (N0Q) national composite via WMS, from NWS Level III data.
+https://mesonet.agron.iastate.edu/
+
+**Open-Meteo Air Quality API** — Open-Meteo.com, using Copernicus
+Atmosphere Monitoring Service (CAMS) model data. CC BY 4.0.
+https://open-meteo.com/en/docs/air-quality-api
+
+**adsb.lol** — Community ADS-B aggregation network. Live aircraft
+positions (ODbL).
+https://adsb.lol/
+
+**Astrospheric** — Astronomy weather forecasts (cloud, transparency,
+seeing) via the Astrospheric Data API; requires the user's own
+Astrospheric Pro API key.
+https://www.astrospheric.com/
+
 **NOAA Space Weather Prediction Center (SWPC)**
 Solar Flux Index, Kp index, solar wind speed, interplanetary magnetic
 field (Bz), and X-ray flare classifications. Free JSON API, no
@@ -59,7 +96,8 @@ https://sdo.gsfc.nasa.gov
 
 **Celestrak** — Dr. T.S. Kelso
 Two-Line Element sets for amateur radio satellites. Used for orbit
-propagation in the satellite tracking layer.
+propagation in the satellite tracking layer, and the "last 30 days"
+catalogue for Starlink trains.
 https://celestrak.org
 
 **AMSAT**
