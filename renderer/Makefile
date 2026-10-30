@@ -56,7 +56,7 @@ SOURCES = main.c display.c layer.c solar.c lunar.c image.c config.c borders.c \
           feature.c geopoly.c ws.c layers_spc.c layers_launches.c \
           layers_dsn.c applet_passes.c layers_satclouds.c layers_fires.c \
           applet_tides.c layers_planets.c layers_ships.c \
-          layers_aurorawatch.c layers_lightpollution.c
+          layers_aurorawatch.c layers_lightpollution.c ha_notify.c
 OBJECTS = $(SOURCES:.c=.o)
 
 # Output binary names

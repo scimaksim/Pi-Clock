@@ -15,6 +15,7 @@
  */
 
 #include "feature.h"
+#include "features_all.h"
 #include "astro.h"
 #include "config.h"
 #include "fetch.h"
@@ -34,12 +35,7 @@
 #define HORIZON_H   72
 #define STEP_S      10
 
-typedef struct {
-    char   sat[16];
-    time_t start, max, end;
-    double max_el;
-    double az_start, az_end;
-} pass_t;
+typedef pic_pass_t pass_t;
 
 typedef struct {
     pthread_mutex_t mutex;
@@ -341,8 +337,24 @@ double pic_applet_render_passes(cairo_t *cr, double width, time_t now,
     return total;
 }
 
+int pic_passes_get(pic_pass_t *out, int max)
+{
+    int n;
+    pthread_mutex_lock(&ps.mutex);
+    n = ps.npasses < max ? ps.npasses : max;
+    memcpy(out, ps.passes, (size_t)n * sizeof(pic_pass_t));
+    pthread_mutex_unlock(&ps.mutex);
+    return n;
+}
+
+static int passes_wanted(pic_feature_t *f)
+{
+    (void)f;
+    return pic_hanotify_wants("HA_NOTIFY_PASSES");
+}
+
 static pic_feature_t feature_def = {
-    .name = "passes", .is_applet = 1,
+    .name = "passes", .wanted = passes_wanted, .is_applet = 1,
     .applet = pic_applet_render_passes, .label = "Visible Passes",
     .interval = 30, .applet_w = 220, .side = APPLET_SIDE_LEFT,
     .reload = passes_reload, .work = passes_work, .needs_network = 1,

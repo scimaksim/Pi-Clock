@@ -75,3 +75,18 @@ func TestAISKeyAndPatternSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestHAWebhookValidation(t *testing.T) {
+	for v, ok := range map[string]bool{
+		"http://192.168.1.90:8123/api/webhook/pi-clock-abc123": true,
+		"https://ha.example.com/api/webhook/Xy_9-abcdef":       true,
+		"http://192.168.1.90:8123/api/services/x":              false,
+		"http://192.168.1.90:8123/api/webhook/abc def":         false,
+		"file:///etc/passwd":                                   false,
+		"http://h/api/webhook/abcdef\nX=1":                     false,
+	} {
+		if haWebhookRe.MatchString(v) != ok {
+			t.Errorf("%q: want %v", v, ok)
+		}
+	}
+}

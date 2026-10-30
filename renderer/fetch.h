@@ -39,7 +39,8 @@ int pic_fetch_to_file(const char *url, const char *path, int timeout);
 /*
  * pic_fetch_post_json - POST a JSON body (via a private temp file, so
  * secrets in it never appear on a command line) and read the response
- * into buf. Returns bytes read or -1; buf is null-terminated.
+ * into buf. Returns bytes read, 0 for a successful empty reply, or -1;
+ * buf is null-terminated.
  */
 int pic_fetch_post_json(const char *url, const char *json,
                         char *buf, int buf_size);

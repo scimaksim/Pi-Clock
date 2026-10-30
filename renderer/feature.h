@@ -50,6 +50,12 @@ struct pic_feature {
     int  (*work)(pic_feature_t *f);
     int  needs_network;
 
+    /*
+     * Optional: return non-zero to keep the thread running even when
+     * the layer/applet is off (e.g. phone alerts need pass data).
+     */
+    int  (*wanted)(pic_feature_t *f);
+
     /* Optional: wake a thread blocked in I/O so stop doesn't wait. */
     void (*interrupt)(pic_feature_t *f);
 

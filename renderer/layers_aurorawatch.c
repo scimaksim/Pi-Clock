@@ -30,6 +30,7 @@
 
 #define _GNU_SOURCE  /* timegm */
 #include "feature.h"
+#include "features_all.h"
 #include "astro.h"
 #include "config.h"
 #include "fetch.h"
@@ -499,8 +500,32 @@ double pic_applet_render_aurorawatch(cairo_t *cr, double width, time_t now,
     return total;
 }
 
+void pic_aurora_home(time_t now, pic_aurora_home_t *o)
+{
+    const kpf_t *nx;
+    double vl;
+    memset(o, 0, sizeof(*o));
+    pthread_mutex_lock(&aw.mutex);
+    o->have_data = aw.have_ovation || aw.nkpf > 0;
+    o->kp_now = aw.kp_now;
+    home_status(now, &o->now_level, &vl, &nx, &o->next_level);
+    if (nx) {
+        o->next_t = nx->t;
+        o->next_kp = nx->kp;
+    }
+    pthread_mutex_unlock(&aw.mutex);
+    o->clouds_now = clouds_between(now, now + 3600);
+    o->clouds_next = o->next_t ? clouds_between(o->next_t, o->next_t + 3 * 3600) : -1;
+}
+
+static int aw_wanted(pic_feature_t *f)
+{
+    (void)f;
+    return pic_hanotify_wants("HA_NOTIFY_AURORA");
+}
+
 static pic_feature_t feature_def = {
-    .name = "aurorawatch", .layer = pic_layer_render_aurorawatch,
+    .name = "aurorawatch", .wanted = aw_wanted, .layer = pic_layer_render_aurorawatch,
     .legend = pic_layer_render_aurorawatch_banner, .interval = 60,
     .extra_mb = 2,
     .applet = pic_applet_render_aurorawatch, .label = "Aurora Watch",

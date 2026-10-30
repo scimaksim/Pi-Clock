@@ -6,8 +6,10 @@ package api
 // characters), never the key itself.
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"time"
 	"os"
 	"regexp"
 	"strings"
@@ -97,3 +99,49 @@ func GetAISKey() http.HandlerFunc { return aisKey.get() }
 
 // PutAISKey saves or removes the aisstream.io key.
 func PutAISKey() http.HandlerFunc { return aisKey.put() }
+
+// Home Assistant webhook for phone alerts (passes, aurora). The URL's
+// last path segment is the webhook ID, which acts as a shared secret,
+// so it is stored root-only and never returned.
+var haWebhookPath = "/data/etc/pi-clock-ha-webhook"
+
+var haWebhookRe = regexp.MustCompile(`^https?://[A-Za-z0-9.\-]{1,253}(:[0-9]{1,5})?/api/webhook/[A-Za-z0-9_\-]{6,128}$`)
+
+var haWebhook = secretKey{&haWebhookPath, haWebhookRe, "Home Assistant webhook"}
+
+// GetHAWebhook reports whether a webhook URL is configured.
+func GetHAWebhook() http.HandlerFunc { return haWebhook.get() }
+
+// PutHAWebhook saves or removes the webhook URL.
+func PutHAWebhook() http.HandlerFunc { return haWebhook.put() }
+
+// TestHAWebhook posts a sample alert so the user can check their
+// automation end to end.
+func TestHAWebhook() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := os.ReadFile(haWebhookPath)
+		url := strings.TrimSpace(string(data))
+		if err != nil || !haWebhookRe.MatchString(url) {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "no webhook URL saved"})
+			return
+		}
+		body, _ := json.Marshal(map[string]interface{}{
+			"source":  "pi-clock",
+			"event":   "test",
+			"title":   "Pi-Clock test",
+			"message": "Alerts from Pi-Clock are working.",
+		})
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+		if err != nil {
+			jsonResponse(w, http.StatusBadGateway, map[string]string{"error": "couldn't reach Home Assistant"})
+			return
+		}
+		resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			jsonResponse(w, http.StatusBadGateway, map[string]string{"error": "Home Assistant answered " + resp.Status})
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]string{"status": "sent"})
+	}
+}

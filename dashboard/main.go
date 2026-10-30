@@ -126,6 +126,9 @@ func main() {
 		r.Put("/astrospheric-key", api.PutAstrosphericKey())
 		r.Get("/aisstream-key", api.GetAISKey())
 		r.Put("/aisstream-key", api.PutAISKey())
+		r.Get("/ha-webhook", api.GetHAWebhook())
+		r.Put("/ha-webhook", api.PutHAWebhook())
+		r.Post("/ha-webhook/test", api.TestHAWebhook())
 
 		// Applet settings
 		r.Get("/applets", api.GetApplets())

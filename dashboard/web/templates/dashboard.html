@@ -189,6 +189,50 @@
             </div>
         </div>
 
+        <!-- Home Assistant phone alerts -->
+        <div class="card" id="ha-card">
+            <div class="card-title">Home Assistant Alerts</div>
+            <p class="text-muted mb-8">Pi-Clock can tell Home Assistant when a bright ISS / Tiangong / Hubble pass is about to start or the aurora may be visible from home, so an automation can notify your phone, flash a light or speak on a speaker. In Home Assistant, create an automation with a <strong>Webhook</strong> trigger and paste its URL here (e.g. <code>http://192.168.1.90:8123/api/webhook/your-id</code>).</p>
+            <div class="form-group">
+                <label for="ha_webhook">Webhook URL</label>
+                <input type="password" id="ha_webhook" class="form-control" autocomplete="off" placeholder="http://homeassistant-ip:8123/api/webhook/...">
+                <div class="hint" id="ha_webhook_status">Stored only on this Pi (root-only file). Use the IP address rather than homeassistant.local.</div>
+            </div>
+            <div class="mt-8" style="margin-bottom:12px">
+                <button class="btn btn-primary btn-sm" onclick="saveHAWebhook()">Save URL</button>
+                <button class="btn btn-outline btn-sm" onclick="testHAWebhook()">Send Test</button>
+                <button class="btn btn-outline btn-sm" onclick="removeHAWebhook()">Remove</button>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_PASSES"> Visible satellite passes</label>
+            </div>
+            <div class="form-group">
+                <label for="ha_lead">Pass Alert Lead Time</label>
+                <select id="ha_lead" class="form-control" data-conf="HA_PASS_LEAD_MIN">
+                    <option value="5">5 minutes before</option>
+                    <option value="10">10 minutes before (default)</option>
+                    <option value="15">15 minutes before</option>
+                    <option value="30">30 minutes before</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="ha_minel">Only Passes Higher Than</label>
+                <select id="ha_minel" class="form-control" data-conf="HA_PASS_MIN_EL">
+                    <option value="10">10&deg; (all visible passes)</option>
+                    <option value="20">20&deg; (default)</option>
+                    <option value="30">30&deg;</option>
+                    <option value="45">45&deg; (best passes only)</option>
+                </select>
+                <div class="hint">Which satellites: see "Satellites for Visible Passes" in the Passes &amp; Tides card.</div>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_AURORA"> Aurora possible from home (now, or forecast within 24 h)</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('ha-card', 'Alerts')">Save</button>
+            </div>
+        </div>
+
         <!-- Tonight's Sky (Astronomy applet) settings -->
         <div class="card" id="astro-card">
             <div class="card-title">Tonight's Sky (Astronomy)</div>

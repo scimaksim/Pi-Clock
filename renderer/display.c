@@ -556,6 +556,8 @@ static void sync_features(pic_layer_stack_t *stack,
             for (k = 0; k < applets->count; k++)
                 if (strcmp(applets->applets[k].name, f->name) == 0)
                     on |= applets->applets[k].enabled;
+        if (!on && f->wanted)
+            on = f->wanted(f);
         if (on) {
             if (f->reload) f->reload(f);
             pic_feature_start(f);
@@ -1771,6 +1773,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                          240, APPLET_SIDE_LEFT, &astro);
     register_feature(pic_feature_passes());
     register_feature(pic_feature_tides());
+    register_feature(pic_feature_hanotify());   /* no layer or applet */
     {
         int fi;
         for (fi = 0; fi < nfeatures; fi++)

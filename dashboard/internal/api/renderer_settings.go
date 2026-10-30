@@ -122,6 +122,12 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"AURORA_BANNER": boolSetting("1"),
 	"LP_NOTE":       boolSetting("1"),
 
+	// Home Assistant phone alerts
+	"HA_NOTIFY_PASSES": boolSetting("1"),
+	"HA_NOTIFY_AURORA": boolSetting("1"),
+	"HA_PASS_LEAD_MIN": intSetting("10", 2, 60),
+	"HA_PASS_MIN_EL":   intSetting("20", 10, 80),
+
 	// Tonight's Sky applet (Astrospheric)
 	"ASTRO_INTERVAL_H": intSetting("3", 1, 12),
 	"ASTRO_CLEAR_PCT":  intSetting("20", 5, 60),

@@ -1150,6 +1150,42 @@ function removeAISKey() {
     }).catch(function(e) { toast(e.message, 'error'); });
 }
 
+// ── Home Assistant alerts ──────────────────────────────────
+function loadHAWebhook() {
+    apiCall('GET', '/api/ha-webhook').then(function(st) {
+        var el = document.getElementById('ha_webhook_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? 'Webhook saved (ID ending ' + st.last4 + ').'
+            : 'No webhook saved.';
+    });
+    loadRendererSettings('ha-card');
+}
+
+function saveHAWebhook() {
+    var input = document.getElementById('ha_webhook');
+    var url = input ? input.value.trim() : '';
+    if (!url) { toast('Paste the webhook URL first', 'error'); return; }
+    apiCall('PUT', '/api/ha-webhook', {key: url}).then(function() {
+        input.value = '';
+        toast('Home Assistant webhook saved');
+        loadHAWebhook();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function removeHAWebhook() {
+    apiCall('PUT', '/api/ha-webhook', {key: ''}).then(function() {
+        toast('Home Assistant webhook removed');
+        loadHAWebhook();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function testHAWebhook() {
+    apiCall('POST', '/api/ha-webhook/test', {}).then(function() {
+        toast('Test alert sent to Home Assistant');
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
 // ── Earthquake settings ────────────────────────────────────
 function loadEarthquakeSettings() {
     apiCall('GET', '/api/earthquake-settings').then(function(settings) {
@@ -1747,6 +1783,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadAstroKey();
     loadAISKey();
     loadRendererSettings('panels-card');
+    loadHAWebhook();
 
     setInterval(loadSystemInfo, 30000);
 });

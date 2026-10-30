@@ -107,6 +107,7 @@
 - [x] Ships (aisstream.io AIS, user key)
 - [x] Aurora Watch — SWPC view line from OVATION, Kp-forecast home alerts, Astrospheric clouds
 - [x] Light pollution — skyglow model from VIIRS night lights, home Bortle + nearest dark site
+- [x] Home Assistant webhook alerts — visible passes, aurora now/forecast (docs/home-assistant.md)
 - [ ] Global radar fallback outside the US (e.g. RainViewer)
 - [ ] Satellite clouds over Europe/Africa (no free Meteosat feed on GIBS)
 - [ ] Global FIRMS fires (needs a free MAP_KEY)

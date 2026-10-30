@@ -164,7 +164,7 @@ int pic_fetch_post_json(const char *url, const char *json,
                         char *buf, int buf_size)
 {
     char tmp[] = "/tmp/pi-clock-post-XXXXXX";
-    int pipefd[2], fd, n;
+    int pipefd[2], fd, n, status_out = -1;
     size_t len = strlen(json);
     pid_t pid;
 
@@ -222,8 +222,12 @@ int pic_fetch_post_json(const char *url, const char *json,
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
         }
+        status_out = status;
     }
     unlink(tmp);
 
-    return n > 0 ? n : -1;
+    /* An empty body is still success if wget exited cleanly (e.g. a
+     * Home Assistant webhook answers 200 with no content). */
+    if (n > 0) return n;
+    return (WIFEXITED(status_out) && WEXITSTATUS(status_out) == 0) ? 0 : -1;
 }
