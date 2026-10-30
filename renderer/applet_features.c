@@ -43,6 +43,7 @@ static const struct { const char *key; const char *label; } layer_order[] = {
     {"earthquakes",   "Earthquakes"},
     {"volcanoes",     "Volcanoes"},
     {"storms",        "Tropical Cyclones"},
+    {"wxalerts",      "NWS Weather Alerts"},
     {"precip",        "Rain Radar"},
     {"cloud",         "Cloud Cover"},
     {"wind",          "Wind"},

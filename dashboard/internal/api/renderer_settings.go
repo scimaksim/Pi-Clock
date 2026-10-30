@@ -59,6 +59,11 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"STORM_CONE":    boolSetting("1"),
 	"STORM_TRACK":   boolSetting("1"),
 	"STORM_MIN_CAT": intSetting("0", 0, 6),
+
+	// NWS weather alerts
+	"WX_BANNER":     boolSetting("1"),
+	"WX_BANNER_MIN": intSetting("2", 1, 4),
+	"WX_RADIUS_KM":  intSetting("0", 0, 5000),
 }
 
 // GetRendererSettings returns every whitelisted setting with its current

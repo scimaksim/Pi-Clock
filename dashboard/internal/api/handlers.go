@@ -193,6 +193,7 @@ var layerDefs = []struct {
 	{"earthquakes", "Earthquakes", false, 1.0},
 	{"volcanoes", "Volcanoes", false, 1.0},
 	{"storms", "Hurricanes / Tropical Storms", false, 1.0},
+	{"wxalerts", "NWS Weather Alerts (US)", false, 1.0},
 	{"precip", "Rain Radar", false, 1.0},
 	{"cloud", "Cloud Cover", false, 1.0},
 	{"wind", "Wind", false, 1.0},

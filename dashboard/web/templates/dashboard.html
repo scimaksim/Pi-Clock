@@ -305,6 +305,37 @@
             </div>
         </div>
 
+        <!-- NWS Alert Settings (hidden when wxalerts layer is off) -->
+        <div class="card" id="wxalert-card" style="display:none">
+            <div class="card-title card-title-row">NWS Weather Alerts <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Active US National Weather Service alerts. Storm-based warnings (tornado, severe thunderstorm, flash flood) are outlined on the map; alerts covering your QTH appear as a banner at the top of the screen. Updated every 3 minutes.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="WX_BANNER"> Show banner for alerts at my QTH</label>
+            </div>
+            <div class="form-group">
+                <label for="wx_banner_min">Banner Shows</label>
+                <select id="wx_banner_min" class="form-control" data-conf="WX_BANNER_MIN">
+                    <option value="1">Everything, including minor advisories</option>
+                    <option value="2">Moderate and above (default)</option>
+                    <option value="3">Severe and extreme only</option>
+                    <option value="4">Extreme only</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="wx_radius_km">Map Area</label>
+                <select id="wx_radius_km" class="form-control" data-conf="WX_RADIUS_KM">
+                    <option value="0">Whole US (default)</option>
+                    <option value="800">Within ~500 miles of QTH</option>
+                    <option value="400">Within ~250 miles of QTH</option>
+                    <option value="160">Within ~100 miles of QTH</option>
+                </select>
+                <div class="hint">Map shows severe and extreme storm-based warnings</div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('wxalert-card', 'Weather alert')">Save</button>
+            </div>
+        </div>
+
         <!-- Ticker Sources (hidden when ticker layer is off) -->
         <div class="card" id="ticker-sources-card" style="display:none">
             <div class="card-title card-title-row">News Ticker <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
