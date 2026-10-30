@@ -356,8 +356,8 @@ static void *solar_thread_func(void *arg)
 
         /* Sleep in 5-second chunks so we can stop promptly */
         while (solar_running && elapsed < FETCH_TICK) {
-            sleep(5);
-            elapsed += 5;
+            sleep(1);       /* 1 s steps so shutdown is prompt */
+            elapsed += 1;
         }
 
         if (!solar_running) break;

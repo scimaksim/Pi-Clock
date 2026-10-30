@@ -18,6 +18,9 @@ description="Pi-Clock display renderer"
 command="/usr/bin/pi-clock"
 command_background=true
 pidfile="/run/pi-clock.pid"
+# The renderer stops its fetch threads on SIGTERM; give it time before
+# OpenRC gives up (the 5 s default could leave the service "crashed").
+retry="TERM/20/KILL/5"
 output_log="/var/log/pi-clock-renderer.log"
 error_log="/var/log/pi-clock-renderer.log"
 start_stop_daemon_args="-e XDG_RUNTIME_DIR=/run/user/0 -e SDL_VIDEODRIVER=fbdev"

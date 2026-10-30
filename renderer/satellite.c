@@ -561,8 +561,8 @@ static void *sat_thread_func(void *arg)
     while (sat_running) {
         int elapsed = 0;
         while (sat_running && elapsed < TLE_FETCH_INTERVAL) {
-            sleep(5);
-            elapsed += 5;
+            sleep(1);       /* 1 s steps so shutdown is prompt */
+            elapsed += 1;
             /* Config reload can reset last_tle_update to trigger
              * an immediate refetch for newly enabled satellites */
             if (sat_list->last_tle_update == 0) break;
