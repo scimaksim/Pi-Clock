@@ -567,8 +567,7 @@ static void sync_features(pic_layer_stack_t *stack,
 
 static void stop_features(void)
 {
-    int i;
-    for (i = 0; i < nfeatures; i++) pic_feature_stop(features[i]);
+    pic_feature_stop_all(features, nfeatures, 5);
 }
 
 static void sync_astro_fetcher(pic_applet_stack_t *applets, pic_astro_t *astro)

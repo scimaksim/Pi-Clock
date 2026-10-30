@@ -90,13 +90,19 @@ uint32_t pic_satcloud_pixel(unsigned r, unsigned g, unsigned b, unsigned a,
            (uint32_t)(b * al);
 }
 
-/* Blit an RGBA PNG into the composite at column x0. Returns the
- * number of opaque source pixels, or -1 on decode failure. */
+/*
+ * Blit an RGBA PNG into the composite at column x0, filling only
+ * pixels not already covered (have[] marks covered tile pixels), so
+ * an older time step can patch tiles missing from a newer one.
+ * *expect gets the number of pixels the satellite can see (well
+ * inside its disk). Returns the covered count, or -1 on failure.
+ */
 static int blit_png(const char *path, cairo_surface_t *dst, int x0,
                     int want_w, int enhanced, double lat0, double lat1,
-                    double lon0, double lon1, double sub)
+                    double lon0, double lon1, double sub,
+                    unsigned char *have, int *expect)
 {
-    int w, h, ch, x, y, dw, dh, stride, opaque = 0;
+    int w, h, ch, x, y, dw, dh, stride, covered = 0;
     unsigned char *px = stbi_load(path, &w, &h, &ch, 4), *d;
 
     if (!px) return -1;
@@ -108,6 +114,7 @@ static int blit_png(const char *path, cairo_surface_t *dst, int x0,
         stbi_image_free(px);
         return -1;
     }
+    *expect = 0;
     for (y = 0; y < h && y < dh; y++) {
         uint32_t *row = (uint32_t *)(d + (size_t)y * stride);
         const unsigned char *s = px + (size_t)y * w * 4;
@@ -120,9 +127,15 @@ static int blit_png(const char *path, cairo_surface_t *dst, int x0,
                 double lon = lon0 + (x + 0.5) / w * (lon1 - lon0);
                 double c = acos(clat * cos((lon - sub) * M_PI / 180)) * 180 / M_PI;
                 double fade = c < 55 ? 1.0 : (72 - c) / 17.0;
+                uint32_t p;
+                unsigned char *hv = &have[(size_t)y * w + x];
                 if (fade < 0) fade = 0;
-                opaque += s[3] >= 128;
-                uint32_t p = pic_satcloud_pixel(s[0], s[1], s[2], s[3], enhanced);
+                if (c < 70) (*expect)++;
+                if (*hv) { covered += c < 70; continue; }
+                if (s[3] < 128) continue;
+                *hv = 1;
+                covered += c < 70;
+                p = pic_satcloud_pixel(s[0], s[1], s[2], s[3], enhanced);
                 if (fade < 1.0) {
                     uint32_t a = (uint32_t)((p >> 24) * fade);
                     uint32_t r = (uint32_t)(((p >> 16) & 255) * fade);
@@ -134,7 +147,7 @@ static int blit_png(const char *path, cairo_surface_t *dst, int x0,
             }
     }
     stbi_image_free(px);
-    return opaque;
+    return covered;
 }
 
 static int satclouds_work(pic_feature_t *f)
@@ -182,36 +195,46 @@ static int satclouds_work(pic_feature_t *f)
         for (k = -1; k <= 1; k++) {
             double b0 = bands[i].lon0 + k * 360.0, b1 = bands[i].lon1 + k * 360.0;
             double i0 = lon0 > b0 ? lon0 : b0, i1 = lon1 < b1 ? lon1 : b1;
-            int x0, x1, tries;
+            int x0, x1, tries, expect = 0, got = -1;
             char url[600], when[24];
+            unsigned char *have;
 
             if (i1 - i0 < 0.2) continue;
             x0 = (int)lround((i0 - lon0) / (lon1 - lon0) * W);
             x1 = (int)lround((i1 - lon0) / (lon1 - lon0) * W);
             if (x1 - x0 < 2) continue;
             /*
-             * GIBS's newest time step is often still being ingested
-             * and comes back empty, so ask for an explicit time ~80
-             * minutes old and step back 10 minutes if a tile is blank.
+             * GIBS's newest time steps are often still being ingested
+             * and come back with whole tiles missing. Ask for a time
+             * ~80 minutes old, then patch any gaps from up to three
+             * earlier 10-minute steps.
              */
-            for (tries = 0; tries < 4; tries++) {
+            have = calloc((size_t)(x1 - x0) * H, 1);
+            if (!have) continue;
+            for (tries = 0; tries < 4 && !pic_feature_interrupted(f); tries++) {
                 time_t t = time(NULL) - 80 * 60 - tries * 600;
                 struct tm tm;
-                int got;
+                int g;
                 t -= t % 600;
                 gmtime_r(&t, &tm);
                 strftime(when, sizeof(when), "%Y-%m-%dT%H:%M:00Z", &tm);
                 snprintf(url, sizeof(url), GIBS_FMT, bands[i].layer,
                          i0 - k * 360.0, lat0, i1 - k * 360.0, lat1,
                          x1 - x0, H, when);
-                got = pic_fetch_to_file(url, SC_TMP, 60) == 0 ?
-                      blit_png(SC_TMP, img, x0, x1 - x0, enhanced, lat0, lat1,
-                               i0, i1, bands[i].sub + k * 360.0) : -1;
+                g = pic_fetch_to_file(url, SC_TMP, 60) == 0 ?
+                    blit_png(SC_TMP, img, x0, x1 - x0, enhanced, lat0, lat1,
+                             i0, i1, bands[i].sub + k * 360.0, have, &expect) : -1;
                 unlink(SC_TMP);
-                if (got > 0) { ok++; break; }
+                if (g > got) got = g;
+                if (g >= 0 && got >= expect * 0.98) break;
             }
-            if (tries == 4)
+            free(have);
+            if (got >= 0) ok++;
+            if (got < 0)
                 printf("satclouds: no imagery from %s\n", bands[i].layer);
+            else if (got < expect * 0.98)
+                printf("satclouds: %s %d%% covered\n", bands[i].layer,
+                       expect ? got * 100 / expect : 0);
         }
     }
     cairo_surface_mark_dirty(img);

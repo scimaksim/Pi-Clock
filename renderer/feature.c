@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
+#define _GNU_SOURCE  /* pthread_timedjoin_np */
 #include "feature.h"
 #include "config.h"
 #include <stdio.h>
@@ -53,6 +54,30 @@ void pic_feature_stop(pic_feature_t *f)
     pthread_join(f->thread, NULL);
     if (f->stopped) f->stopped(f);
     printf("%s: fetcher thread stopped\n", f->name);
+}
+
+void pic_feature_stop_all(pic_feature_t **f, int n, int timeout_s)
+{
+    struct timespec deadline;
+    char need[64];
+    int i;
+
+    if (n > 64) n = 64;
+    for (i = 0; i < n; i++) {
+        need[i] = (char)pic_feature_running(f[i]);
+        if (!need[i]) continue;
+        __atomic_store_n(&f[i]->running, 0, __ATOMIC_RELEASE);
+        if (f[i]->interrupt) f[i]->interrupt(f[i]);
+    }
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += timeout_s;
+    for (i = 0; i < n; i++) {
+        if (!need[i]) continue;
+        if (pthread_timedjoin_np(f[i]->thread, NULL, &deadline) == 0)
+            printf("%s: fetcher thread stopped\n", f[i]->name);
+        else
+            printf("%s: still downloading at exit, not waiting\n", f[i]->name);
+    }
 }
 
 void pic_feature_poke(pic_feature_t *f)

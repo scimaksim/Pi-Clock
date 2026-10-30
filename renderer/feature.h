@@ -77,6 +77,13 @@ static inline int pic_feature_interrupted(pic_feature_t *f)
 int  pic_feature_start(pic_feature_t *f);
 void pic_feature_stop(pic_feature_t *f);
 
+/*
+ * Shutdown: signal every feature at once, then wait up to timeout_s
+ * in total for their threads. Threads still stuck in a download are
+ * left to die with the process, so exit never waits on the network.
+ */
+void pic_feature_stop_all(pic_feature_t **f, int n, int timeout_s);
+
 /* Ask a running feature to do its work now (e.g. after a reload). */
 void pic_feature_poke(pic_feature_t *f);
 
