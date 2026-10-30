@@ -397,6 +397,24 @@
             </div>
         </div>
 
+        <!-- Starlink Train Settings (hidden when starlink layer is off) -->
+        <div class="card" id="starlink-card" style="display:none">
+            <div class="card-title card-title-row">Starlink Trains <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Recently launched Starlink batches (CelesTrak data), drawn as a string of dots with the next pass visible from your QTH: train above 10&deg;, sunlit, and your sky dark. Trains spread out and fade after a week or two.</p>
+            <div class="form-group">
+                <label for="starlink_age">Show Launches From the Last</label>
+                <select id="starlink_age" class="form-control" data-conf="STARLINK_MAX_AGE_D">
+                    <option value="5">5 days</option>
+                    <option value="10">10 days (default)</option>
+                    <option value="20">20 days</option>
+                    <option value="30">30 days</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('starlink-card', 'Starlink')">Save</button>
+            </div>
+        </div>
+
         <!-- Ticker Sources (hidden when ticker layer is off) -->
         <div class="card" id="ticker-sources-card" style="display:none">
             <div class="card-title card-title-row">News Ticker <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>

@@ -50,7 +50,8 @@ SOURCES = main.c display.c layer.c solar.c lunar.c image.c config.c borders.c \
           nwsalert.c layers_nwsalert.c \
           radar.c layers_radar.c \
           astro.c applet_astro.c \
-          airquality.c layers_airquality.c
+          airquality.c layers_airquality.c \
+          starlink.c layers_starlink.c
 OBJECTS = $(SOURCES:.c=.o)
 
 # Output binary names

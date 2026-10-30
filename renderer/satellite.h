@@ -91,4 +91,17 @@ void pic_sat_propagate(pic_satlist_t *list, time_t now);
  */
 void pic_sat_load_config(pic_satlist_t *list);
 
+/*
+ * pic_sat_parse_tle - Load orbital elements from a two-line element set
+ * into `sat` (other fields untouched). Returns 0 on success.
+ */
+int pic_sat_parse_tle(pic_sat_t *sat, const char *line1, const char *line2);
+
+/*
+ * pic_sat_position_at - Sub-satellite point and altitude at time t,
+ * using the same simplified SGP4 as the tracker.
+ */
+void pic_sat_position_at(const pic_sat_t *sat, time_t t,
+                         double *lat, double *lon, double *alt_km);
+
 #endif /* PIC_SATELLITE_H */

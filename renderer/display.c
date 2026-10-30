@@ -56,6 +56,7 @@
 #include "radar.h"
 #include "astro.h"
 #include "airquality.h"
+#include "starlink.h"
 
 extern double pic_applet_render_dxfeed(cairo_t *cr, double width,
                                        time_t now, void *user_data);
@@ -152,6 +153,8 @@ extern void pic_layer_render_radar(cairo_t *cr, int width, int height,
                                    time_t now, void *user_data);
 extern void pic_layer_render_airquality(cairo_t *cr, int width, int height,
                                         time_t now, void *user_data);
+extern void pic_layer_render_starlink(cairo_t *cr, int width, int height,
+                                      time_t now, void *user_data);
 extern void pic_layer_render_airquality_badge(cairo_t *cr, int width,
                                               int height, time_t now,
                                               void *user_data);
@@ -550,6 +553,7 @@ static const struct {
     {"wxalerts",       8},  /* 6MB GeoJSON buffer + polygon pool     */
     {"radar",         10},  /* Up to 2400x1062 ARGB mosaic           */
     {"airquality",     1},  /* 17x11 AQI grid + 512KB fetch buffer   */
+    {"starlink",       2},  /* TLE catalogue + up to 3x32 elements   */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -984,6 +988,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     static pic_radar_t radar;
     static pic_astro_t astro;
     static pic_airquality_t airquality;
+    static pic_starlink_t starlink;
     pic_layer_stack_t stack;
     pic_applet_stack_t applets;
     pic_sysinfo_t sysinfo;
@@ -1231,6 +1236,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_radar_init(&radar);
     pic_astro_init(&astro);
     pic_aq_init(&airquality);
+    pic_sl_init(&starlink);
 
     /* Start satellite tracker — register satellites and fetch TLEs */
     pic_sat_init(&satellites);
@@ -1458,6 +1464,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_aurora, 60, 1.0, &aurora);
     pic_layer_stack_add(&stack, "satellites",
                         pic_layer_render_satellite, 5, 1.0, &satellites);
+    pic_layer_stack_add(&stack, "starlink",
+                        pic_layer_render_starlink, 10, 1.0, &starlink);
     pic_layer_stack_add(&stack, "sun",
                         pic_layer_render_sun, 60, 1.0, NULL);
     pic_layer_stack_add(&stack, "moon",
@@ -1476,7 +1484,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     {
         static const char *off_by_default[] = {
             "grid", "cqzone", "maidenhead", "dxspots",
-            "satellites", "lightning", "earthquakes", "volcanoes", "storms", "wxalerts", "radar", "airquality", "precip",
+            "satellites", "lightning", "earthquakes", "volcanoes", "storms", "wxalerts", "radar", "airquality", "starlink", "precip",
             "cloud", "wind", "aurora",
             "sun", "moon", "ticker", NULL
         };
@@ -1643,6 +1651,10 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             if (strcmp(stack.layers[li].name, "airquality") == 0 &&
                 stack.layers[li].enabled) {
                 pic_aq_start(&airquality);
+            }
+            if (strcmp(stack.layers[li].name, "starlink") == 0 &&
+                stack.layers[li].enabled) {
+                pic_sl_start(&starlink);
             }
         }
     }
@@ -1849,7 +1861,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 int light_on = 0, quake_on = 0, wind_on = 0;
                 int cloud_on = 0, precip_on = 0, aurora_on = 0;
                 int volcano_on = 0, storm_on = 0, wx_on = 0;
-                int radar_on = 0, aq_on = 0;
+                int radar_on = 0, aq_on = 0, sl_on = 0;
                 for (li2 = 0; li2 < stack.count; li2++) {
                     if (strcmp(stack.layers[li2].name, "lightning") == 0)
                         light_on = stack.layers[li2].enabled;
@@ -1873,6 +1885,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         radar_on = stack.layers[li2].enabled;
                     if (strcmp(stack.layers[li2].name, "airquality") == 0)
                         aq_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "starlink") == 0)
+                        sl_on = stack.layers[li2].enabled;
                 }
                 if (light_on) {
                     pic_lightning_reload(&lightning);
@@ -1925,6 +1939,12 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     pic_aq_start(&airquality);
                 } else {
                     pic_aq_stop();
+                }
+                if (sl_on) {
+                    pic_sl_reload(&starlink);
+                    pic_sl_start(&starlink);
+                } else {
+                    pic_sl_stop();
                 }
             }
             pic_applet_load_config(&applets);
@@ -2176,6 +2196,7 @@ skip_blit:
     pic_radar_stop();
     pic_astro_stop();
     pic_aq_stop();
+    pic_sl_stop();
     pic_sat_stop();
     pic_ticker_stop();
     if (ticker_thread_started)

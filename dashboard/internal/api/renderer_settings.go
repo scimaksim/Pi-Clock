@@ -71,6 +71,9 @@ var rendererSettingDefs = map[string]rendererSetting{
 	// Air quality
 	"AQ_BADGE": boolSetting("1"),
 
+	// Starlink trains
+	"STARLINK_MAX_AGE_D": intSetting("10", 1, 30),
+
 	// Tonight's Sky applet (Astrospheric)
 	"ASTRO_INTERVAL_H": intSetting("3", 1, 12),
 	"ASTRO_CLEAR_PCT":  intSetting("20", 5, 60),

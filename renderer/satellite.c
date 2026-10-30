@@ -702,3 +702,18 @@ void pic_sat_propagate(pic_satlist_t *list, time_t now)
     if (!propagate_logged && list->count > 0) propagate_logged = 1;
     pthread_mutex_unlock(&list->mutex);
 }
+
+/* ── Public helpers for other modules (e.g. Starlink trains) ───── */
+
+int pic_sat_parse_tle(pic_sat_t *sat, const char *line1, const char *line2)
+{
+    return parse_tle(sat, line1, line2);
+}
+
+void pic_sat_position_at(const pic_sat_t *sat, time_t t,
+                         double *lat, double *lon, double *alt_km)
+{
+    /* Unix time → Julian date (2440587.5 = 1970-01-01T00:00Z) */
+    double jd = 2440587.5 + (double)t / 86400.0;
+    sgp4_at_time(sat, jd, lat, lon, alt_km);
+}

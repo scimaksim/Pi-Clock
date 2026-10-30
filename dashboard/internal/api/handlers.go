@@ -189,6 +189,7 @@ var layerDefs = []struct {
 	{"bandconditions", "Propagation Prediction", false, 1.0},
 	{"dxspots", "DX Cluster Spots", false, 1.0},
 	{"satellites", "Satellite Tracker", false, 1.0},
+	{"starlink", "Starlink Trains", false, 1.0},
 	{"lightning", "Lightning Strikes", false, 1.0},
 	{"earthquakes", "Earthquakes", false, 1.0},
 	{"volcanoes", "Volcanoes", false, 1.0},

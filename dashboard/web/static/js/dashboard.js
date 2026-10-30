@@ -33,7 +33,8 @@ var layerExtraMb = {
     'storms':         8,
     'wxalerts':       8,
     'radar':          10,
-    'airquality':     1
+    'airquality':     1,
+    'starlink':       2
 };
 
 /* Layers whose settings card uses the generic /api/renderer-settings
@@ -44,7 +45,8 @@ var rendererSettingCards = {
     'storms':    'storm-card',
     'wxalerts':  'wxalert-card',
     'radar':     'radar-card',
-    'airquality': 'aq-card'
+    'airquality': 'aq-card',
+    'starlink':  'starlink-card'
 };
 
 /* Calculate total memory cost of all enabled layers */
