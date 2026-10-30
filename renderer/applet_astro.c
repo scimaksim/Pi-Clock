@@ -292,8 +292,8 @@ double pic_applet_render_astro(cairo_t *cr, double width,
                 time_t mid = start + (time_t)i * 3600 + 1800;
                 const pic_astro_hour_t *h = forecast_at(a, mid - 1800);
                 double cloud = h ? h->cloud : -1;
-                /* Cloud is a percentage; tolerate a 0-1 fraction too */
-                if (cloud >= 0 && cloud <= 1.0) cloud *= 100.0;
+                /* Cloud is a percentage (0-100), verified against the
+                 * live API; values like 1.2 are 1.2 %, not a fraction. */
                 ok = pic_astro_sun_alt(mid, lat, lon) < ASTRO_TWILIGHT_H0 &&
                      (!have_fc || (cloud >= 0 && cloud <= clear_pct));
             }

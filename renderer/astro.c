@@ -128,59 +128,100 @@ static unsigned parse_rgb(const pic_json_t *j, int tok)
     return (unsigned)strtoul(hex + 1, NULL, 16) & 0xFFFFFF;
 }
 
+/* One hour's value for a variable object {"ValueColor","ActualValue"} */
+static void read_var(const pic_json_t *j, int obj, float *val, unsigned *rgb)
+{
+    if (obj < 0) return;
+    *val = (float)pic_json_num(j, pic_json_get(j, obj, "ActualValue"), -1);
+    *rgb = parse_rgb(j, pic_json_get(j, obj, "ValueColor"));
+}
+
+static void hour_defaults(pic_astro_hour_t *h)
+{
+    memset(h, 0, sizeof(*h));
+    h->cloud = h->transp = h->seeing = -1;
+    h->cloud_rgb = h->transp_rgb = h->seeing_rgb = 0x404040;
+}
+
+/*
+ * The live v2 API returns one list of hours, each carrying its variables:
+ *   "HourlyForecast": [ { "UTCForecastHour": "2026-10-30T15:00:00Z",
+ *                         "HourOffset": 0,
+ *                         "Cloud": { "ValueColor": "#003E7E",
+ *                                    "ActualValue": 0.0 },
+ *                         "Transparency": {...}, "Seeing": {...} }, ... ]
+ * The published docs instead show one array per variable with entries
+ *   { "Value": { "ValueColor", "ActualValue" }, "UTCForecastHour" };
+ * that layout is still accepted as a fallback.
+ */
 int pic_astro_parse_forecast(const char *js, size_t len,
                              pic_astro_hour_t *out, int max,
                              int *credits_left)
 {
     static const char *vars[3] = { "Cloud", "Transparency", "Seeing" };
     pic_json_t j;
-    int arr[3], n, i, v;
+    int hourly, n, i, v;
 
     if (pic_json_parse(&j, js, len) != 0) return 0;
     if (!pic_json_is_object(&j, 0)) { pic_json_free(&j); return 0; }
 
-    if (credits_left)
-        *credits_left = (int)pic_json_num(&j,
-            pic_json_get(&j, 0, "APICreditsRemainingToday"), -1);
+    if (credits_left) {
+        int c = pic_json_get(&j, 0, "APICreditsRemaining");
+        if (c < 0) c = pic_json_get(&j, 0, "APICreditsRemainingToday");
+        *credits_left = (int)pic_json_num(&j, c, -1);
+    }
 
-    for (v = 0; v < 3; v++) arr[v] = pic_json_get(&j, 0, vars[v]);
-    n = pic_json_size(&j, arr[0]);   /* Cloud defines the timeline */
-    if (n > max) n = max;
-
-    for (i = 0; i < n; i++) {
-        pic_astro_hour_t *h = &out[i];
-        int e = pic_json_at(&j, arr[0], i);
-        char ts[40];
-
-        memset(h, 0, sizeof(*h));
-        pic_json_str(&j, pic_json_get(&j, e, "UTCForecastHour"), ts, sizeof(ts));
-        h->t = pic_nws_parse_time(ts);   /* "Z" → no offset = UTC */
-        h->cloud = (float)pic_json_num(&j, pic_json_path(&j, e, "Value.ActualValue"), -1);
-        h->cloud_rgb = parse_rgb(&j, pic_json_path(&j, e, "Value.ValueColor"));
-        h->transp = h->seeing = -1;
-        h->transp_rgb = h->seeing_rgb = 0x404040;
-
-        /* Transparency/Seeing arrays share the hourly timeline; match by
-         * timestamp in case lengths differ. */
-        for (v = 1; v < 3; v++) {
-            int k, m = pic_json_size(&j, arr[v]);
-            for (k = 0; k < m; k++) {
-                int f = pic_json_at(&j, arr[v], k);
-                char ts2[40];
-                pic_json_str(&j, pic_json_get(&j, f, "UTCForecastHour"),
-                             ts2, sizeof(ts2));
-                if (strcmp(ts, ts2) != 0) continue;
-                if (v == 1) {
-                    h->transp = (float)pic_json_num(&j, pic_json_path(&j, f, "Value.ActualValue"), -1);
-                    h->transp_rgb = parse_rgb(&j, pic_json_path(&j, f, "Value.ValueColor"));
-                } else {
-                    h->seeing = (float)pic_json_num(&j, pic_json_path(&j, f, "Value.ActualValue"), -1);
-                    h->seeing_rgb = parse_rgb(&j, pic_json_path(&j, f, "Value.ValueColor"));
-                }
-                break;
-            }
+    hourly = pic_json_get(&j, 0, "HourlyForecast");
+    if (pic_json_is_array(&j, hourly)) {
+        n = pic_json_size(&j, hourly);
+        if (n > max) n = max;
+        for (i = 0; i < n; i++) {
+            int e = pic_json_at(&j, hourly, i);
+            char ts[40];
+            hour_defaults(&out[i]);
+            pic_json_str(&j, pic_json_get(&j, e, "UTCForecastHour"), ts, sizeof(ts));
+            out[i].t = pic_nws_parse_time(ts);
+            read_var(&j, pic_json_get(&j, e, "Cloud"), &out[i].cloud, &out[i].cloud_rgb);
+            read_var(&j, pic_json_get(&j, e, "Transparency"), &out[i].transp, &out[i].transp_rgb);
+            read_var(&j, pic_json_get(&j, e, "Seeing"), &out[i].seeing, &out[i].seeing_rgb);
+            if (!out[i].t) { n = i; break; }
         }
-        if (!h->t) { n = i; break; }
+        pic_json_free(&j);
+        return n;
+    }
+
+    /* Documented layout: one array per variable */
+    {
+        int arr[3];
+        for (v = 0; v < 3; v++) arr[v] = pic_json_get(&j, 0, vars[v]);
+        n = pic_json_size(&j, arr[0]);   /* Cloud defines the timeline */
+        if (n > max) n = max;
+
+        for (i = 0; i < n; i++) {
+            pic_astro_hour_t *h = &out[i];
+            int e = pic_json_at(&j, arr[0], i);
+            char ts[40];
+
+            hour_defaults(h);
+            pic_json_str(&j, pic_json_get(&j, e, "UTCForecastHour"), ts, sizeof(ts));
+            h->t = pic_nws_parse_time(ts);
+            read_var(&j, pic_json_get(&j, e, "Value"), &h->cloud, &h->cloud_rgb);
+
+            for (v = 1; v < 3; v++) {
+                int k, m = pic_json_size(&j, arr[v]);
+                for (k = 0; k < m; k++) {
+                    int f = pic_json_at(&j, arr[v], k);
+                    char ts2[40];
+                    pic_json_str(&j, pic_json_get(&j, f, "UTCForecastHour"),
+                                 ts2, sizeof(ts2));
+                    if (strcmp(ts, ts2) != 0) continue;
+                    if (v == 1) read_var(&j, pic_json_get(&j, f, "Value"), &h->transp, &h->transp_rgb);
+                    else        read_var(&j, pic_json_get(&j, f, "Value"), &h->seeing, &h->seeing_rgb);
+                    break;
+                }
+            }
+            if (!h->t) { n = i; break; }
+        }
     }
 
     pic_json_free(&j);

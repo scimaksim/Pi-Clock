@@ -170,8 +170,10 @@ void pic_layer_render_airquality_badge(cairo_t *cr, int width, int height,
 
     w = fs * 1.1 + pad + ext.x_advance + pad * 2;
     h = fs * 1.5;
-    qx -= w / 2;                 /* centred under the QTH pin */
-    qy += fs * 2.2;
+    /* Start the badge so its coloured dot sits directly under the QTH
+     * pin; centring the whole pill put the dot a state or two west. */
+    qx -= pad + fs * 0.45;
+    qy += fs * 1.6;
     if (qx < 2) qx = 2;
     if (qx + w > width - 2) qx = width - 2 - w;
 
