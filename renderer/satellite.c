@@ -437,35 +437,32 @@ static int extract_json_string(const char *json, const char *key,
 /*
  * fetch_tle_individual - Fetch a single TLE by NORAD ID.
  *
+ * Network only: fills l1/l2 (each at least 80 bytes) and does not
+ * touch the satellite list, so the caller can run it without holding
+ * the list mutex (the renderer locks that mutex every frame).
+ *
  * Used as a fallback when the AMSAT bulk catalog doesn't contain a
  * satellite (e.g., Meteor-M weather satellites are not amateur).
  * Uses tle.ivanstanojevic.me which returns JSON with line1/line2
  * fields and works reliably with BusyBox wget on the Pi.
  */
-static int fetch_tle_individual(pic_sat_t *sat)
+static int fetch_tle_individual(int norad_id, char *l1, char *l2)
 {
     char url[256];
     char buf[1024];
-    char l1[80], l2[80];
     int n;
 
-    snprintf(url, sizeof(url), TLE_API_URL, sat->norad_id);
+    snprintf(url, sizeof(url), TLE_API_URL, norad_id);
     n = pic_fetch_to_buf(url, buf, sizeof(buf));
     if (n <= 0) return -1;
 
     /* Extract TLE lines from JSON response */
-    if (extract_json_string(buf, "line1", l1, sizeof(l1)) != 0 ||
-        extract_json_string(buf, "line2", l2, sizeof(l2)) != 0) {
+    if (extract_json_string(buf, "line1", l1, 80) != 0 ||
+        extract_json_string(buf, "line2", l2, 80) != 0) {
         return -1;
     }
 
-    if (parse_tle(sat, l1, l2) == 0) {
-        printf("satellite: TLE loaded for %s (NORAD %d, MM=%.4f rev/day)\n",
-               sat->name, sat->norad_id, sat->mean_motion);
-        return 0;
-    }
-
-    return -1;
+    return 0;
 }
 
 /*
@@ -490,30 +487,57 @@ static void fetch_all_tles(void)
     /* Clear in-memory cache so fetch_tle re-reads the fresh file */
     tle_cache_clear();
 
-    /* Parse TLEs from cache for each registered satellite */
-    pthread_mutex_lock(&sat_list->mutex);
-    for (i = 0; i < sat_list->count; i++) {
-        if (!sat_running) break;
-        if (!sat_list->sats[i].enabled) continue;
-        if (fetch_tle(&sat_list->sats[i]) == 0) loaded++;
-    }
-    pthread_mutex_unlock(&sat_list->mutex);
+    /* Parse TLEs from cache for each registered satellite.
+     * got[] records which satellites were refreshed in THIS cycle,
+     * so ones only available via individual fetch are refreshed too
+     * (previously a satellite with any old TLE was skipped forever). */
+    {
+        int got[SAT_MAX] = {0};
+        int count;
 
-    /* Fallback: fetch individually for satellites not in AMSAT.
-     * This covers non-amateur satellites like Meteor-M weather sats.
-     * Each is a separate HTTPS request, but typically only 1-4 sats
-     * need this, so the overhead is minimal. */
-    pthread_mutex_lock(&sat_list->mutex);
-    for (i = 0; i < sat_list->count; i++) {
-        if (!sat_running) break;
-        if (!sat_list->sats[i].enabled) continue;
-        if (sat_list->sats[i].mean_motion > 0) continue;  /* Already loaded */
-        if (fetch_tle_individual(&sat_list->sats[i]) == 0) {
-            loaded++;
-            fallback++;
+        pthread_mutex_lock(&sat_list->mutex);
+        count = sat_list->count;
+        for (i = 0; i < count; i++) {
+            if (!sat_running) break;
+            if (!sat_list->sats[i].enabled) continue;
+            if (fetch_tle(&sat_list->sats[i]) == 0) {
+                got[i] = 1;
+                loaded++;
+            }
+        }
+        pthread_mutex_unlock(&sat_list->mutex);
+
+        /* Fallback: fetch individually for satellites not in AMSAT
+         * (weather sats, space stations, Hubble, etc.). Each is a
+         * separate HTTPS request, so the network I/O happens WITHOUT
+         * the list mutex held — otherwise the render loop stalls for
+         * the length of every TLS handshake. */
+        for (i = 0; i < count; i++) {
+            int norad_id, enabled;
+            char l1[80], l2[80];
+
+            if (!sat_running) break;
+            if (got[i]) continue;
+
+            pthread_mutex_lock(&sat_list->mutex);
+            enabled = sat_list->sats[i].enabled;
+            norad_id = sat_list->sats[i].norad_id;
+            pthread_mutex_unlock(&sat_list->mutex);
+            if (!enabled) continue;
+
+            if (fetch_tle_individual(norad_id, l1, l2) != 0) continue;
+
+            pthread_mutex_lock(&sat_list->mutex);
+            if (parse_tle(&sat_list->sats[i], l1, l2) == 0) {
+                printf("satellite: TLE loaded for %s (NORAD %d, MM=%.4f rev/day)\n",
+                       sat_list->sats[i].name, norad_id,
+                       sat_list->sats[i].mean_motion);
+                loaded++;
+                fallback++;
+            }
+            pthread_mutex_unlock(&sat_list->mutex);
         }
     }
-    pthread_mutex_unlock(&sat_list->mutex);
 
     sat_list->last_tle_update = time(NULL);
     printf("satellite: TLE fetch complete (%d loaded", loaded);

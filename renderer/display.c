@@ -1199,6 +1199,12 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     /* Digipeaters / APRS */
     pic_sat_add(&satellites, "sonate2",  "SONATE-2",    59112);
 
+    /* Naked-eye visible (non-amateur; TLEs via individual fetch) */
+    pic_sat_add(&satellites, "tiangong",   "Tiangong",     48274);  /* CSS / Tianhe */
+    pic_sat_add(&satellites, "hubble",     "Hubble",       20580);
+    pic_sat_add(&satellites, "bluewalker3","BlueWalker 3", 53807);
+    pic_sat_add(&satellites, "envisat",    "Envisat",      27386);  /* Derelict, flashes */
+
     /* Weather satellites (LRPT imagery) */
     pic_sat_add(&satellites, "meteor_m2",  "Meteor-M 2",   40069);
     pic_sat_add(&satellites, "meteor_m22", "Meteor-M2-2",  44387);

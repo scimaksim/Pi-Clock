@@ -1628,6 +1628,9 @@ var satelliteDefs = []struct {
 	Default bool
 }{
 	{"ao7", "AO-7 — Linear, sun-only", 7530, false},
+	{"bluewalker3", "BlueWalker 3 — Naked-eye visible", 53807, false},
+	{"envisat", "Envisat — Naked-eye visible (derelict)", 27386, false},
+	{"hubble", "Hubble Space Telescope — Naked-eye visible", 20580, false},
 	{"ao73", "AO-73 (FUNcube-1) — Linear", 39444, false},
 	{"ao91", "AO-91 (Fox-1B) — FM, sun-only", 43017, false},
 	{"ao123", "AO-123 (ASRTU-1) — FM", 61781, false},
@@ -1643,6 +1646,7 @@ var satelliteDefs = []struct {
 	{"so50", "SO-50 (SaudiSat) — FM", 27607, false},
 	{"so125", "SO-125 (HADES-ICM) — FM/Digi", 63492, false},
 	{"sonate2", "SONATE-2 — APRS Digi", 59112, false},
+	{"tiangong", "Tiangong (CSS) — Naked-eye visible", 48274, false},
 }
 
 const satConfPath = "/data/etc/pi-clock-satellites.conf"
