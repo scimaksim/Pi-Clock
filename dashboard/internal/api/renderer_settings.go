@@ -50,6 +50,17 @@ func enumSetting(def string, allowed ...string) rendererSetting {
 // local data sources such as an ADS-B receiver on the LAN.
 var hostPortRe = regexp.MustCompile(`^[A-Za-z0-9.\-]{1,253}(:[0-9]{1,5})?$`)
 
+// patternSetting accepts the empty string (use the default behaviour) or
+// a value matching re.
+func patternSetting(def string, re *regexp.Regexp) rendererSetting {
+	return rendererSetting{def, func(v string) bool { return v == "" || re.MatchString(v) }}
+}
+
+var (
+	noradListRe = regexp.MustCompile(`^[0-9]{1,6}(,[0-9]{1,6}){0,5}$`)
+	tideIDRe    = regexp.MustCompile(`^[A-Za-z0-9]{3,12}$`)
+)
+
 func hostPortSetting() rendererSetting {
 	return rendererSetting{"", func(v string) bool { return v == "" || hostPortRe.MatchString(v) }}
 }
@@ -83,6 +94,28 @@ var rendererSettingDefs = map[string]rendererSetting{
 
 	// Starlink trains
 	"STARLINK_MAX_AGE_D": intSetting("10", 1, 30),
+
+	// SPC convective outlook
+	"SPC_DAY":      enumSetting("1", "1", "2", "3"),
+	"SPC_MIN_RISK": enumSetting("2", "2", "3", "4", "5"),
+
+	// Wildfires and smoke
+	"FIRE_SMOKE":   boolSetting("1"),
+	"FIRE_MIN_FRP": intSetting("0", 0, 500),
+
+	// Satellite clouds
+	"SATCLOUD_STYLE": enumSetting("white", "white", "enhanced"),
+
+	// Rocket launches
+	"LAUNCH_DAYS":   intSetting("7", 1, 30),
+	"LAUNCH_LABELS": boolSetting("1"),
+
+	// Planets, passes, tides, ships
+	"PLANET_LABELS": boolSetting("1"),
+	"PASS_SATS":     patternSetting("", noradListRe),
+	"TIDE_STATION":  patternSetting("", tideIDRe),
+	"TIDE_UNITS":    enumSetting("english", "english", "metric"),
+	"SHIP_LABELS":   boolSetting("1"),
 
 	// Tonight's Sky applet (Astrospheric)
 	"ASTRO_INTERVAL_H": intSetting("3", 1, 12),

@@ -47,3 +47,31 @@ func TestAstrosphericKey(t *testing.T) {
 		t.Fatal("key file not removed")
 	}
 }
+
+func TestAISKeyAndPatternSettings(t *testing.T) {
+	aisKeyPath = filepath.Join(t.TempDir(), "ais.key")
+	rec := httptest.NewRecorder()
+	PutAISKey()(rec, httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"key":"0123456789abcdef0123456789abcdef01234567"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body)
+	}
+	if st, _ := os.Stat(aisKeyPath); st == nil || st.Mode().Perm() != 0600 {
+		t.Fatalf("key file must be 0600")
+	}
+	rec = httptest.NewRecorder()
+	PutAISKey()(rec, httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"key":"bad key\nINJECT=1"}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad key accepted: %d", rec.Code)
+	}
+	for v, ok := range map[string]bool{"": true, "25544": true, "25544,48274,20580": true,
+		"25544,": false, "1,2,3,4,5,6,7": false, "abc": false} {
+		if rendererSettingDefs["PASS_SATS"].Valid(v) != ok {
+			t.Errorf("PASS_SATS %q: want %v", v, ok)
+		}
+	}
+	for v, ok := range map[string]bool{"": true, "8658163": true, "TEC2863": true, "86 58": false, "x\nY=1": false} {
+		if rendererSettingDefs["TIDE_STATION"].Valid(v) != ok {
+			t.Errorf("TIDE_STATION %q: want %v", v, ok)
+		}
+	}
+}

@@ -124,6 +124,8 @@ func main() {
 		// Astrospheric API key (write-only)
 		r.Get("/astrospheric-key", api.GetAstrosphericKey())
 		r.Put("/astrospheric-key", api.PutAstrosphericKey())
+		r.Get("/aisstream-key", api.GetAISKey())
+		r.Put("/aisstream-key", api.PutAISKey())
 
 		// Applet settings
 		r.Get("/applets", api.GetApplets())

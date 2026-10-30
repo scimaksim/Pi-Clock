@@ -35,7 +35,14 @@ var layerExtraMb = {
     'radar':          10,
     'airquality':     1,
     'starlink':       2,
-    'aircraft':       4
+    'aircraft':       4,
+    'spc':            3,
+    'fires':          3,
+    'launches':       1,
+    'dsn':            1,
+    'ships':          2,
+    'planets':        0,
+    'satclouds':      12
 };
 
 /* Layers whose settings card uses the generic /api/renderer-settings
@@ -48,7 +55,13 @@ var rendererSettingCards = {
     'radar':     'radar-card',
     'airquality': 'aq-card',
     'starlink':  'starlink-card',
-    'aircraft':  'aircraft-card'
+    'aircraft':  'aircraft-card',
+    'spc':       'spc-card',
+    'fires':     'fires-card',
+    'satclouds': 'satclouds-card',
+    'launches':  'launches-card',
+    'planets':   'planets-card',
+    'ships':     'ships-card'
 };
 
 /* Calculate total memory cost of all enabled layers */
@@ -1104,6 +1117,35 @@ function removeAstroKey() {
     }).catch(function(e) { toast(e.message, 'error'); });
 }
 
+// ── aisstream.io key (write-only, Ships layer) ─────────────
+function loadAISKey() {
+    apiCall('GET', '/api/aisstream-key').then(function(st) {
+        var el = document.getElementById('ais_key_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? 'Key saved (ending ' + st.last4 + '). Stored only on this Pi.'
+            : 'No key saved. Get a free key at aisstream.io (sign in with GitHub).';
+    });
+}
+
+function saveAISKey() {
+    var input = document.getElementById('ais_key');
+    var key = input ? input.value.trim() : '';
+    if (!key) { toast('Paste your API key first', 'error'); return; }
+    apiCall('PUT', '/api/aisstream-key', {key: key}).then(function() {
+        input.value = '';
+        toast('aisstream.io key saved');
+        loadAISKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function removeAISKey() {
+    apiCall('PUT', '/api/aisstream-key', {key: ''}).then(function() {
+        toast('aisstream.io key removed');
+        loadAISKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
 // ── Earthquake settings ────────────────────────────────────
 function loadEarthquakeSettings() {
     apiCall('GET', '/api/earthquake-settings').then(function(settings) {
@@ -1699,6 +1741,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     setupMapZoom();
     loadAstroKey();
+    loadAISKey();
+    loadRendererSettings('panels-card');
 
     setInterval(loadSystemInfo, 30000);
 });

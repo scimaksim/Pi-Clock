@@ -55,6 +55,8 @@
 #include "nwsalert.h"
 #include "radar.h"
 #include "astro.h"
+#include "feature.h"
+#include "features_all.h"
 #include "airquality.h"
 #include "starlink.h"
 #include "aircraft.h"
@@ -515,6 +517,60 @@ static int get_total_ram_mb(void)
  * "Tonight's Sky" applet is enabled, so a configured API key never
  * spends credits for a panel nobody can see.
  */
+/*
+ * Registered pic_feature_t overlays (layers and/or applets). Each runs
+ * its fetch thread only while its layer or applet is enabled.
+ */
+static pic_feature_t *features[24];
+static int nfeatures;
+
+static void register_feature(pic_feature_t *f)
+{
+    if (f && nfeatures < (int)(sizeof(features) / sizeof(features[0])))
+        features[nfeatures++] = f;
+}
+
+/* Register a feature and add its map layer (off until configured). */
+static void add_feature_layer(pic_layer_stack_t *stack, pic_feature_t *f)
+{
+    if (!f) return;
+    register_feature(f);
+    if (f->layer &&
+        pic_layer_stack_add(stack, f->name, f->layer, f->interval,
+                            1.0, f->data) == 0)
+        stack->layers[stack->count - 1].enabled = 0;
+}
+
+static void sync_features(pic_layer_stack_t *stack,
+                          pic_applet_stack_t *applets)
+{
+    int i, k;
+    for (i = 0; i < nfeatures; i++) {
+        pic_feature_t *f = features[i];
+        int on = 0;
+        if (f->layer)
+            for (k = 0; k < stack->count; k++)
+                if (strcmp(stack->layers[k].name, f->name) == 0)
+                    on |= stack->layers[k].enabled;
+        if (f->applet)
+            for (k = 0; k < applets->count; k++)
+                if (strcmp(applets->applets[k].name, f->name) == 0)
+                    on |= applets->applets[k].enabled;
+        if (on) {
+            if (f->reload) f->reload(f);
+            pic_feature_start(f);
+        } else {
+            pic_feature_stop(f);
+        }
+    }
+}
+
+static void stop_features(void)
+{
+    int i;
+    for (i = 0; i < nfeatures; i++) pic_feature_stop(features[i]);
+}
+
 static void sync_astro_fetcher(pic_applet_stack_t *applets, pic_astro_t *astro)
 {
     int i, on = 0;
@@ -558,6 +614,13 @@ static const struct {
     {"airquality",     1},  /* 17x11 AQI grid + 512KB fetch buffer   */
     {"starlink",       2},  /* TLE catalogue + up to 3x32 elements   */
     {"aircraft",       4},  /* 3MB JSON buffer + tokens + 1500 slots */
+    {"spc",            3},  /* GeoJSON buffer + polygon pool         */
+    {"fires",          3},  /* FIRMS CSV + smoke KML + point pool    */
+    {"launches",       1},  /* Launch Library JSON                   */
+    {"dsn",            1},  /* DSN XML                               */
+    {"ships",          2},  /* TLS WebSocket + vessel table          */
+    {"planets",        0},  /* Orbital math only                     */
+    {"satclouds",     12},  /* GIBS PNGs + composited cloud image    */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -1418,6 +1481,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_basemap, 0, 1.0, black_marble);
     pic_layer_stack_add(&stack, "daylight",
                         pic_layer_render_daylight, 60, 1.0, blue_marble);
+    add_feature_layer(&stack, pic_feature_satclouds());
     if (borders_loaded)
         pic_layer_stack_add(&stack, "borders",
                             pic_layer_render_borders, 0, 1.0, &borders);
@@ -1444,12 +1508,15 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_earthquake, 1, 1.0, &earthquakes);
     pic_layer_stack_add(&stack, "volcanoes",
                         pic_layer_render_volcano, 60, 1.0, &volcanoes);
+    add_feature_layer(&stack, pic_feature_fires());
     pic_layer_stack_add(&stack, "precip",
                         pic_layer_render_precip, 60, 1.0, &wind);
     pic_layer_stack_add(&stack, "radar",
                         pic_layer_render_radar, 60, 0.8, &radar);
+    add_feature_layer(&stack, pic_feature_spc());
     pic_layer_stack_add(&stack, "airquality",
                         pic_layer_render_airquality, 60, 1.0, &airquality);
+    add_feature_layer(&stack, pic_feature_ships());
     pic_layer_stack_add(&stack, "qth",
                         pic_layer_render_qth, 0, 1.0, NULL);
     pic_layer_stack_add(&stack, "wind",
@@ -1474,10 +1541,13 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_satellite, 5, 1.0, &satellites);
     pic_layer_stack_add(&stack, "starlink",
                         pic_layer_render_starlink, 10, 1.0, &starlink);
+    add_feature_layer(&stack, pic_feature_launches());
+    add_feature_layer(&stack, pic_feature_dsn());
     pic_layer_stack_add(&stack, "sun",
                         pic_layer_render_sun, 60, 1.0, NULL);
     pic_layer_stack_add(&stack, "moon",
                         pic_layer_render_moon, 60, 1.0, NULL);
+    add_feature_layer(&stack, pic_feature_planets());
 
     /* ── HUD (always on top) ──────────────────────────────── */
     pic_layer_stack_add(&stack, "ticker",
@@ -1518,6 +1588,13 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                          pic_layer_render_nwsalert_banner);
     pic_layer_set_legend(&stack, "airquality",
                          pic_layer_render_airquality_badge);
+    {
+        int fi;
+        for (fi = 0; fi < nfeatures; fi++)
+            if (features[fi]->layer && features[fi]->legend)
+                pic_layer_set_legend(&stack, features[fi]->name,
+                                     features[fi]->legend);
+    }
 
     /* Apply layer settings from config file (if it exists).
      * This overrides the defaults above with the user's saved prefs. */
@@ -1689,6 +1766,20 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_applet_stack_add(&applets, "astro", "Tonight's Sky",
                          pic_applet_render_astro, 60,
                          240, APPLET_SIDE_LEFT, &astro);
+    register_feature(pic_feature_passes());
+    register_feature(pic_feature_tides());
+    {
+        int fi;
+        for (fi = 0; fi < nfeatures; fi++)
+            if (features[fi]->applet)
+                pic_applet_stack_add(&applets, features[fi]->name,
+                                     features[fi]->label,
+                                     features[fi]->applet,
+                                     features[fi]->interval,
+                                     features[fi]->applet_w,
+                                     features[fi]->side,
+                                     features[fi]->data);
+    }
 
     /* System info applet — init and populate static fields */
     pic_sysinfo_init(&sysinfo, VERSION);
@@ -1719,6 +1810,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
 
     pic_applet_load_config(&applets);
     sync_astro_fetcher(&applets, &astro);
+    sync_features(&stack, &applets);
 
     /*
      * Smooth ticker rendering thread.
@@ -1970,6 +2062,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             pic_applet_load_config(&applets);
             pic_astro_reload(&astro);
             sync_astro_fetcher(&applets, &astro);
+            sync_features(&stack, &applets);
             pic_ticker_load_config(&ticker);
             pic_sat_load_config(&satellites);
 
@@ -2218,6 +2311,7 @@ skip_blit:
     pic_aq_stop();
     pic_sl_stop();
     pic_ac_stop();
+    stop_features();
     pic_sat_stop();
     pic_ticker_stop();
     if (ticker_thread_started)

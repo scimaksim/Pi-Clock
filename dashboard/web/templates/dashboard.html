@@ -163,6 +163,32 @@
             </div>
         </div>
 
+        <!-- Passes and tides panels -->
+        <div class="card" id="panels-card">
+            <div class="card-title">Passes &amp; Tides Panels</div>
+            <p class="text-muted mb-8">Settings for the Visible Satellite Passes and Tides panels (enable them in the Applets card above).</p>
+            <div class="form-group">
+                <label for="pass_sats">Satellites for Visible Passes</label>
+                <input type="text" id="pass_sats" class="form-control" data-conf="PASS_SATS" placeholder="25544,48274,20580" maxlength="48">
+                <div class="hint">NORAD numbers, comma-separated (up to 6). Blank = ISS (25544), Tiangong (48274) and Hubble (20580).</div>
+            </div>
+            <div class="form-group">
+                <label for="tide_station">Tide Station</label>
+                <input type="text" id="tide_station" class="form-control" data-conf="TIDE_STATION" placeholder="Nearest to your QTH" maxlength="12">
+                <div class="hint">Blank = nearest NOAA reference station. Find IDs at tidesandcurrents.noaa.gov (e.g. 8658163 Wrightsville Beach).</div>
+            </div>
+            <div class="form-group">
+                <label for="tide_units">Tide Units</label>
+                <select id="tide_units" class="form-control" data-conf="TIDE_UNITS">
+                    <option value="english">Feet (default)</option>
+                    <option value="metric">Metres</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('panels-card', 'Panels')">Save</button>
+            </div>
+        </div>
+
         <!-- Tonight's Sky (Astronomy applet) settings -->
         <div class="card" id="astro-card">
             <div class="card-title">Tonight's Sky (Astronomy)</div>
@@ -446,6 +472,116 @@
             </div>
             <div class="mt-12">
                 <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('aircraft-card', 'Aircraft')">Save</button>
+            </div>
+        </div>
+
+
+        <div class="card" id="spc-card" style="display:none">
+            <div class="card-title card-title-row">Severe Storm Outlook (SPC) <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">NOAA Storm Prediction Center convective outlook in SPC colours: general thunder (light green) through marginal, slight, enhanced, moderate and high risk. A note at the bottom-left names the risk at your QTH. US only; updated through the day.</p>
+            <div class="form-group">
+                <label for="spc_day">Outlook</label>
+                <select id="spc_day" class="form-control" data-conf="SPC_DAY">
+                    <option value="1">Day 1 (today, default)</option>
+                    <option value="2">Day 2 (tomorrow)</option>
+                    <option value="3">Day 3</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="spc_min">Show From</label>
+                <select id="spc_min" class="form-control" data-conf="SPC_MIN_RISK">
+                    <option value="2">General thunderstorms (default)</option>
+                    <option value="3">Marginal risk</option>
+                    <option value="4">Slight risk</option>
+                    <option value="5">Enhanced risk</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('spc-card', 'Severe outlook')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="fires-card" style="display:none">
+            <div class="card-title card-title-row">Wildfires &amp; Smoke <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">NASA FIRMS satellite fire detections from the last 24 hours (US, plus nearby Canada and Mexico), sized by fire intensity, with NOAA HMS analyst-drawn smoke plumes (light, medium, heavy).</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="FIRE_SMOKE"> Show smoke plumes</label>
+            </div>
+            <div class="form-group">
+                <label for="fire_frp">Hide Small Fires</label>
+                <select id="fire_frp" class="form-control" data-conf="FIRE_MIN_FRP">
+                    <option value="0">Show all detections (default)</option>
+                    <option value="10">Hide below 10 MW (most farm/brush burns)</option>
+                    <option value="50">Hide below 50 MW (large fires only)</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('fires-card', 'Fires')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="satclouds-card" style="display:none">
+            <div class="card-title card-title-row">Satellite Clouds <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Real infrared satellite imagery from GOES-East, GOES-West and Himawari via NASA GIBS (about an hour behind real time), shown as clouds over the map. Covers the Americas, Pacific, Asia and Australia; Europe, Africa and the Indian Ocean have no free geostationary feed here. Zooming in fetches sharper imagery.</p>
+            <div class="form-group">
+                <label for="sc_style">Style</label>
+                <select id="sc_style" class="form-control" data-conf="SATCLOUD_STYLE">
+                    <option value="white">White clouds (default)</option>
+                    <option value="enhanced">Enhanced: colour the coldest storm tops</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('satclouds-card', 'Satellite clouds')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="launches-card" style="display:none">
+            <div class="card-title card-title-row">Rocket Launches <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Upcoming launches worldwide from The Space Devs Launch Library. Pads near your QTH (Cape Canaveral and Wallops from the Carolinas) glow gold &mdash; those launches are often visible from home. Enable the Rocket Launches panel in the Applets card for a list.</p>
+            <div class="form-group">
+                <label for="launch_days">Show Launches Within</label>
+                <select id="launch_days" class="form-control" data-conf="LAUNCH_DAYS">
+                    <option value="3">3 days</option>
+                    <option value="7">7 days (default)</option>
+                    <option value="14">14 days</option>
+                </select>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="LAUNCH_LABELS"> Rocket and countdown labels</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('launches-card', 'Launches')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="planets-card" style="display:none">
+            <div class="card-title card-title-row">Planets <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Marks the point on Earth where each naked-eye planet is directly overhead right now. For when and where to look from home, enable the Planets &amp; Sky Events panel in the Applets card.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="PLANET_LABELS"> Planet names</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('planets-card', 'Planets')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="ships-card" style="display:none">
+            <div class="card-title card-title-row">Ships (AIS) <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Live vessel positions from the aisstream.io network: arrows for ships under way, dots for anchored or moored. Covers the visible map when zoomed in, or about 1,000 km around your QTH at full-world view. Needs a free aisstream.io API key.</p>
+            <div class="form-group">
+                <label for="ais_key">aisstream.io API Key</label>
+                <input type="password" id="ais_key" class="form-control" autocomplete="off" placeholder="Paste key from aisstream.io &rarr; API Keys">
+                <div class="hint" id="ais_key_status">Stored only on this Pi (root-only file).</div>
+            </div>
+            <div class="mt-8" style="margin-bottom:12px">
+                <button class="btn btn-primary btn-sm" onclick="saveAISKey()">Save Key</button>
+                <button class="btn btn-outline btn-sm" onclick="removeAISKey()">Remove Key</button>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="SHIP_LABELS"> Ship names when zoomed in</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('ships-card', 'Ships')">Save</button>
             </div>
         </div>
 

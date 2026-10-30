@@ -20,7 +20,7 @@
 #include <cairo/cairo.h>
 #include <time.h>
 
-#define MAX_APPLETS 12
+#define MAX_APPLETS 16
 
 /* Screen side for applet positioning */
 #define APPLET_SIDE_RIGHT 0

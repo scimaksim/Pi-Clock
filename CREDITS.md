@@ -83,6 +83,40 @@ seeing) via the Astrospheric Data API; requires the user's own
 Astrospheric Pro API key.
 https://www.astrospheric.com/
 
+**NOAA Storm Prediction Center** — Day 1-3 categorical convective
+outlooks (GeoJSON). https://www.spc.noaa.gov/
+
+**The Space Devs — Launch Library 2** — Upcoming launch schedule
+(free tier). https://thespacedevs.com/
+
+**NASA Deep Space Network — DSN Now** — Live antenna activity.
+https://eyes.nasa.gov/dsn/
+
+**NASA GIBS** — Global Imagery Browse Services; GOES-East, GOES-West
+(NOAA) and Himawari (JMA) band 13 infrared imagery.
+https://earthdata.nasa.gov/gibs
+
+**NASA FIRMS** — VIIRS active fire detections (NOAA-20, Suomi NPP).
+https://firms.modaps.eosdis.nasa.gov/
+
+**NOAA Hazard Mapping System** — Analyst smoke polygons.
+https://www.ospo.noaa.gov/products/land/hms.html
+
+**NOAA CO-OPS (Tides & Currents)** — Tide predictions and station
+metadata. https://tidesandcurrents.noaa.gov/
+
+**aisstream.io** — Real-time AIS vessel positions over WebSocket;
+requires the user's own free API key. https://aisstream.io/
+
+**JPL Approximate Positions of the Planets** — E.M. Standish, Keplerian
+elements valid 1800-2050. https://ssd.jpl.nasa.gov/planets/approx_pos.html
+
+**NASA Eclipse Web Site** — F. Espenak / GSFC eclipse dates and times.
+https://eclipse.gsfc.nasa.gov/
+
+**International Meteor Organization** — Meteor shower calendar.
+https://www.imo.net/
+
 **NOAA Space Weather Prediction Center (SWPC)**
 Solar Flux Index, Kp index, solar wind speed, interplanetary magnetic
 field (Bz), and X-ray flare classifications. Free JSON API, no

@@ -96,9 +96,20 @@
 - [x] Starlink trains with visible-pass prediction
 - [x] Aircraft — adsb.lol or local readsb/dump1090
 - [x] Tonight's Sky applet — Astrospheric cloud/transparency/seeing, sun/moon times
+- [x] SPC convective outlook with QTH risk note
+- [x] Rocket launches (Launch Library 2) with nearby-pad highlight + panel
+- [x] Deep Space Network live antennas + panel
+- [x] Visible ISS / Tiangong / Hubble passes panel (NORAD IDs configurable)
+- [x] Satellite IR clouds (GIBS GOES-East/West, Himawari)
+- [x] Wildfire detections (NASA FIRMS, US) and smoke plumes (NOAA HMS)
+- [x] Tides panel (NOAA CO-OPS, nearest reference station)
+- [x] Planets overhead points + Planets & Events panel (showers, eclipses)
+- [x] Ships (aisstream.io AIS, user key)
 - [ ] Global radar fallback outside the US (e.g. RainViewer)
-- [ ] Wildfire detections (NASA FIRMS) and smoke plumes (NOAA HMS)
-- [ ] User-defined satellites by NORAD ID from the dashboard
+- [ ] Satellite clouds over Europe/Africa (no free Meteosat feed on GIBS)
+- [ ] Global FIRMS fires (needs a free MAP_KEY)
+- [ ] Solar eclipse local visibility (currently listed without it)
+- [ ] Move lightning.c onto the shared ws.c client
 - [ ] Full SGP4 (drag terms) for longer TLE ages and pass accuracy
 
 ## Renderer — Next

@@ -20,10 +20,16 @@ var astroKeyPath = "/data/etc/pi-clock-astrospheric.key"
 // value can be embedded in its JSON request without escaping.
 var astroKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{8,128}$`)
 
-// GetAstrosphericKey reports whether a key is configured.
-func GetAstrosphericKey() http.HandlerFunc {
+// secretKey describes one write-only API key file.
+type secretKey struct {
+	path  *string
+	re    *regexp.Regexp
+	label string
+}
+
+func (k secretKey) get() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		data, err := os.ReadFile(astroKeyPath)
+		data, err := os.ReadFile(*k.path)
 		key := strings.TrimSpace(string(data))
 		if err != nil || key == "" {
 			jsonResponse(w, http.StatusOK, map[string]interface{}{"configured": false})
@@ -40,8 +46,7 @@ func GetAstrosphericKey() http.HandlerFunc {
 	}
 }
 
-// PutAstrosphericKey saves (or, with an empty key, removes) the API key.
-func PutAstrosphericKey() http.HandlerFunc {
+func (k secretKey) put() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Key string `json:"key"`
@@ -52,23 +57,43 @@ func PutAstrosphericKey() http.HandlerFunc {
 		}
 		key := strings.TrimSpace(req.Key)
 		if key == "" {
-			if err := os.Remove(astroKeyPath); err != nil && !os.IsNotExist(err) {
-				internalError(w, "remove astrospheric key", err)
+			if err := os.Remove(*k.path); err != nil && !os.IsNotExist(err) {
+				internalError(w, "remove "+k.label+" key", err)
 				return
 			}
 			signalRenderer()
 			jsonResponse(w, http.StatusOK, map[string]string{"status": "removed"})
 			return
 		}
-		if !astroKeyRe.MatchString(key) {
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "that doesn't look like an Astrospheric API key"})
+		if !k.re.MatchString(key) {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "that doesn't look like an " + k.label + " API key"})
 			return
 		}
-		if err := atomicWriteFile(astroKeyPath, []byte(key+"\n"), 0600); err != nil {
-			internalError(w, "save astrospheric key", err)
+		if err := atomicWriteFile(*k.path, []byte(key+"\n"), 0600); err != nil {
+			internalError(w, "save "+k.label+" key", err)
 			return
 		}
 		signalRenderer()
 		jsonResponse(w, http.StatusOK, map[string]string{"status": "saved"})
 	}
 }
+
+var astroKey = secretKey{&astroKeyPath, astroKeyRe, "Astrospheric"}
+
+// GetAstrosphericKey reports whether a key is configured.
+func GetAstrosphericKey() http.HandlerFunc { return astroKey.get() }
+
+// PutAstrosphericKey saves (or, with an empty key, removes) the API key.
+func PutAstrosphericKey() http.HandlerFunc { return astroKey.put() }
+
+// aisstream.io key for the Ships layer — same write-only handling.
+var aisKeyPath = "/data/etc/pi-clock-aisstream.key"
+
+// aisstream keys are 40-hex-character tokens; allow the same safe set.
+var aisKey = secretKey{&aisKeyPath, regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`), "aisstream.io"}
+
+// GetAISKey reports whether an aisstream.io key is configured.
+func GetAISKey() http.HandlerFunc { return aisKey.get() }
+
+// PutAISKey saves or removes the aisstream.io key.
+func PutAISKey() http.HandlerFunc { return aisKey.put() }
