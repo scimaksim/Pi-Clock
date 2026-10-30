@@ -167,15 +167,14 @@ void pic_layer_render_spc(cairo_t *cr, int width, int height,
     pthread_mutex_unlock(&spc.mutex);
 }
 
-/* Legend: "SPC Day 1 · QTH: Marginal Risk" bottom-left of the map */
+/* Legend: "SPC Day 1 outlook · home: Marginal Risk", bottom centre */
 void pic_layer_render_spc_legend(cairo_t *cr, int width, int height,
                                  time_t now, void *ud)
 {
     char text[128], at[48];
     int g;
-    double fs = height / 70.0;
 
-    (void)width; (void)ud;
+    (void)ud;
     pthread_mutex_lock(&spc.mutex);
     if (!spc.ok || (spc.expire && now > spc.expire + 3600)) {
         pthread_mutex_unlock(&spc.mutex);
@@ -191,12 +190,9 @@ void pic_layer_render_spc_legend(cairo_t *cr, int width, int height,
              spc.day, at);
     pthread_mutex_unlock(&spc.mutex);
 
-    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
-                           CAIRO_FONT_WEIGHT_BOLD);
-    cairo_set_font_size(cr, fs);
-    pic_draw_text_pill(cr, fs, height - fs * 4.2, text,
-                       g >= 4 ? 1.0 : 0.85, g >= 4 ? 0.75 : 0.95,
-                       g >= 4 ? 0.4 : 0.85, 0.6);
+    pic_draw_legend_line(cr, width, height, 0, text,
+                         g >= 4 ? 1.0 : 0.85, g >= 4 ? 0.75 : 0.95,
+                         g >= 4 ? 0.4 : 0.85);
 }
 
 static pic_feature_t feature_spc_def = {

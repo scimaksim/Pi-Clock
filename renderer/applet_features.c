@@ -59,6 +59,8 @@ static const struct { const char *key; const char *label; } layer_order[] = {
     {"cloud",         "Cloud Cover"},
     {"wind",          "Wind"},
     {"aurora",        "Aurora"},
+    {"aurorawatch",   "Aurora Watch"},
+    {"lightpollution","Light Pollution"},
     {"qth",           "Home QTH Marker"},
     {"sun",           "Sun Position"},
     {"moon",          "Moon Position"},
@@ -78,6 +80,7 @@ static const struct { const char *key; const char *label; } applet_order[] = {
     {"tides",         "Tides"},
     {"launches",      "Rocket Launches"},
     {"dsn",           "Deep Space Network"},
+    {"aurorawatch",   "Aurora Watch"},
     {"sysinfo",       "System Info"},
     {"features",      "Active Features"},
     {NULL, NULL}

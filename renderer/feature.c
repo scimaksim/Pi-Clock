@@ -114,6 +114,19 @@ void pic_draw_text_pill(cairo_t *cr, double x, double y, const char *text,
     cairo_show_text(cr, text);
 }
 
+void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
+                          const char *text, double r, double g, double b)
+{
+    double fs = height / 72.0, y = height - fs * (3.2 + 1.75 * slot);
+    cairo_text_extents_t e;
+
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                           CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fs);
+    cairo_text_extents(cr, text, &e);
+    pic_draw_text_pill(cr, (width - e.x_advance) / 2.0, y, text, r, g, b, 0.65);
+}
+
 void pic_fmt_until(char *out, int n, time_t now, time_t t)
 {
     long d = (long)(t - now);

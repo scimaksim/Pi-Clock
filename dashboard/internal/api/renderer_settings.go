@@ -117,6 +117,11 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"TIDE_UNITS":    enumSetting("english", "english", "metric"),
 	"SHIP_LABELS":   boolSetting("1"),
 
+	// Aurora watch and light pollution
+	"AURORA_MARGIN": intSetting("3", 0, 8),
+	"AURORA_BANNER": boolSetting("1"),
+	"LP_NOTE":       boolSetting("1"),
+
 	// Tonight's Sky applet (Astrospheric)
 	"ASTRO_INTERVAL_H": intSetting("3", 1, 12),
 	"ASTRO_CLEAR_PCT":  intSetting("20", 5, 60),

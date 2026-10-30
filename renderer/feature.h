@@ -92,6 +92,14 @@ double pic_conf_num(const char *key, double def);
 void pic_draw_text_pill(cairo_t *cr, double x, double y, const char *text,
                         double r, double g, double b, double bg_a);
 
+/*
+ * Bottom-centre status line for layer legends. Slots stack upward so
+ * several layers' notes never overlap each other or the side panels:
+ * 0 = SPC, 1 = light pollution, 2 = ships, 3 = aurora.
+ */
+void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
+                          const char *text, double r, double g, double b);
+
 /* Short relative time: "in 3h 20m", "in 2d 4h", "now" */
 void pic_fmt_until(char *out, int n, time_t now, time_t t);
 

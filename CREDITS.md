@@ -114,6 +114,16 @@ elements valid 1800-2050. https://ssd.jpl.nasa.gov/planets/approx_pos.html
 **NASA Eclipse Web Site** — F. Espenak / GSFC eclipse dates and times.
 https://eclipse.gsfc.nasa.gov/
 
+**NOAA SWPC OVATION aurora nowcast and Kp forecasts** — view line per
+Case, MacDonald et al. (2016), "Determining the equatorial extent of
+auroral visibility", Space Weather 14, 198.
+https://www.swpc.noaa.gov/products/aurora-30-minute-forecast
+
+**NASA VIIRS Night Lights (2016) via GIBS** — Upward light for the
+light-pollution estimate; skyglow falloff after Walker's law, colour
+bands after Falchi et al. (2016), World Atlas of Artificial Night Sky
+Brightness.
+
 **International Meteor Organization** — Meteor shower calendar.
 https://www.imo.net/
 

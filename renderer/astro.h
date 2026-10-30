@@ -44,6 +44,11 @@ typedef struct {
 } pic_astro_t;
 
 void pic_astro_init(pic_astro_t *data);
+
+/* The renderer's forecast buffer, for other features that want cloud
+ * cover (e.g. aurora alerts). NULL until pic_astro_init. Lock its
+ * mutex while reading. */
+extern pic_astro_t *pic_astro_shared;
 int  pic_astro_start(pic_astro_t *data);
 void pic_astro_stop(void);
 

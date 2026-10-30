@@ -209,6 +209,8 @@ var layerDefs = []struct {
 	{"cloud", "Cloud Cover", false, 1.0},
 	{"wind", "Wind", false, 1.0},
 	{"aurora", "Aurora", false, 1.0},
+	{"aurorawatch", "Aurora Watch (view line + home alert)", false, 1.0},
+	{"lightpollution", "Light Pollution (sky brightness)", false, 0.9},
 	{"qth", "Home QTH Marker", true, 1.0},
 	{"sun", "Sun Position", false, 1.0},
 	{"moon", "Moon Position", false, 1.0},
@@ -1418,6 +1420,7 @@ var appletDefs = []struct {
 	{"tides", "Tides", false, "left"},
 	{"launches", "Rocket Launches", false, "right"},
 	{"dsn", "Deep Space Network", false, "right"},
+	{"aurorawatch", "Aurora Watch", false, "right"},
 	{"sysinfo", "System Info", true, "left"},
 	{"features", "Active Features", true, "right"},
 }

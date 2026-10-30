@@ -621,6 +621,8 @@ static const struct {
     {"ships",          2},  /* TLS WebSocket + vessel table          */
     {"planets",        0},  /* Orbital math only                     */
     {"satclouds",     12},  /* GIBS PNGs + composited cloud image    */
+    {"aurorawatch",    2},  /* OVATION JSON + Kp forecast            */
+    {"lightpollution", 8},  /* Sky-brightness image (peak ~20MB calc) */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -1482,6 +1484,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_layer_stack_add(&stack, "daylight",
                         pic_layer_render_daylight, 60, 1.0, blue_marble);
     add_feature_layer(&stack, pic_feature_satclouds());
+    add_feature_layer(&stack, pic_feature_lightpollution());
     if (borders_loaded)
         pic_layer_stack_add(&stack, "borders",
                             pic_layer_render_borders, 0, 1.0, &borders);
@@ -1537,6 +1540,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     /* ── Space (orbit / magnetosphere) ────────────────────── */
     pic_layer_stack_add(&stack, "aurora",
                         pic_layer_render_aurora, 60, 1.0, &aurora);
+    add_feature_layer(&stack, pic_feature_aurorawatch());
     pic_layer_stack_add(&stack, "satellites",
                         pic_layer_render_satellite, 5, 1.0, &satellites);
     pic_layer_stack_add(&stack, "starlink",

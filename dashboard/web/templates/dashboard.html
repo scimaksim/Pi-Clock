@@ -585,6 +585,38 @@
             </div>
         </div>
 
+        <div class="card" id="aurorawatch-card" style="display:none">
+            <div class="card-title card-title-row">Aurora Watch <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Draws NOAA SWPC's aurora view line (solid red: aurora may be seen low on the northern horizon from here northward) and a dotted photo line further south, from the live OVATION model. A banner appears when your QTH is north of either line at night, or when the 3-day Kp forecast says it will be. Cloud cover comes from your Tonight's Sky (Astrospheric) panel when it's enabled &mdash; no extra API credits. Enable the Aurora Watch panel in the Applets card for the Kp chart.</p>
+            <div class="form-group">
+                <label for="aw_margin">Photo Line</label>
+                <select id="aw_margin" class="form-control" data-conf="AURORA_MARGIN">
+                    <option value="0">Same as view line (conservative)</option>
+                    <option value="2">2&deg; south of the view line</option>
+                    <option value="3">3&deg; south (default)</option>
+                    <option value="5">5&deg; south (optimistic)</option>
+                </select>
+                <div class="hint">Citizen-science reports show cameras often catch aurora several degrees south of SWPC's line. This also sets the Kp your home needs for a "photo" alert.</div>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="AURORA_BANNER"> Show the alert banner</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('aurorawatch-card', 'Aurora Watch')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="lightpollution-card" style="display:none">
+            <div class="card-title card-title-row">Light Pollution <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Estimated night-sky brightness, computed on the Pi from NASA's VIIRS night-lights composite with a skyglow model, coloured by approximate Bortle class (blue/green darkest &rarr; yellow, orange, red, white brightest). A note at the bottom gives the estimate at home and the nearest Bortle&nbsp;3 sky. It's an estimate: terrain, trees and changes since 2016 aren't modelled.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="LP_NOTE"> Home sky note and nearest dark site</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('lightpollution-card', 'Light pollution')">Save</button>
+            </div>
+        </div>
+
         <!-- Ticker Sources (hidden when ticker layer is off) -->
         <div class="card" id="ticker-sources-card" style="display:none">
             <div class="card-title card-title-row">News Ticker <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>

@@ -42,9 +42,12 @@ static pthread_t astro_thread;
 static volatile int astro_running = 0;
 static pic_astro_t *cfg_data = NULL;
 
+pic_astro_t *pic_astro_shared;
+
 void pic_astro_init(pic_astro_t *data)
 {
     memset(data, 0, sizeof(*data));
+    pic_astro_shared = data;
     data->interval_h = 3;
     data->cloud_clear = 20;
     data->credits_left = -1;

@@ -42,7 +42,9 @@ var layerExtraMb = {
     'dsn':            1,
     'ships':          2,
     'planets':        0,
-    'satclouds':      12
+    'satclouds':      12,
+    'aurorawatch':    2,
+    'lightpollution': 8
 };
 
 /* Layers whose settings card uses the generic /api/renderer-settings
@@ -61,7 +63,9 @@ var rendererSettingCards = {
     'satclouds': 'satclouds-card',
     'launches':  'launches-card',
     'planets':   'planets-card',
-    'ships':     'ships-card'
+    'ships':     'ships-card',
+    'aurorawatch': 'aurorawatch-card',
+    'lightpollution': 'lightpollution-card'
 };
 
 /* Calculate total memory cost of all enabled layers */

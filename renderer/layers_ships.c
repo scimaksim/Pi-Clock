@@ -263,10 +263,13 @@ void pic_layer_render_ships(cairo_t *cr, int width, int height,
     pthread_mutex_lock(&sh.mutex);
     labels = sh.labels && zoom >= 2.5;
     if (sh.status == 1 || sh.status == 2) {
-        pic_draw_text_pill(cr, fs, height - fs * 6.0,
-                           sh.status == 1 ? "Ships: add an aisstream.io key in the dashboard"
-                                          : "Ships: can't reach aisstream.io",
-                           1.0, 0.8, 0.5, 0.6);
+        pic_draw_legend_line(cr, width, height, 2,
+                             sh.status == 1 ? "Ships: add an aisstream.io key in the dashboard"
+                                            : "Ships: can't reach aisstream.io",
+                             1.0, 0.8, 0.5);
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                               CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, fs);
     }
     for (i = 0; i < sh.n; i++) {
         const ship_t *v = &sh.ships[i];
