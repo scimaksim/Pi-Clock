@@ -336,6 +336,18 @@
             </div>
         </div>
 
+        <!-- Live Radar Settings (hidden when radar layer is off) -->
+        <div class="card" id="radar-card" style="display:none">
+            <div class="card-title card-title-row">Live Radar <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">US NEXRAD base reflectivity mosaic from the Iowa Environmental Mesonet, refreshed every 5 minutes. Covers the contiguous US. Zoom the map toward your QTH for more detail; the image resolution follows the zoom.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="RADAR_TIME"> Show radar image time</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('radar-card', 'Radar')">Save</button>
+            </div>
+        </div>
+
         <!-- Ticker Sources (hidden when ticker layer is off) -->
         <div class="card" id="ticker-sources-card" style="display:none">
             <div class="card-title card-title-row">News Ticker <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>

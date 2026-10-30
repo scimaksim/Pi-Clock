@@ -53,6 +53,7 @@
 #include "volcano.h"
 #include "storm.h"
 #include "nwsalert.h"
+#include "radar.h"
 
 extern double pic_applet_render_dxfeed(cairo_t *cr, double width,
                                        time_t now, void *user_data);
@@ -143,6 +144,8 @@ extern void pic_layer_render_nwsalert(cairo_t *cr, int width, int height,
 extern void pic_layer_render_nwsalert_banner(cairo_t *cr, int width,
                                              int height, time_t now,
                                              void *user_data);
+extern void pic_layer_render_radar(cairo_t *cr, int width, int height,
+                                   time_t now, void *user_data);
 extern void pic_layer_render_aurora(cairo_t *cr, int width, int height,
                                     time_t now, void *user_data);
 extern void pic_aurora_cleanup(void);
@@ -521,6 +524,7 @@ static const struct {
     {"volcanoes",      1},  /* 1MB CAP XML fetch buffer              */
     {"storms",         8},  /* 6MB GeoJSON buffer + JSON tokens      */
     {"wxalerts",       8},  /* 6MB GeoJSON buffer + polygon pool     */
+    {"radar",         10},  /* Up to 2400x1062 ARGB mosaic           */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -952,6 +956,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     static pic_volcanoes_t volcanoes;
     static pic_storms_t storms;
     static pic_nws_t wxalerts;
+    static pic_radar_t radar;
     pic_layer_stack_t stack;
     pic_applet_stack_t applets;
     pic_sysinfo_t sysinfo;
@@ -1196,6 +1201,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_volcano_init(&volcanoes);
     pic_storm_init(&storms);
     pic_nws_init(&wxalerts);
+    pic_radar_init(&radar);
 
     /* Start satellite tracker — register satellites and fetch TLEs */
     pic_sat_init(&satellites);
@@ -1399,6 +1405,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_volcano, 60, 1.0, &volcanoes);
     pic_layer_stack_add(&stack, "precip",
                         pic_layer_render_precip, 60, 1.0, &wind);
+    pic_layer_stack_add(&stack, "radar",
+                        pic_layer_render_radar, 60, 0.8, &radar);
     pic_layer_stack_add(&stack, "qth",
                         pic_layer_render_qth, 0, 1.0, NULL);
     pic_layer_stack_add(&stack, "wind",
@@ -1437,7 +1445,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     {
         static const char *off_by_default[] = {
             "grid", "cqzone", "maidenhead", "dxspots",
-            "satellites", "lightning", "earthquakes", "volcanoes", "storms", "wxalerts", "precip",
+            "satellites", "lightning", "earthquakes", "volcanoes", "storms", "wxalerts", "radar", "precip",
             "cloud", "wind", "aurora",
             "sun", "moon", "ticker", NULL
         };
@@ -1594,6 +1602,10 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             if (strcmp(stack.layers[li].name, "wxalerts") == 0 &&
                 stack.layers[li].enabled) {
                 pic_nws_start(&wxalerts);
+            }
+            if (strcmp(stack.layers[li].name, "radar") == 0 &&
+                stack.layers[li].enabled) {
+                pic_radar_start(&radar);
             }
         }
     }
@@ -1796,6 +1808,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 int light_on = 0, quake_on = 0, wind_on = 0;
                 int cloud_on = 0, precip_on = 0, aurora_on = 0;
                 int volcano_on = 0, storm_on = 0, wx_on = 0;
+                int radar_on = 0;
                 for (li2 = 0; li2 < stack.count; li2++) {
                     if (strcmp(stack.layers[li2].name, "lightning") == 0)
                         light_on = stack.layers[li2].enabled;
@@ -1815,6 +1828,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         storm_on = stack.layers[li2].enabled;
                     if (strcmp(stack.layers[li2].name, "wxalerts") == 0)
                         wx_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "radar") == 0)
+                        radar_on = stack.layers[li2].enabled;
                 }
                 if (light_on) {
                     pic_lightning_reload(&lightning);
@@ -1845,6 +1860,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     pic_volcano_stop();
     pic_storm_stop();
     pic_nws_stop();
+    pic_radar_stop();
                 }
                 if (storm_on) {
                     pic_storm_reload(&storms);
@@ -1857,6 +1873,12 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     pic_nws_start(&wxalerts);
                 } else {
                     pic_nws_stop();
+                }
+                if (radar_on) {
+                    pic_radar_reload(&radar);
+                    pic_radar_start(&radar);
+                } else {
+                    pic_radar_stop();
                 }
             }
             pic_applet_load_config(&applets);

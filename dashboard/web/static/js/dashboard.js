@@ -31,7 +31,8 @@ var layerExtraMb = {
     'earthquakes':    1,
     'volcanoes':      1,
     'storms':         8,
-    'wxalerts':       8
+    'wxalerts':       8,
+    'radar':          10
 };
 
 /* Layers whose settings card uses the generic /api/renderer-settings
@@ -40,7 +41,8 @@ var layerExtraMb = {
 var rendererSettingCards = {
     'volcanoes': 'volcano-card',
     'storms':    'storm-card',
-    'wxalerts':  'wxalert-card'
+    'wxalerts':  'wxalert-card',
+    'radar':     'radar-card'
 };
 
 /* Calculate total memory cost of all enabled layers */

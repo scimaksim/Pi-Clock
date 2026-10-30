@@ -64,6 +64,9 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"WX_BANNER":     boolSetting("1"),
 	"WX_BANNER_MIN": intSetting("2", 1, 4),
 	"WX_RADIUS_KM":  intSetting("0", 0, 5000),
+
+	// Live radar
+	"RADAR_TIME": boolSetting("1"),
 }
 
 // GetRendererSettings returns every whitelisted setting with its current
