@@ -36,7 +36,7 @@
  * Keeping this small and fixed avoids dynamic allocation
  * on a memory-constrained Pi Zero W (512MB RAM).
  */
-#define PIC_MAX_LAYERS 24
+#define PIC_MAX_LAYERS 32
 
 /*
  * pic_layer_render_fn - Function pointer type for layer renderers.

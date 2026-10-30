@@ -265,6 +265,22 @@
             </div>
         </div>
 
+        <!-- Volcano Settings (hidden when volcano layer is off) -->
+        <div class="card" id="volcano-card" style="display:none">
+            <div class="card-title card-title-row">Volcanoes <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Volcanoes in the Smithsonian / USGS Weekly Volcanic Activity Report. Red with a plume = new activity or unrest; orange = continuing eruption.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="VOLCANO_LABELS"> Show volcano names</label>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="VOLCANO_NEW_ONLY"> New activity only</label>
+                <div class="hint">Hide volcanoes with long-running, continuing eruptions</div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('volcano-card', 'Volcano')">Save</button>
+            </div>
+        </div>
+
         <!-- Ticker Sources (hidden when ticker layer is off) -->
         <div class="card" id="ticker-sources-card" style="display:none">
             <div class="card-title card-title-row">News Ticker <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>

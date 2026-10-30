@@ -117,6 +117,10 @@ func main() {
 		r.Get("/earthquake-settings", api.GetEarthquakeSettings())
 		r.Put("/earthquake-settings", api.PutEarthquakeSettings(cfg))
 
+		// Generic renderer settings (volcanoes, storms, aircraft, ...)
+		r.Get("/renderer-settings", api.GetRendererSettings())
+		r.Put("/renderer-settings", api.PutRendererSettings(cfg))
+
 		// Applet settings
 		r.Get("/applets", api.GetApplets())
 		r.Put("/applets", api.PutApplets())

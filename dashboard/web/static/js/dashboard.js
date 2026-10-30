@@ -28,7 +28,15 @@ var layerExtraMb = {
     'dxspots':        1,
     'bandconditions': 1,
     'ticker':         1,
-    'earthquakes':    1
+    'earthquakes':    1,
+    'volcanoes':      1
+};
+
+/* Layers whose settings card uses the generic /api/renderer-settings
+ * endpoint. Inputs inside the card carry data-conf="KEY"; checkboxes
+ * map to "1"/"0", selects and text inputs map to their value. */
+var rendererSettingCards = {
+    'volcanoes': 'volcano-card'
 };
 
 /* Calculate total memory cost of all enabled layers */
@@ -611,6 +619,9 @@ function loadLayers() {
             'lightning': 'lightning-card',
             'earthquakes': 'earthquake-card'
         };
+        for (var rsName in rendererSettingCards) {
+            configCards[rsName] = rendererSettingCards[rsName];
+        }
 
         layers.forEach(function(layer) {
             var row = document.createElement('div');
@@ -739,6 +750,15 @@ function loadLayers() {
                     setCardVisibility('lightning-card', this.checked);
                     if (this.checked) loadLightningSettings();
                 });
+            }
+            if (rendererSettingCards[layer.name]) {
+                (function(cardId) {
+                    setCardVisibility(cardId, layer.enabled);
+                    cb.addEventListener('change', function() {
+                        setCardVisibility(cardId, this.checked);
+                        if (this.checked) loadRendererSettings(cardId);
+                    });
+                })(rendererSettingCards[layer.name]);
             }
             if (layer.name === 'earthquakes') {
                 setCardVisibility('earthquake-card', layer.enabled);
@@ -1011,6 +1031,34 @@ function saveLightningSettings() {
         toast('Lightning settings saved');
     }).catch(function() {
         toast('Save failed', 'error');
+    });
+}
+
+// ── Generic renderer settings ──────────────────────────────
+function loadRendererSettings(cardId) {
+    var card = document.getElementById(cardId);
+    if (!card) return;
+    apiCall('GET', '/api/renderer-settings').then(function(settings) {
+        card.querySelectorAll('[data-conf]').forEach(function(el) {
+            var v = settings[el.getAttribute('data-conf')];
+            if (v === undefined) return;
+            if (el.type === 'checkbox') el.checked = (v === '1');
+            else el.value = v;
+        });
+    });
+}
+
+function saveRendererSettings(cardId, label) {
+    var card = document.getElementById(cardId);
+    if (!card) return;
+    var body = {};
+    card.querySelectorAll('[data-conf]').forEach(function(el) {
+        var k = el.getAttribute('data-conf');
+        body[k] = (el.type === 'checkbox') ? (el.checked ? '1' : '0')
+                                           : String(el.value).trim();
+    });
+    apiCall('PUT', '/api/renderer-settings', body).then(function() {
+        toast((label || 'Layer') + ' settings saved');
     });
 }
 
@@ -1601,6 +1649,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (layerState.satellites) loadSatellites();
         if (layerState.lightning) loadLightningSettings();
         if (layerState.earthquakes) loadEarthquakeSettings();
+        for (var rsLayer in rendererSettingCards) {
+            if (layerState[rsLayer]) loadRendererSettings(rendererSettingCards[rsLayer]);
+        }
         if (layerState.ticker) loadTickerSources();
     });
 

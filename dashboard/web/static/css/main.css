@@ -856,3 +856,20 @@ select.form-control {
 
 .upgrade-step.error { color: var(--danger); }
 .upgrade-step.error .step-icon .icon-state-error { display: inline-block; }
+
+/*
+ * Inline checkbox rows for layer settings cards. Kept outside
+ * .form-group so the block-level `.form-group label` rule doesn't
+ * stack the checkbox above its caption.
+ */
+.check-row {
+    margin-bottom: 12px;
+}
+
+.checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 14px;
+}
