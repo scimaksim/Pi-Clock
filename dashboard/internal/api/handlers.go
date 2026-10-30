@@ -196,6 +196,7 @@ var layerDefs = []struct {
 	{"wxalerts", "NWS Weather Alerts (US)", false, 1.0},
 	{"precip", "Rain Forecast (GFS model)", false, 1.0},
 	{"radar", "Live Radar (US NEXRAD)", false, 0.8},
+	{"airquality", "Air Quality (AQI)", false, 1.0},
 	{"cloud", "Cloud Cover", false, 1.0},
 	{"wind", "Wind", false, 1.0},
 	{"aurora", "Aurora", false, 1.0},

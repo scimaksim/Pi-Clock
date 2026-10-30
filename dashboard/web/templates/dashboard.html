@@ -385,6 +385,18 @@
             </div>
         </div>
 
+        <!-- Air Quality Settings (hidden when airquality layer is off) -->
+        <div class="card" id="aq-card" style="display:none">
+            <div class="card-title card-title-row">Air Quality <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">US Air Quality Index around your QTH from the Open-Meteo Air Quality API (CAMS model data), updated every 90 minutes. Clean air is left transparent; moderate or worse air (wildfire smoke, ozone) is shaded in EPA colours.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="AQ_BADGE"> Show AQI badge under my QTH</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('aq-card', 'Air quality')">Save</button>
+            </div>
+        </div>
+
         <!-- Ticker Sources (hidden when ticker layer is off) -->
         <div class="card" id="ticker-sources-card" style="display:none">
             <div class="card-title card-title-row">News Ticker <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
