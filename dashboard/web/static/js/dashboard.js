@@ -29,14 +29,16 @@ var layerExtraMb = {
     'bandconditions': 1,
     'ticker':         1,
     'earthquakes':    1,
-    'volcanoes':      1
+    'volcanoes':      1,
+    'storms':         8
 };
 
 /* Layers whose settings card uses the generic /api/renderer-settings
  * endpoint. Inputs inside the card carry data-conf="KEY"; checkboxes
  * map to "1"/"0", selects and text inputs map to their value. */
 var rendererSettingCards = {
-    'volcanoes': 'volcano-card'
+    'volcanoes': 'volcano-card',
+    'storms':    'storm-card'
 };
 
 /* Calculate total memory cost of all enabled layers */

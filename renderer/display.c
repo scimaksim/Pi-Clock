@@ -51,6 +51,7 @@
 #include "wind.h"
 #include "aurora.h"
 #include "volcano.h"
+#include "storm.h"
 
 extern double pic_applet_render_dxfeed(cairo_t *cr, double width,
                                        time_t now, void *user_data);
@@ -134,6 +135,8 @@ extern void pic_layer_render_precip(cairo_t *cr, int width, int height,
 extern void pic_precip_cleanup(void);
 extern void pic_layer_render_volcano(cairo_t *cr, int width, int height,
                                      time_t now, void *user_data);
+extern void pic_layer_render_storm(cairo_t *cr, int width, int height,
+                                   time_t now, void *user_data);
 extern void pic_layer_render_aurora(cairo_t *cr, int width, int height,
                                     time_t now, void *user_data);
 extern void pic_aurora_cleanup(void);
@@ -510,6 +513,7 @@ static const struct {
     {"earthquakes",    1},  /* USGS JSON fetch buffer                */
     {"lightning",      2},  /* TLS WebSocket + LZW decode workspace  */
     {"volcanoes",      1},  /* 1MB CAP XML fetch buffer              */
+    {"storms",         8},  /* 6MB GeoJSON buffer + JSON tokens      */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -939,6 +943,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_wind_t wind;
     pic_aurora_t aurora;
     static pic_volcanoes_t volcanoes;
+    static pic_storms_t storms;
     pic_layer_stack_t stack;
     pic_applet_stack_t applets;
     pic_sysinfo_t sysinfo;
@@ -1181,6 +1186,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_wind_init(&wind);
     pic_aurora_init(&aurora);
     pic_volcano_init(&volcanoes);
+    pic_storm_init(&storms);
 
     /* Start satellite tracker — register satellites and fetch TLEs */
     pic_sat_init(&satellites);
@@ -1394,6 +1400,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     /* ── Atmosphere ───────────────────────────────────────── */
     pic_layer_stack_add(&stack, "cloud",
                         pic_layer_render_cloud, 60, 1.0, &wind);
+    pic_layer_stack_add(&stack, "storms",
+                        pic_layer_render_storm, 60, 1.0, &storms);
 
     /* ── Space (orbit / magnetosphere) ────────────────────── */
     pic_layer_stack_add(&stack, "aurora",
@@ -1418,7 +1426,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     {
         static const char *off_by_default[] = {
             "grid", "cqzone", "maidenhead", "dxspots",
-            "satellites", "lightning", "earthquakes", "volcanoes", "precip",
+            "satellites", "lightning", "earthquakes", "volcanoes", "storms", "precip",
             "cloud", "wind", "aurora",
             "sun", "moon", "ticker", NULL
         };
@@ -1565,6 +1573,10 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             if (strcmp(stack.layers[li].name, "volcanoes") == 0 &&
                 stack.layers[li].enabled) {
                 pic_volcano_start(&volcanoes);
+            }
+            if (strcmp(stack.layers[li].name, "storms") == 0 &&
+                stack.layers[li].enabled) {
+                pic_storm_start(&storms);
             }
         }
     }
@@ -1766,7 +1778,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 int li2;
                 int light_on = 0, quake_on = 0, wind_on = 0;
                 int cloud_on = 0, precip_on = 0, aurora_on = 0;
-                int volcano_on = 0;
+                int volcano_on = 0, storm_on = 0;
                 for (li2 = 0; li2 < stack.count; li2++) {
                     if (strcmp(stack.layers[li2].name, "lightning") == 0)
                         light_on = stack.layers[li2].enabled;
@@ -1782,6 +1794,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         aurora_on = stack.layers[li2].enabled;
                     if (strcmp(stack.layers[li2].name, "volcanoes") == 0)
                         volcano_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "storms") == 0)
+                        storm_on = stack.layers[li2].enabled;
                 }
                 if (light_on) {
                     pic_lightning_reload(&lightning);
@@ -1810,6 +1824,13 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     pic_volcano_start(&volcanoes);
                 } else {
                     pic_volcano_stop();
+    pic_storm_stop();
+                }
+                if (storm_on) {
+                    pic_storm_reload(&storms);
+                    pic_storm_start(&storms);
+                } else {
+                    pic_storm_stop();
                 }
             }
             pic_applet_load_config(&applets);

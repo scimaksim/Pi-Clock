@@ -281,6 +281,30 @@
             </div>
         </div>
 
+        <!-- Tropical Cyclone Settings (hidden when storm layer is off) -->
+        <div class="card" id="storm-card" style="display:none">
+            <div class="card-title card-title-row">Hurricanes / Tropical Storms <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Active tropical cyclones worldwide from GDACS. Atlantic and eastern Pacific storms use the National Hurricane Center forecast. Updated every 30 minutes.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="STORM_CONE"> Show forecast cone</label>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="STORM_TRACK"> Show past and forecast track</label>
+            </div>
+            <div class="form-group">
+                <label for="storm_min_cat">Minimum Strength</label>
+                <select id="storm_min_cat" class="form-control" data-conf="STORM_MIN_CAT">
+                    <option value="0">All, including tropical depressions (default)</option>
+                    <option value="1">Tropical storms and stronger</option>
+                    <option value="2">Hurricanes (Category 1+)</option>
+                    <option value="4">Major hurricanes (Category 3+)</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('storm-card', 'Storm')">Save</button>
+            </div>
+        </div>
+
         <!-- Ticker Sources (hidden when ticker layer is off) -->
         <div class="card" id="ticker-sources-card" style="display:none">
             <div class="card-title card-title-row">News Ticker <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>

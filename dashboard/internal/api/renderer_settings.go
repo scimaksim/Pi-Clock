@@ -54,6 +54,11 @@ var rendererSettingDefs = map[string]rendererSetting{
 	// Volcanoes
 	"VOLCANO_LABELS":   boolSetting("1"),
 	"VOLCANO_NEW_ONLY": boolSetting("0"),
+
+	// Tropical cyclones
+	"STORM_CONE":    boolSetting("1"),
+	"STORM_TRACK":   boolSetting("1"),
+	"STORM_MIN_CAT": intSetting("0", 0, 6),
 }
 
 // GetRendererSettings returns every whitelisted setting with its current
