@@ -163,6 +163,43 @@
             </div>
         </div>
 
+        <!-- Tonight's Sky (Astronomy applet) settings -->
+        <div class="card" id="astro-card">
+            <div class="card-title">Tonight's Sky (Astronomy)</div>
+            <p class="text-muted mb-8">Sun, moon and darkness times are calculated on the Pi. With an <strong>Astrospheric Pro</strong> API key the panel also shows hourly cloud, transparency (including smoke) and seeing for your QTH, and picks the best clear, dark window. Enable the panel in the Applets card above.</p>
+            <div class="form-group">
+                <label for="astro_key">Astrospheric API Key</label>
+                <input type="password" id="astro_key" class="form-control" autocomplete="off" placeholder="Paste key from Astrospheric &rarr; My Profile">
+                <div class="hint" id="astro_key_status">Stored only on this Pi (root-only file). Leave blank and save to keep the current key.</div>
+            </div>
+            <div class="mt-8" style="margin-bottom:12px">
+                <button class="btn btn-primary btn-sm" onclick="saveAstroKey()">Save Key</button>
+                <button class="btn btn-sm" onclick="removeAstroKey()">Remove Key</button>
+            </div>
+            <div class="form-group">
+                <label for="astro_interval">Forecast Refresh</label>
+                <select id="astro_interval" class="form-control" data-conf="ASTRO_INTERVAL_H">
+                    <option value="1">Every hour (~47k credits/month)</option>
+                    <option value="2">Every 2 hours (~24k credits/month)</option>
+                    <option value="3">Every 3 hours (~16k credits/month, default)</option>
+                    <option value="6">Every 6 hours (~8k credits/month)</option>
+                </select>
+                <div class="hint">Pro includes 100,000 API credits per month; each refresh uses about 65.</div>
+            </div>
+            <div class="form-group">
+                <label for="astro_clear">"Clear" Means Cloud Cover Below</label>
+                <select id="astro_clear" class="form-control" data-conf="ASTRO_CLEAR_PCT">
+                    <option value="10">10%</option>
+                    <option value="20">20% (default)</option>
+                    <option value="30">30%</option>
+                    <option value="40">40%</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('astro-card', 'Astronomy')">Save</button>
+            </div>
+        </div>
+
         <!-- Propagation Settings (matches layer order: bandconditions before dxspots) -->
         <div class="card" id="propagation-card" style="display:none">
             <div class="card-title card-title-row">Propagation Prediction <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>

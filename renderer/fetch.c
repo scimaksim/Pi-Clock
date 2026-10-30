@@ -151,3 +151,79 @@ int pic_fetch_to_file(const char *url, const char *path, int timeout)
     }
     return (WIFEXITED(status) && WEXITSTATUS(status) == 0) ? 0 : -1;
 }
+
+/*
+ * pic_fetch_post_json - POST a JSON body and read the response.
+ *
+ * The body is written to a private (0600) temp file and sent with
+ * --post-file rather than --post-data, so request contents such as
+ * API keys never appear on a process command line (visible in ps).
+ * Returns bytes read, or -1 on failure; buf is null-terminated.
+ */
+int pic_fetch_post_json(const char *url, const char *json,
+                        char *buf, int buf_size)
+{
+    char tmp[] = "/tmp/pi-clock-post-XXXXXX";
+    int pipefd[2], fd, n;
+    size_t len = strlen(json);
+    pid_t pid;
+
+    fd = mkstemp(tmp);              /* created with mode 0600 */
+    if (fd < 0) return -1;
+    if (write(fd, json, len) != (ssize_t)len) {
+        close(fd);
+        unlink(tmp);
+        return -1;
+    }
+    close(fd);
+
+    if (pipe(pipefd) < 0) {
+        unlink(tmp);
+        return -1;
+    }
+
+    pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        unlink(tmp);
+        return -1;
+    }
+
+    if (pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+        freopen("/dev/null", "w", stderr);
+        execlp("wget", "wget", "-q", "-O", "-", "--timeout=15",
+               "-U", g_useragent,
+               "--header", "Content-Type: application/json",
+               "--post-file", tmp, url, NULL);
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+    n = 0;
+    while (n < buf_size - 1) {
+        int r = read(pipefd[0], buf + n, buf_size - 1 - n);
+        if (r <= 0) break;
+        n += r;
+    }
+    close(pipefd[0]);
+    buf[n] = '\0';
+
+    {
+        int status = -1, waited = 0;
+        while (waitpid(pid, &status, WNOHANG) == 0 && waited < 30) {
+            sleep(1);
+            waited++;
+        }
+        if (waited >= 30) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+        }
+    }
+    unlink(tmp);
+
+    return n > 0 ? n : -1;
+}

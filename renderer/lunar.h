@@ -18,12 +18,15 @@
  *
  *   declination - Lunar declination in radians (north positive)
  *   gha         - Greenwich Hour Angle of the moon in radians
- *   phase       - Moon phase as a fraction (0.0 = new, 0.5 = full)
+ *   phase       - Illuminated fraction (0.0 = new, 1.0 = full)
+ *   elongation  - Moon's ecliptic longitude minus the sun's, radians
+ *                 0..2*PI (0 = new, PI = full; < PI means waxing)
  */
 typedef struct {
     double declination;
     double gha;
     double phase;
+    double elongation;
 } pic_lunar_position_t;
 
 /*

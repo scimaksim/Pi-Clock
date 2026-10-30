@@ -1065,7 +1065,37 @@ function saveRendererSettings(cardId, label) {
     });
     apiCall('PUT', '/api/renderer-settings', body).then(function() {
         toast((label || 'Layer') + ' settings saved');
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+// ── Astrospheric key (write-only) ──────────────────────────
+function loadAstroKey() {
+    apiCall('GET', '/api/astrospheric-key').then(function(st) {
+        var el = document.getElementById('astro_key_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? 'Key saved (ending ' + st.last4 + '). Stored only on this Pi.'
+            : 'No key saved. Stored only on this Pi (root-only file).';
     });
+    loadRendererSettings('astro-card');
+}
+
+function saveAstroKey() {
+    var input = document.getElementById('astro_key');
+    var key = input ? input.value.trim() : '';
+    if (!key) { toast('Paste your API key first', 'error'); return; }
+    apiCall('PUT', '/api/astrospheric-key', {key: key}).then(function() {
+        input.value = '';
+        toast('Astrospheric key saved');
+        loadAstroKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function removeAstroKey() {
+    apiCall('PUT', '/api/astrospheric-key', {key: ''}).then(function() {
+        toast('Astrospheric key removed');
+        loadAstroKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
 }
 
 // ── Earthquake settings ────────────────────────────────────
@@ -1662,6 +1692,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     setupMapZoom();
+    loadAstroKey();
 
     setInterval(loadSystemInfo, 30000);
 });

@@ -62,6 +62,7 @@ static const struct { const char *key; const char *label; } applet_order[] = {
     {"muf",           "MUF Estimate"},
     {"voacap",        "Propagation Prediction"},
     {"solar",         "Solar Weather"},
+    {"astro",         "Tonight's Sky"},
     {"sysinfo",       "System Info"},
     {"features",      "Active Features"},
     {NULL, NULL}

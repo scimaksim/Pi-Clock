@@ -1402,6 +1402,7 @@ var appletDefs = []struct {
 	{"muf", "MUF Estimate", false, "left"},
 	{"voacap", "Propagation Prediction", false, "right"},
 	{"solar", "Solar Weather", false, "left"},
+	{"astro", "Tonight's Sky (Astronomy)", false, "left"},
 	{"sysinfo", "System Info", true, "left"},
 	{"features", "Active Features", true, "right"},
 }

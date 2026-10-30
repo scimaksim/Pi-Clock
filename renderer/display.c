@@ -54,12 +54,15 @@
 #include "storm.h"
 #include "nwsalert.h"
 #include "radar.h"
+#include "astro.h"
 
 extern double pic_applet_render_dxfeed(cairo_t *cr, double width,
                                        time_t now, void *user_data);
 extern double pic_applet_render_muf(cairo_t *cr, double width,
                                     time_t now, void *user_data);
 extern double pic_applet_render_solar(cairo_t *cr, double width,
+                                      time_t now, void *user_data);
+extern double pic_applet_render_astro(cairo_t *cr, double width,
                                       time_t now, void *user_data);
 extern double pic_applet_render_voacap(cairo_t *cr, double width,
                                        time_t now, void *user_data);
@@ -495,6 +498,21 @@ static int get_total_ram_mb(void)
  * The surface cost itself is calculated at runtime from the display
  * resolution (width * height * 4 bytes).
  */
+/*
+ * sync_astro_fetcher - Run the Astrospheric fetcher only while the
+ * "Tonight's Sky" applet is enabled, so a configured API key never
+ * spends credits for a panel nobody can see.
+ */
+static void sync_astro_fetcher(pic_applet_stack_t *applets, pic_astro_t *astro)
+{
+    int i, on = 0;
+    for (i = 0; i < applets->count; i++)
+        if (strcmp(applets->applets[i].name, "astro") == 0)
+            on = applets->applets[i].enabled;
+    if (on) pic_astro_start(astro);
+    else    pic_astro_stop();
+}
+
 static const struct {
     const char *name;
     int extra_mb;  /* Additional RAM beyond the surface */
@@ -957,6 +975,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     static pic_storms_t storms;
     static pic_nws_t wxalerts;
     static pic_radar_t radar;
+    static pic_astro_t astro;
     pic_layer_stack_t stack;
     pic_applet_stack_t applets;
     pic_sysinfo_t sysinfo;
@@ -1202,6 +1221,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_storm_init(&storms);
     pic_nws_init(&wxalerts);
     pic_radar_init(&radar);
+    pic_astro_init(&astro);
 
     /* Start satellite tracker — register satellites and fetch TLEs */
     pic_sat_init(&satellites);
@@ -1625,6 +1645,9 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_applet_stack_add(&applets, "solar", "Solar Weather",
                          pic_applet_render_solar, 60,
                          175, APPLET_SIDE_LEFT, &solar);
+    pic_applet_stack_add(&applets, "astro", "Tonight's Sky",
+                         pic_applet_render_astro, 60,
+                         240, APPLET_SIDE_LEFT, &astro);
 
     /* System info applet — init and populate static fields */
     pic_sysinfo_init(&sysinfo, VERSION);
@@ -1654,6 +1677,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     }
 
     pic_applet_load_config(&applets);
+    sync_astro_fetcher(&applets, &astro);
 
     /*
      * Smooth ticker rendering thread.
@@ -1858,9 +1882,6 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     pic_volcano_start(&volcanoes);
                 } else {
                     pic_volcano_stop();
-    pic_storm_stop();
-    pic_nws_stop();
-    pic_radar_stop();
                 }
                 if (storm_on) {
                     pic_storm_reload(&storms);
@@ -1882,6 +1903,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 }
             }
             pic_applet_load_config(&applets);
+            pic_astro_reload(&astro);
+            sync_astro_fetcher(&applets, &astro);
             pic_ticker_load_config(&ticker);
             pic_sat_load_config(&satellites);
 
@@ -2123,6 +2146,10 @@ skip_blit:
     pic_wind_stop();
     pic_aurora_stop();
     pic_volcano_stop();
+    pic_storm_stop();
+    pic_nws_stop();
+    pic_radar_stop();
+    pic_astro_stop();
     pic_sat_stop();
     pic_ticker_stop();
     if (ticker_thread_started)

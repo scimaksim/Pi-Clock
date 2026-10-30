@@ -121,6 +121,10 @@ func main() {
 		r.Get("/renderer-settings", api.GetRendererSettings())
 		r.Put("/renderer-settings", api.PutRendererSettings(cfg))
 
+		// Astrospheric API key (write-only)
+		r.Get("/astrospheric-key", api.GetAstrosphericKey())
+		r.Put("/astrospheric-key", api.PutAstrosphericKey())
+
 		// Applet settings
 		r.Get("/applets", api.GetApplets())
 		r.Put("/applets", api.PutApplets())

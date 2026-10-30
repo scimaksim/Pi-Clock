@@ -67,6 +67,10 @@ var rendererSettingDefs = map[string]rendererSetting{
 
 	// Live radar
 	"RADAR_TIME": boolSetting("1"),
+
+	// Tonight's Sky applet (Astrospheric)
+	"ASTRO_INTERVAL_H": intSetting("3", 1, 12),
+	"ASTRO_CLEAR_PCT":  intSetting("20", 5, 60),
 }
 
 // GetRendererSettings returns every whitelisted setting with its current

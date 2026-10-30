@@ -48,7 +48,8 @@ SOURCES = main.c display.c layer.c solar.c lunar.c image.c config.c borders.c \
           volcano.c layers_volcano.c \
           json.c storm.c layers_storm.c \
           nwsalert.c layers_nwsalert.c \
-          radar.c layers_radar.c
+          radar.c layers_radar.c \
+          astro.c applet_astro.c
 OBJECTS = $(SOURCES:.c=.o)
 
 # Output binary names
