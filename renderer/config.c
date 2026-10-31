@@ -74,9 +74,16 @@ static double wrap_lon(double lon)
 double pic_zoom_factor(void)
 {
     double f = pic_config.map_zoom;
+    if (pic_config.local_zoom > 1.0) return pic_config.local_zoom;
     if (f < 0.0) f = 0.0;
     if (f > 1.0) f = 1.0;
     return 1.0 + f * (PIC_ZOOM_MAX - 1.0);
+}
+
+double pic_symbol_zoom(void)
+{
+    double z = pic_zoom_factor();
+    return z > PIC_ZOOM_MAX ? PIC_ZOOM_MAX : z;
 }
 
 /*
@@ -128,11 +135,16 @@ void pic_config_recompute_viewport(void)
     if (f > 1.0) f = 1.0;
 
     z = 1.0 + f * (PIC_ZOOM_MAX - 1.0);
+    if (pic_config.local_zoom > 1.0) z = pic_config.local_zoom;
 
     pic_config.view_span_lon = 360.0 / z;
     pic_config.view_span_lat = 180.0 / z;
 
     pic_config.view_center_lon = pic_config.center_lon;
+    /* Local view: centre on home in longitude too */
+    if (pic_config.local_zoom > 1.0 &&
+        !(pic_config.qth_lat == 0.0 && pic_config.qth_lon == 0.0))
+        pic_config.view_center_lon = pic_config.qth_lon;
 
     /* Aim for QTH, let the pole clamp pull us back as needed. */
     if (pic_config.qth_lat == 0.0 && pic_config.qth_lon == 0.0) {

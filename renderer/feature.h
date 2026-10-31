@@ -30,6 +30,7 @@ struct pic_feature {
     pic_layer_render_fn legend; /* Optional, drawn at full opacity       */
     int         interval;       /* Seconds between re-renders            */
     int         extra_mb;       /* RAM budget beyond the surface         */
+    int         default_on;     /* Layer on for fresh installs           */
 
     /* Applet registration */
     pic_applet_render_fn applet;
@@ -38,6 +39,7 @@ struct pic_feature {
     int         side;
 
     void       *data;           /* Passed to the render functions        */
+    volatile int layer_on;      /* Set by display.c: layer enabled now   */
 
     /* Called on the main thread when settings may have changed. */
     void (*reload)(pic_feature_t *f);

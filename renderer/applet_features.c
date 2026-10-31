@@ -61,6 +61,7 @@ static const struct { const char *key; const char *label; } layer_order[] = {
     {"aurora",        "Aurora"},
     {"aurorawatch",   "Aurora Watch"},
     {"lightpollution","Light Pollution"},
+    {"localmap",      "Local Detail"},
     {"qth",           "Home QTH Marker"},
     {"sun",           "Sun Position"},
     {"moon",          "Moon Position"},

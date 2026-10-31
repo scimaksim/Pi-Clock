@@ -213,7 +213,7 @@ static void fires_reload(pic_feature_t *f)
 void pic_layer_render_fires(cairo_t *cr, int width, int height,
                             time_t now, void *ud)
 {
-    double base = height / 600.0, z = 1.0 + 0.4 * (pic_zoom_factor() - 1.0);
+    double base = height / 600.0, z = 1.0 + 0.4 * (pic_symbol_zoom() - 1.0);
     int i, cls;
 
     (void)now; (void)ud;

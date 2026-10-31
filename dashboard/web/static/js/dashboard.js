@@ -44,7 +44,8 @@ var layerExtraMb = {
     'planets':        0,
     'satclouds':      12,
     'aurorawatch':    2,
-    'lightpollution': 8
+    'lightpollution': 8,
+    'localmap':       6
 };
 
 /* Layers whose settings card uses the generic /api/renderer-settings
@@ -1784,6 +1785,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadAISKey();
     loadRendererSettings('panels-card');
     loadHAWebhook();
+    loadRendererSettings('view-card');
 
     setInterval(loadSystemInfo, 30000);
 });

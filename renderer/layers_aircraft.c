@@ -93,10 +93,11 @@ void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
     pic_aircraft_t *d = (pic_aircraft_t *)user_data;
     double zoom = 360.0 / (pic_config.view_span_lon > 0.0001 ?
                            pic_config.view_span_lon : 360.0);
+    double szoom = pic_symbol_zoom();
     /* Glyph half-size ~8 px at 1080p full-world view, growing with zoom
      * (up to ~14 px at the 3x maximum) so aircraft stay readable on a
      * TV across the room. */
-    double s = height / 135.0 * (1.0 + 0.35 * (zoom - 1.0));
+    double s = height / 135.0 * (1.0 + 0.35 * (szoom - 1.0));
     double fs = height / 75.0;
     double dt;
     int i, pass, nlab = 0;

@@ -57,6 +57,7 @@
 #include "astro.h"
 #include "feature.h"
 #include "features_all.h"
+#include "localview.h"
 #include "airquality.h"
 #include "starlink.h"
 #include "aircraft.h"
@@ -538,7 +539,7 @@ static void add_feature_layer(pic_layer_stack_t *stack, pic_feature_t *f)
     if (f->layer &&
         pic_layer_stack_add(stack, f->name, f->layer, f->interval,
                             1.0, f->data) == 0)
-        stack->layers[stack->count - 1].enabled = 0;
+        stack->layers[stack->count - 1].enabled = f->default_on;
 }
 
 static void sync_features(pic_layer_stack_t *stack,
@@ -548,10 +549,12 @@ static void sync_features(pic_layer_stack_t *stack,
     for (i = 0; i < nfeatures; i++) {
         pic_feature_t *f = features[i];
         int on = 0;
-        if (f->layer)
+        if (f->layer) {
             for (k = 0; k < stack->count; k++)
                 if (strcmp(stack->layers[k].name, f->name) == 0)
                     on |= stack->layers[k].enabled;
+            f->layer_on = on;
+        }
         if (f->applet)
             for (k = 0; k < applets->count; k++)
                 if (strcmp(applets->applets[k].name, f->name) == 0)
@@ -624,6 +627,7 @@ static const struct {
     {"satclouds",     12},  /* GIBS PNGs + composited cloud image    */
     {"aurorawatch",    2},  /* OVATION JSON + Kp forecast            */
     {"lightpollution", 8},  /* Sky-brightness image (peak ~20MB calc) */
+    {"localmap",       6},  /* 1:10m lines + towns (static)          */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -1289,7 +1293,15 @@ static int pic_display_run_framebuffer(const char *maps_dir,
         /* Load timezone grid for coordinate → timezone lookup */
         snprintf(path, sizeof(path), "%s/tzgrid.dat", maps_dir);
         pic_tz_load(path);
+
+        /* Local view: 1:10m detail (installed with the fork's binary) */
+        snprintf(path, sizeof(path), "%s/localmap.dat", maps_dir);
+        if (pic_localmap_load(path) != 0)
+            pic_localmap_load("/usr/share/pi-clock/localmap.dat");
     }
+    pic_regional_set_world(black_marble, blue_marble);
+    pic_view_reload(time(NULL));
+    pic_config_recompute_viewport();
 
     /* Start solar weather data fetcher */
     pic_solar_init(&solar);
@@ -1489,6 +1501,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     if (borders_loaded)
         pic_layer_stack_add(&stack, "borders",
                             pic_layer_render_borders, 0, 1.0, &borders);
+    add_feature_layer(&stack, pic_feature_localmap());
     pic_layer_stack_add(&stack, "grid",
                         pic_layer_render_grid, 0, 1.0, NULL);
     if (timezones_loaded)
@@ -1774,6 +1787,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     register_feature(pic_feature_passes());
     register_feature(pic_feature_tides());
     register_feature(pic_feature_hanotify());   /* no layer or applet */
+    register_feature(pic_feature_localbase());  /* regional imagery     */
     {
         int fi;
         for (fi = 0; fi < nfeatures; fi++)
@@ -1929,6 +1943,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 pic_config.qth_lat    = rconf.qth_lat;
                 pic_config.qth_lon    = rconf.qth_lon;
                 pic_config.rotate180  = (rconf.rotate == 180) ? 1 : 0;
+                pic_view_reload(time(NULL));
                 pic_config_recompute_viewport();
                 printf("display: center_lon=%.1f map_zoom=%.0f%% "
                        "view_center=(%.2f,%.2f) span=(%.1f,%.1f)°\n",
@@ -2108,6 +2123,21 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 }
             }
             base_valid = 0;
+        }
+
+        /* Global/local view cycle, or new regional imagery: redraw
+         * everything through the new viewport. */
+        {
+            static unsigned last_reg_gen;
+            unsigned rg = pic_regional_generation();
+            if (pic_view_update(now) || rg != last_reg_gen) {
+                int li;
+                last_reg_gen = rg;
+                pic_qth_invalidate();
+                for (li = 0; li < stack.count; li++)
+                    stack.layers[li].last_rendered = 0;
+                base_valid = 0;
+            }
         }
 
         /* Export ticker position for legend stacking — read under

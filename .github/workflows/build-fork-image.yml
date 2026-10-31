@@ -403,6 +403,9 @@ jobs:
         sudo rm /mnt/root/build-fork.sh
 
         sudo install -Dm755 pi-clock-dashboard-fork /mnt/root/usr/bin/pi-clock-dashboard
+        # Local-view detail data (Natural Earth 1:10m) for the renderer
+        sudo install -Dm644 renderer/geodata/localmap.dat /mnt/root/usr/share/pi-clock/localmap.dat
+        cp renderer/geodata/localmap.dat "$GITHUB_WORKSPACE/localmap.dat"
         # Standalone binaries for quick in-place updates (no reflash)
         cp /mnt/root/usr/bin/pi-clock "$GITHUB_WORKSPACE/pi-clock-armhf"
         cp pi-clock-dashboard-fork "$GITHUB_WORKSPACE/pi-clock-dashboard-armhf"
@@ -646,8 +649,8 @@ jobs:
         mv "/tmp/${IMAGE_PREFIX}-${VERSION}.rootfs.tar.xz" artifacts/
         mv "/tmp/${IMAGE_PREFIX}-${VERSION}.rootfs.tar.xz.sha256" artifacts/
         mv /tmp/manifest.txt artifacts/
-        mv pi-clock-armhf pi-clock-dashboard-armhf artifacts/
-        (cd artifacts && sha256sum pi-clock-armhf pi-clock-dashboard-armhf > binaries.sha256)
+        mv pi-clock-armhf pi-clock-dashboard-armhf localmap.dat artifacts/
+        (cd artifacts && sha256sum pi-clock-armhf pi-clock-dashboard-armhf localmap.dat > binaries.sha256)
 
         echo "Artifacts:"
         ls -lh artifacts/
@@ -675,6 +678,7 @@ jobs:
           artifacts/manifest.txt
           artifacts/pi-clock-armhf
           artifacts/pi-clock-dashboard-armhf
+          artifacts/localmap.dat
           artifacts/binaries.sha256
         body: |
           # Pi-Clock OS - ${{ env.VERSION }}

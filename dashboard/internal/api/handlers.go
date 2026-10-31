@@ -181,6 +181,7 @@ var layerDefs = []struct {
 	{"daylight", "Day Map", true, 1.0},
 	{"basemap", "Night Map", true, 1.0},
 	{"borders", "Country Borders", true, 1.0},
+	{"localmap", "Local Detail (towns, state lines when zoomed)", true, 1.0},
 	{"grid", "Lat/Lon Grid", false, 1.0},
 	{"timezone", "Time Zones", true, 1.0},
 	{"cqzone", "CQ Zones", false, 1.0},

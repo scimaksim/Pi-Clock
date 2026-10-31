@@ -120,6 +120,53 @@
             </div>
         </div>
 
+        <!-- Global / local view -->
+        <div class="card" id="view-card">
+            <div class="card-title">Map View</div>
+            <p class="text-muted mb-8">Switch between the whole world and a close-up of your area, or alternate automatically. The local view uses sharper NASA imagery for the day/night maps and adds coastlines, state lines and towns (Local Detail layer). Local layers &mdash; aircraft, ships, light pollution, radar, fires, satellite clouds &mdash; fetch more detail when zoomed in. Changes apply immediately.</p>
+            <div class="form-group">
+                <label for="view_mode">View</label>
+                <select id="view_mode" class="form-control" data-conf="VIEW_MODE" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="global">World (uses Map Zoom above)</option>
+                    <option value="local">Local, centred on home</option>
+                    <option value="cycle">Auto-switch between world and local</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="local_zoom">Local View Size</label>
+                <select id="local_zoom" class="form-control" data-conf="LOCAL_ZOOM" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="4">4&times; &mdash; continent (~90&deg; wide)</option>
+                    <option value="6">6&times; &mdash; ~60&deg;</option>
+                    <option value="8">8&times; &mdash; eastern US (~45&deg;, default)</option>
+                    <option value="12">12&times; &mdash; ~30&deg;</option>
+                    <option value="16">16&times; &mdash; several states (~22&deg;)</option>
+                    <option value="20">20&times; &mdash; ~18&deg;</option>
+                    <option value="24">24&times; &mdash; closest (~15&deg;)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="view_global_min">Auto-switch: World For</label>
+                <select id="view_global_min" class="form-control" data-conf="VIEW_GLOBAL_MIN" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="1">1 minute</option><option value="2">2 minutes</option>
+                    <option value="5">5 minutes (default)</option><option value="10">10 minutes</option>
+                    <option value="15">15 minutes</option><option value="30">30 minutes</option>
+                    <option value="60">1 hour</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="view_local_min">Auto-switch: Local For</label>
+                <select id="view_local_min" class="form-control" data-conf="VIEW_LOCAL_MIN" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="1">1 minute</option><option value="2">2 minutes</option>
+                    <option value="5">5 minutes (default)</option><option value="10">10 minutes</option>
+                    <option value="15">15 minutes</option><option value="30">30 minutes</option>
+                    <option value="60">1 hour</option>
+                </select>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="LOCAL_TOWNS" onchange="saveRendererSettings('view-card', 'Map view')"> Town names in the local view</label>
+            </div>
+        </div>
+
         <!-- Layer Control -->
         <div class="card">
             <div class="card-title">Map Layers</div>

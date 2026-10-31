@@ -252,7 +252,7 @@ void pic_layer_render_ships(cairo_t *cr, int width, int height,
                             time_t now, void *ud)
 {
     double zoom = pic_zoom_factor();
-    double s = height / 260.0 * (1.0 + 0.4 * (zoom - 1.0));
+    double s = height / 260.0 * (1.0 + 0.4 * (pic_symbol_zoom() - 1.0));
     double fs = height / 95.0;
     int i, labels;
 

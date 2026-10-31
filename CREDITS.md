@@ -124,6 +124,13 @@ light-pollution estimate; skyglow falloff after Walker's law, colour
 bands after Falchi et al. (2016), World Atlas of Artificial Night Sky
 Brightness.
 
+**Natural Earth 1:10m vectors** — coastlines, boundaries, states and
+populated places for the Local Detail layer (public domain).
+https://www.naturalearthdata.com/
+
+**NASA GIBS Blue Marble Next Generation / VIIRS Black Marble** —
+regional base maps for the local view.
+
 **International Meteor Organization** — Meteor shower calendar.
 https://www.imo.net/
 

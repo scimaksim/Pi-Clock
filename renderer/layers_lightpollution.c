@@ -54,6 +54,8 @@ typedef struct {
     pthread_mutex_t  mutex;
     cairo_surface_t *image;
     double lon0, lon1, lat0, lat1;
+    cairo_surface_t *alt;        /* Previous view's image (cycling)  */
+    double alt_box[4];           /* lon0, lat0, lon1, lat1           */
     int    screen_w, screen_h;
     /* Home estimate */
     int    have_home;
@@ -290,6 +292,22 @@ static int lp_work(pic_feature_t *f)
     if (h > 1000) { w = w * 1000 / h; h = 1000; }
     if (w < 64 || h < 32) return 600;
 
+    /* Global/local cycling: the other view's image is kept, so
+     * switching back costs nothing (the data never changes). */
+    pthread_mutex_lock(&lp.mutex);
+    if (lp.alt && lp.alt_box[0] == lon0 && lp.alt_box[1] == lat0 &&
+        lp.alt_box[2] == lon1 && lp.alt_box[3] == lat1) {
+        cairo_surface_t *t = lp.image;
+        double ob[4] = { lp.lon0, lp.lat0, lp.lon1, lp.lat1 };
+        lp.image = lp.alt;
+        lp.lon0 = lon0; lp.lat0 = lat0; lp.lon1 = lon1; lp.lat1 = lat1;
+        lp.alt = t;
+        memcpy(lp.alt_box, ob, sizeof(ob));
+        pthread_mutex_unlock(&lp.mutex);
+        goto wait;
+    }
+    pthread_mutex_unlock(&lp.mutex);
+
     rad = fetch_radiance(lon0, lat0, lon1, lat1, w, h);
     if (!rad) {
         printf("lightpollution: fetch failed\n");
@@ -313,7 +331,10 @@ static int lp_work(pic_feature_t *f)
         }
         cairo_surface_mark_dirty(img);
         pthread_mutex_lock(&lp.mutex);
-        if (lp.image) cairo_surface_destroy(lp.image);
+        if (lp.alt) cairo_surface_destroy(lp.alt);
+        lp.alt = lp.image;   /* keep the previous view's image */
+        lp.alt_box[0] = lp.lon0; lp.alt_box[1] = lp.lat0;
+        lp.alt_box[2] = lp.lon1; lp.alt_box[3] = lp.lat1;
         lp.image = img;
         lp.lon0 = lon0; lp.lon1 = lon1; lp.lat0 = lat0; lp.lat1 = lat1;
         pthread_mutex_unlock(&lp.mutex);
@@ -323,6 +344,7 @@ static int lp_work(pic_feature_t *f)
     }
     free(ratio);
 
+wait:
     /* The data is static (2016): only redo it when the view moves
      * (or retry the home estimate after 30 minutes if it failed) */
     for (s = 0; s < (have_home ? 6 * 3600 : 1800); s++) {
@@ -417,7 +439,8 @@ static void lp_stopped(pic_feature_t *f)
     (void)f;
     pthread_mutex_lock(&lp.mutex);
     if (lp.image) cairo_surface_destroy(lp.image);
-    lp.image = NULL;
+    if (lp.alt) cairo_surface_destroy(lp.alt);
+    lp.image = lp.alt = NULL;
     pthread_mutex_unlock(&lp.mutex);
 }
 

@@ -122,6 +122,13 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"AURORA_BANNER": boolSetting("1"),
 	"LP_NOTE":       boolSetting("1"),
 
+	// Global / local map view
+	"VIEW_MODE":       enumSetting("global", "global", "local", "cycle"),
+	"LOCAL_ZOOM":      enumSetting("8", "4", "6", "8", "12", "16", "20", "24"),
+	"VIEW_GLOBAL_MIN": intSetting("5", 1, 240),
+	"VIEW_LOCAL_MIN":  intSetting("5", 1, 240),
+	"LOCAL_TOWNS":     boolSetting("1"),
+
 	// Home Assistant phone alerts
 	"HA_NOTIFY_PASSES": boolSetting("1"),
 	"HA_NOTIFY_AURORA": boolSetting("1"),
