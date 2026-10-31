@@ -32,6 +32,7 @@ static struct {
     pthread_mutex_t  mutex;
     cairo_surface_t *image;
     double ext[4];
+    double span;
     int    hours, screen_w;
     time_t fetched;
 } rn;
@@ -80,6 +81,7 @@ static int rain_work(pic_feature_t *f)
     if (rn.image) cairo_surface_destroy(rn.image);
     rn.image = img;
     memcpy(rn.ext, ext, sizeof(ext));
+    rn.span = span;
     rn.fetched = time(NULL);
     pthread_mutex_unlock(&rn.mutex);
     printf("rainfall: %dh totals %dx%d\n", hours, w, h);
@@ -112,7 +114,7 @@ void pic_layer_render_rainfall(cairo_t *cr, int width, int height,
     (void)now; (void)ud;
     pthread_mutex_lock(&rn.mutex);
     rn.screen_w = width;
-    if (!rn.image) {
+    if (!rn.image || pic_view_zoomed_out_since(rn.span)) {
         pthread_mutex_unlock(&rn.mutex);
         return;
     }

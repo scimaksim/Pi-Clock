@@ -133,6 +133,9 @@ func main() {
 		r.Post("/ha-webhook/test", api.TestHAWebhook())
 
 		// Applet settings
+		r.Get("/settings/export", api.ExportSettings())
+		r.Post("/settings/import", api.ImportSettings(cfg))
+
 		r.Get("/applets", api.GetApplets())
 		r.Put("/applets", api.PutApplets())
 

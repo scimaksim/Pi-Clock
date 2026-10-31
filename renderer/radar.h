@@ -35,6 +35,7 @@ typedef struct {
     int              show_time; /* Draw "Radar hh:mm" stamp             */
     int              screen_w;  /* Output width, set by the renderer    */
     double           ext[4];    /* W, S, E, N actually covered by image  */
+    double           span;      /* view_span_lon the image was made for  */
     pthread_mutex_t  mutex;
 } pic_radar_t;
 

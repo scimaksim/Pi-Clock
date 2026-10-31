@@ -50,6 +50,7 @@ typedef struct {
     pthread_mutex_t  mutex;
     cairo_surface_t *image;     /* Premultiplied ARGB cloud overlay  */
     double lon0, lon1, lat0, lat1;
+    double span;                /* view_span_lon the image was made for */
     int    enhanced;
     int    screen_w, screen_h;
     time_t fetched;
@@ -152,10 +153,10 @@ static int blit_png(const char *path, cairo_surface_t *dst, int x0,
 
 static int satclouds_work(pic_feature_t *f)
 {
+    unsigned gen = pic_config.viewport_gen;
     double span = pic_config.view_span_lon, span_lat = pic_config.view_span_lat;
     double lon0, lon1, lat0, lat1;
     int sw, sh, enhanced, W, H, i, k, ok = 0;
-    unsigned gen = pic_config.viewport_gen;
     cairo_surface_t *img;
 
     (void)f;
@@ -206,12 +207,13 @@ static int satclouds_work(pic_feature_t *f)
             /*
              * GIBS's newest time steps are often still being ingested
              * and come back with whole tiles missing. Ask for a time
-             * ~80 minutes old, then patch any gaps from up to three
+             * ~80 minutes old, then patch any gaps from up to five
              * earlier 10-minute steps.
              */
             have = calloc((size_t)(x1 - x0) * H, 1);
             if (!have) continue;
-            for (tries = 0; tries < 4 && !pic_feature_interrupted(f); tries++) {
+            for (tries = 0; tries < 6 && !pic_feature_interrupted(f) &&
+                            pic_config.viewport_gen == gen; tries++) {
                 time_t t = time(NULL) - 80 * 60 - tries * 600;
                 struct tm tm;
                 int g;
@@ -239,6 +241,11 @@ static int satclouds_work(pic_feature_t *f)
     }
     cairo_surface_mark_dirty(img);
 
+    if (pic_config.viewport_gen != gen) {
+        /* The view changed mid-fetch: this image is for the old one */
+        cairo_surface_destroy(img);
+        return 1;
+    }
     if (!ok) {
         cairo_surface_destroy(img);
         printf("satclouds: fetch failed\n");
@@ -250,6 +257,7 @@ static int satclouds_work(pic_feature_t *f)
         cairo_surface_t *old = sc.image;
         sc.image = img;
         sc.lon0 = lon0; sc.lon1 = lon1; sc.lat0 = lat0; sc.lat1 = lat1;
+        sc.span = span;
         sc.fetched = time(NULL);
         if (old) cairo_surface_destroy(old);
     }
@@ -292,7 +300,7 @@ void pic_layer_render_satclouds(cairo_t *cr, int width, int height,
     pthread_mutex_lock(&sc.mutex);
     sc.screen_w = width;
     sc.screen_h = height;
-    if (!sc.image) {
+    if (!sc.image || pic_view_zoomed_out_since(sc.span)) {
         pthread_mutex_unlock(&sc.mutex);
         return;
     }

@@ -666,9 +666,83 @@ function loadLayers() {
             configCards[rsName] = rendererSettingCards[rsName];
         }
 
+        /* Search box + collapsible category groups. Rows go into the
+         * group for layer.category; groups appear in a fixed order and
+         * the open/closed state is remembered per browser. */
+        var search = document.createElement('input');
+        search.type = 'search';
+        search.className = 'layer-search';
+        search.placeholder = 'Search layers…';
+        search.setAttribute('aria-label', 'Search layers');
+        container.appendChild(search);
+
+        var catOrder = ['Base Map', 'Weather', 'Hazards', 'Sky & Space',
+                        'Traffic & Wildlife', 'Overlays & Clock', 'Ham Radio', 'Other'];
+        var openCats = {};
+        try { openCats = JSON.parse(localStorage.getItem('piclock.layerCats') || '{}'); } catch (e) {}
+        var groups = {};
+        function groupFor(cat) {
+            if (groups[cat]) return groups[cat];
+            var det = document.createElement('details');
+            det.className = 'layer-group';
+            det.setAttribute('data-cat', cat);
+            det.open = openCats[cat] !== false;
+            var sum = document.createElement('summary');
+            var title = document.createElement('span');
+            title.textContent = cat;
+            var count = document.createElement('span');
+            count.className = 'layer-group-count';
+            sum.appendChild(title);
+            sum.appendChild(count);
+            det.appendChild(sum);
+            det.addEventListener('toggle', function() {
+                if (det.getAttribute('data-searching')) return;
+                openCats[cat] = det.open;
+                try { localStorage.setItem('piclock.layerCats', JSON.stringify(openCats)); } catch (e) {}
+            });
+            groups[cat] = det;
+            return det;
+        }
+        function updateCounts() {
+            Object.keys(groups).forEach(function(cat) {
+                var det = groups[cat];
+                var rows = det.querySelectorAll('.layer-row');
+                var on = 0;
+                rows.forEach(function(r) {
+                    var cb = r.querySelector('input[type="checkbox"]');
+                    if (!cb || cb.checked) on++;
+                });
+                det.querySelector('.layer-group-count').textContent = on + ' / ' + rows.length + ' on';
+            });
+        }
+        search.addEventListener('input', function() {
+            var q = this.value.trim().toLowerCase();
+            Object.keys(groups).forEach(function(cat) {
+                var det = groups[cat];
+                var shown = 0;
+                det.querySelectorAll('.layer-row').forEach(function(r) {
+                    var hit = !q || (r.getAttribute('data-search') || '').indexOf(q) >= 0;
+                    r.style.display = hit ? '' : 'none';
+                    if (hit) shown++;
+                });
+                det.style.display = shown ? '' : 'none';
+                if (q) {
+                    det.setAttribute('data-searching', '1');
+                    det.open = true;
+                } else if (det.getAttribute('data-searching')) {
+                    det.open = openCats[cat] !== false;
+                    /* toggle fires async; clear the flag after it */
+                    setTimeout(function() { det.removeAttribute('data-searching'); }, 0);
+                }
+            });
+        });
+        container.addEventListener('change', updateCounts);
+
         layers.forEach(function(layer) {
             var row = document.createElement('div');
             row.className = 'layer-row';
+            row.setAttribute('data-search',
+                (layer.label + ' ' + layer.name + ' ' + (layer.category || '')).toLowerCase());
 
             var opacityPct = Math.round(layer.opacity * 100);
 
@@ -754,7 +828,7 @@ function loadLayers() {
                 }
             }
 
-            container.appendChild(row);
+            groupFor(layer.category || 'Other').appendChild(row);
             layerState[layer.name] = layer.enabled;
 
             /* Link satellite/ticker card visibility to layer toggles */
@@ -823,6 +897,11 @@ function loadLayers() {
                 });
             }
         });
+
+        catOrder.concat(Object.keys(groups)).forEach(function(cat) {
+            if (groups[cat] && !groups[cat].parentNode) container.appendChild(groups[cat]);
+        });
+        updateCounts();
 
         /* Check RAM budget now that all toggles are built */
         updateRamWarning();
@@ -1867,4 +1946,54 @@ function setupMapZoom() {
             toast('Failed to save zoom', 'error');
         });
     });
+}
+
+
+// ── Backup & restore ────────────────────────────────────────
+function exportSettings() {
+    var keys = document.getElementById('backup-keys');
+    var url = '/api/settings/export' + (keys && keys.checked ? '?keys=1' : '');
+    fetch(url, {credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}})
+    .then(function(r) {
+        if (r.status === 401) { window.location.href = '/login'; throw new Error('unauthorized'); }
+        if (!r.ok) throw new Error('Export failed');
+        var cd = r.headers.get('Content-Disposition') || '';
+        var m = cd.match(/filename="([^"]+)"/);
+        return r.blob().then(function(b) { return {blob: b, name: m ? m[1] : 'pi-clock-settings.json'}; });
+    }).then(function(res) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(res.blob);
+        a.download = res.name;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        toast('Settings exported');
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function importSettings(input) {
+    var file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > 256 * 1024) { toast('That file is too large to be a settings file', 'error'); return; }
+    var reader = new FileReader();
+    reader.onload = function() {
+        var data;
+        try { data = JSON.parse(reader.result); } catch (e) {
+            toast('That isn\'t a Pi-Clock settings file', 'error'); return;
+        }
+        if (!data || data.format !== 'pi-clock-settings') {
+            toast('That isn\'t a Pi-Clock settings file', 'error'); return;
+        }
+        var msg = 'Replace this Pi-Clock\'s settings with the ones in ' + file.name;
+        if (data.host) msg += ' (from ' + data.host + ')';
+        msg += '?';
+        if (data.secrets && Object.keys(data.secrets).length) msg += '\n\nThe file also contains API keys; they will be installed.';
+        if (!confirm(msg)) return;
+        apiCall('POST', '/api/settings/import', data).then(function(res) {
+            toast('Imported ' + res.settings + ' settings' + (res.keys ? ' and ' + res.keys + ' keys' : '') + '. Reloading\u2026');
+            setTimeout(function() { window.location.reload(); }, 1500);
+        }).catch(function(e) { toast(e.message, 'error'); });
+    };
+    reader.readAsText(file);
 }

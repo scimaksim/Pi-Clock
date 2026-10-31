@@ -929,6 +929,18 @@
             </div>
         </div>
 
+        <!-- Backup & Restore -->
+        <div class="card" id="backup-card">
+            <div class="card-title">Backup &amp; Restore Settings</div>
+            <p class="text-muted">Save every layer, panel, map-view and renderer setting to one file, then load it on another Pi-Clock to make it look the same. Password, WiFi and hostname aren't included; set those when you flash the card.</p>
+            <label class="checkbox-label"><input type="checkbox" id="backup-keys"> Include API keys and the Home Assistant webhook (keep the file private)</label>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="exportSettings()">Export settings</button>
+                <button class="btn btn-sm" onclick="document.getElementById('import-file').click()">Import settings&hellip;</button>
+                <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importSettings(this)">
+            </div>
+        </div>
+
         <!-- System Information -->
         <div class="grid-2">
             <div class="card">

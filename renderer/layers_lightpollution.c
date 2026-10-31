@@ -427,6 +427,13 @@ void pic_layer_render_lightpollution(cairo_t *cr, int width, int height,
     }
     span = pic_config.view_span_lon;
     if (span < 0.0001) span = 360.0;
+    /* Zoomed out since this image was made (it covers the old view
+     * plus a margin): skip it rather than show a box until the
+     * refetch for the new view is ready. */
+    if (span > (lp.lon1 - lp.lon0) * 1.02) {
+        pthread_mutex_unlock(&lp.mutex);
+        return;
+    }
     ppd = width / span;
     world = 360.0 * ppd;
     w_px = (lp.lon1 - lp.lon0) * ppd;

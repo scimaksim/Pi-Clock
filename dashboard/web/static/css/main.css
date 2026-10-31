@@ -301,6 +301,55 @@ select.form-control {
     border-bottom: none;
 }
 
+.layer-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+}
+
+.layer-group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    padding: 0 10px;
+}
+
+.layer-group > summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 0;
+    cursor: pointer;
+    font-weight: 600;
+    list-style: none;
+}
+
+.layer-group > summary::-webkit-details-marker { display: none; }
+
+.layer-group > summary::before {
+    content: "\25B8";
+    margin-right: 8px;
+    transition: transform 0.15s;
+}
+
+.layer-group[open] > summary::before { transform: rotate(90deg); }
+
+.layer-group > summary > span:first-child { flex: 1; }
+
+.layer-group-count {
+    font-weight: 400;
+    font-size: 12px;
+    opacity: 0.65;
+}
+
+.layer-group[open] > summary { border-bottom: 1px solid var(--border); }
+
 /*
  * Toggle switch — pure CSS sliding toggle built from a hidden checkbox
  * and a styled .slider span. The checkbox stays in the DOM for form

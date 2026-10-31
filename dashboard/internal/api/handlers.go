@@ -227,6 +227,28 @@ var layerDefs = []struct {
 	{"hud", "Clock / HUD", true, 1.0},
 }
 
+// layerCategory groups layers in the dashboard list. Layers missing here
+// fall into "Other" so a new layer never disappears from the UI.
+var layerCategory = map[string]string{
+	"daylight": "Base Map", "basemap": "Base Map", "borders": "Base Map",
+	"localmap": "Base Map", "grid": "Base Map", "timezone": "Base Map",
+	"twilight": "Base Map", "lightpollution": "Base Map",
+	"qth": "Overlays & Clock", "sun": "Overlays & Clock", "moon": "Overlays & Clock",
+	"ticker": "Overlays & Clock", "hud": "Overlays & Clock",
+	"radar": "Weather", "satclouds": "Weather", "cloud": "Weather",
+	"precip": "Weather", "rainfall": "Weather", "wind": "Weather",
+	"airquality": "Weather", "lightning": "Weather",
+	"wxalerts": "Hazards", "spc": "Hazards", "lsr": "Hazards",
+	"storms": "Hazards", "rivers": "Hazards", "drought": "Hazards",
+	"fires": "Hazards", "earthquakes": "Hazards", "volcanoes": "Hazards",
+	"satellites": "Sky & Space", "passes": "Sky & Space", "starlink": "Sky & Space",
+	"launches": "Sky & Space", "dsn": "Sky & Space", "planets": "Sky & Space",
+	"aurora": "Sky & Space", "aurorawatch": "Sky & Space", "darksites": "Sky & Space",
+	"aircraft": "Traffic & Wildlife", "ships": "Traffic & Wildlife", "ebird": "Traffic & Wildlife",
+	"cqzone": "Ham Radio", "ituzone": "Ham Radio", "maidenhead": "Ham Radio",
+	"bandconditions": "Ham Radio", "dxspots": "Ham Radio",
+}
+
 // layersConfPath is on the persistent /data partition so it survives OS
 // upgrades. The renderer checks for changes via the pi-clock-reload trigger file.
 const layersConfPath = "/data/etc/pi-clock-layers.conf"
@@ -252,11 +274,19 @@ func GetLayers() http.HandlerFunc {
 				"label":   def.Label,
 				"enabled": enabled,
 				"opacity": opacity,
+				"category": layerCat(def.Name),
 			})
 		}
 
 		jsonResponse(w, http.StatusOK, layers)
 	}
+}
+
+func layerCat(name string) string {
+	if c, ok := layerCategory[name]; ok {
+		return c
+	}
+	return "Other"
 }
 
 // PutLayers saves layer settings and signals the renderer.

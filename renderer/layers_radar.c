@@ -11,6 +11,7 @@
 #include "layer.h"
 #include "config.h"
 #include "radar.h"
+#include "feature.h"
 #include <cairo/cairo.h>
 #include <math.h>
 #include <stdio.h>
@@ -30,7 +31,7 @@ void pic_layer_render_radar(cairo_t *cr, int width, int height,
 
     pthread_mutex_lock(&d->mutex);
     d->screen_w = width;
-    if (!d->image) {
+    if (!d->image || pic_view_zoomed_out_since(d->span)) {
         pthread_mutex_unlock(&d->mutex);
         return;
     }

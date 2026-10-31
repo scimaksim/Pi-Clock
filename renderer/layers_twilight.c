@@ -109,8 +109,16 @@ void pic_layer_render_twilight(cairo_t *cr, int width, int height,
     }
 }
 
+static void twilight_key(cairo_t *cr, int width, int height, time_t now, void *ud)
+{
+    (void)cr; (void)width; (void)height; (void)now; (void)ud;
+    pic_map_key_add("Sunrise / sunset", lines[0].r, lines[0].g, lines[0].b, 1, 0);
+    pic_map_key_add("Twilight (civil, nautical, astro)", lines[2].r, lines[2].g, lines[2].b, 1, 1);
+}
+
 static pic_feature_t def = {
     .name = "twilight", .layer = pic_layer_render_twilight, .interval = 60,
+    .legend = twilight_key,
 };
 
 pic_feature_t *pic_feature_twilight(void)

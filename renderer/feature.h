@@ -18,6 +18,7 @@
 #include <time.h>
 #include "layer.h"
 #include "applet.h"
+#include "config.h"
 
 typedef struct pic_feature pic_feature_t;
 
@@ -143,5 +144,29 @@ void pic_fit_text(cairo_t *cr, char *text, double max_w);
  * cr may be NULL (measure only). Returns the height used.
  */
 double pic_applet_title(cairo_t *cr, double width, const char *title);
+
+/*
+ * Map key: a single row along the bottom of the map explaining the
+ * lines currently drawn. Legend callbacks add entries each frame
+ * (duplicates are ignored); display.c draws the row once after all
+ * legends and clears it. Main thread only.
+ */
+void pic_map_key_add(const char *label, double r, double g, double b,
+                     double a, int dashed);
+/* bottom: y the row must stay above (ticker top), or 0 */
+void pic_map_key_draw(cairo_t *cr, int width, int height, double bottom);
+
+/*
+ * True when the view has zoomed out since an image was fetched for a
+ * view `fetched_span` degrees wide. Drawing it then shows a small
+ * rectangle of data in the middle of the map, so callers skip the
+ * image until the refetch for the new view lands.
+ */
+static inline int pic_view_zoomed_out_since(double fetched_span)
+{
+    double span = pic_config.view_span_lon;
+    if (span < 0.0001) span = 360.0;
+    return fetched_span > 0 && span > fetched_span * 1.2;
+}
 
 #endif /* PIC_FEATURE_H */

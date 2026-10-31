@@ -2228,6 +2228,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
 
             /* Draw legends at full opacity — not affected by layer opacity */
             pic_layer_stack_render_legends(&stack, cr, now);
+            pic_map_key_draw(cr, width, height, pic_ticker_bar_top);
 
             /* Paint just the HUD layer — clock text, very cheap */
             for (li = 0; li < stack.count; li++) {

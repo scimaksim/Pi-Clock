@@ -140,6 +140,7 @@ static void *radar_thread_func(void *arg)
             if (img) {
                 pthread_mutex_lock(&cfg_data->mutex);
                 memcpy(cfg_data->ext, ext, sizeof(ext));
+                cfg_data->span = pic_config.view_span_lon;
                 pthread_mutex_unlock(&cfg_data->mutex);
             }
         }

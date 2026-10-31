@@ -341,6 +341,10 @@ void pic_layer_render_aurorawatch_banner(cairo_t *cr, int width, int height,
 
     (void)ud;
     pthread_mutex_lock(&aw.mutex);
+    if (aw.have_ovation) {
+        pic_map_key_add("Aurora seen on horizon (SWPC)", 1.0, 0.25, 0.25, 0.85, 0);
+        pic_map_key_add("Aurora in photos", 1.0, 0.55, 0.55, 0.6, 1);
+    }
     if (!aw.banner) {
         pthread_mutex_unlock(&aw.mutex);
         return;

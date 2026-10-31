@@ -264,3 +264,87 @@ double pic_applet_title(cairo_t *cr, double width, const char *title)
     }
     return fs * 1.5;
 }
+
+
+/* ── Map key ───────────────────────────────────────────────── */
+#define MAP_KEY_MAX 10
+static struct {
+    char   label[48];
+    double r, g, b, a;
+    int    dashed;
+} map_key[MAP_KEY_MAX];
+static int map_key_n;
+
+void pic_map_key_add(const char *label, double r, double g, double b,
+                     double a, int dashed)
+{
+    int i;
+    for (i = 0; i < map_key_n; i++)
+        if (strcmp(map_key[i].label, label) == 0) return;
+    if (map_key_n >= MAP_KEY_MAX) return;
+    snprintf(map_key[map_key_n].label, sizeof(map_key[0].label), "%s", label);
+    map_key[map_key_n].r = r; map_key[map_key_n].g = g;
+    map_key[map_key_n].b = b; map_key[map_key_n].a = a;
+    map_key[map_key_n].dashed = dashed;
+    map_key_n++;
+}
+
+static void key_rrect(cairo_t *cr, double x, double y, double w, double h, double r)
+{
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, x + w - r, y + r, r, -M_PI / 2, 0);
+    cairo_arc(cr, x + w - r, y + h - r, r, 0, M_PI / 2);
+    cairo_arc(cr, x + r, y + h - r, r, M_PI / 2, M_PI);
+    cairo_arc(cr, x + r, y + r, r, M_PI, 3 * M_PI / 2);
+    cairo_close_path(cr);
+}
+
+void pic_map_key_draw(cairo_t *cr, int width, int height, double bottom)
+{
+    double fs = height / 90.0, sw = fs * 2.2, gap = fs * 1.2, pad = fs * 0.6;
+    double total = 0, x, y, h = fs * 1.7;
+    int i, n = map_key_n;
+
+    map_key_n = 0;
+    if (n == 0) return;
+    cairo_save(cr);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                           CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, fs);
+    for (i = 0; i < n; i++) {
+        cairo_text_extents_t e;
+        cairo_text_extents(cr, map_key[i].label, &e);
+        total += sw + fs * 0.5 + e.x_advance + (i ? gap : 0);
+    }
+    x = (width - total) / 2.0;
+    /* Just above the bottom edge, or above the news ticker if shown */
+    y = (bottom > 0 && bottom < height ? bottom : height) - h - fs * 0.4;
+
+    cairo_new_path(cr);
+    key_rrect(cr, x - pad, y, total + pad * 2, h, h * 0.3);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.55);
+    cairo_fill(cr);
+
+    for (i = 0; i < n; i++) {
+        cairo_text_extents_t e;
+        double my = y + h / 2.0;
+        double dsh[2] = { fs * 0.45, fs * 0.35 };
+        if (i) x += gap;
+        cairo_new_path(cr);
+        cairo_move_to(cr, x, my);
+        cairo_line_to(cr, x + sw, my);
+        cairo_set_dash(cr, dsh, map_key[i].dashed ? 2 : 0, 0);
+        cairo_set_line_width(cr, fs * 0.22);
+        cairo_set_source_rgba(cr, map_key[i].r, map_key[i].g, map_key[i].b,
+                              map_key[i].a < 0.8 ? 0.9 : map_key[i].a);
+        cairo_stroke(cr);
+        cairo_set_dash(cr, NULL, 0, 0);
+        x += sw + fs * 0.5;
+        cairo_text_extents(cr, map_key[i].label, &e);
+        cairo_set_source_rgba(cr, 0.88, 0.9, 0.95, 0.95);
+        cairo_move_to(cr, x, my + fs * 0.35);
+        cairo_show_text(cr, map_key[i].label);
+        x += e.x_advance;
+    }
+    cairo_restore(cr);
+}
