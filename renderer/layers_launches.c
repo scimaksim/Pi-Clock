@@ -17,6 +17,7 @@
  */
 
 #include "feature.h"
+#include "sat_icons.h"
 #include "config.h"
 #include "fetch.h"
 #include "json.h"
@@ -156,34 +157,6 @@ static int is_near(const launch_t *L)
                        L->lat, L->lon) < NEAR_KM;
 }
 
-static void draw_rocket(cairo_t *cr, double x, double y, double s,
-                        double r, double g, double b)
-{
-    /* Body pointing up, base at (x, y) */
-    cairo_new_path(cr);
-    cairo_move_to(cr, x, y - s * 1.6);
-    cairo_curve_to(cr, x + s * 0.45, y - s * 1.1, x + s * 0.35, y - s * 0.4, x + s * 0.3, y - s * 0.2);
-    cairo_line_to(cr, x + s * 0.6, y + s * 0.1);
-    cairo_line_to(cr, x + s * 0.25, y);
-    cairo_line_to(cr, x - s * 0.25, y);
-    cairo_line_to(cr, x - s * 0.6, y + s * 0.1);
-    cairo_line_to(cr, x - s * 0.3, y - s * 0.2);
-    cairo_curve_to(cr, x - s * 0.35, y - s * 0.4, x - s * 0.45, y - s * 1.1, x, y - s * 1.6);
-    cairo_close_path(cr);
-    cairo_set_source_rgba(cr, r, g, b, 0.95);
-    cairo_fill_preserve(cr);
-    cairo_set_source_rgba(cr, 0, 0, 0, 0.85);
-    cairo_set_line_width(cr, s * 0.12);
-    cairo_stroke(cr);
-    /* Flame */
-    cairo_move_to(cr, x - s * 0.18, y + s * 0.05);
-    cairo_line_to(cr, x, y + s * 0.55);
-    cairo_line_to(cr, x + s * 0.18, y + s * 0.05);
-    cairo_close_path(cr);
-    cairo_set_source_rgba(cr, 1.0, 0.6, 0.1, 0.9);
-    cairo_fill(cr);
-}
-
 void pic_layer_render_launches(cairo_t *cr, int width, int height,
                                time_t now, void *ud)
 {
@@ -234,8 +207,16 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
                 cairo_fill(cr);
                 cairo_pattern_destroy(p);
             }
-            draw_rocket(cr, x, y, s, near ? 1.0 : 0.92, near ? 0.9 : 0.92,
-                        near ? 0.45 : 0.95);
+            /* Silhouette of the actual vehicle (Falcon 9, Starship,
+             * Electron...), lit when it's launching within the hour */
+            /* Real rockets are very slender; widen a little so the
+             * shape still reads at map size */
+            cairo_save(cr);
+            cairo_translate(cr, x, y);
+            cairo_scale(cr, 1.6, 1.0);
+            pic_draw_rocket_icon(cr, L->rocket, 0, 0, s * 3.4,
+                                 L->net <= now + 3600);
+            cairo_restore(cr);
         }
 
         if (!ll.labels) continue;
@@ -298,10 +279,12 @@ double pic_applet_render_launches(cairo_t *cr, double width, time_t now,
         cairo_set_font_size(cr, fs);
         snprintf(line, sizeof(line), "%s%s  %s", near ? "\xe2\x98\x85 " : "",
                  when, L->rocket);
-        pic_fit_text(cr, line, width - fs * 2.2);
+        pic_fit_text(cr, line, width - fs * 3.4);
+        pic_draw_rocket_icon(cr, L->rocket, fs * 0.45, y + line_h * 1.75,
+                             line_h * 1.75, 0);
         if (near) cairo_set_source_rgba(cr, 1.0, 0.85, 0.4, 0.95);
         else      cairo_set_source_rgba(cr, 0.9, 0.9, 0.92, 0.95);
-        cairo_move_to(cr, 0, y + fs);
+        cairo_move_to(cr, fs * 1.2, y + fs);
         cairo_show_text(cr, line);
 
         /* Status chip at the right */
@@ -319,9 +302,9 @@ double pic_applet_render_launches(cairo_t *cr, double width, time_t now,
                                CAIRO_FONT_WEIGHT_NORMAL);
         cairo_set_font_size(cr, fs * 0.85);
         snprintf(line, sizeof(line), "%s \xc2\xb7 %s", L->mission, L->pad);
-        pic_fit_text(cr, line, width);
+        pic_fit_text(cr, line, width - fs * 1.4);
         cairo_set_source_rgba(cr, 0.65, 0.68, 0.75, 0.9);
-        cairo_move_to(cr, fs * 0.2, y + fs + line_h * 0.85);
+        cairo_move_to(cr, fs * 1.4, y + fs + line_h * 0.85);
         cairo_show_text(cr, line);
         y += line_h * 2.0;
     }

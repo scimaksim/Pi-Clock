@@ -15,6 +15,7 @@
 #include "layer.h"
 #include "config.h"
 #include "satellite.h"
+#include "sat_icons.h"
 #include <cairo/cairo.h>
 #include <math.h>
 #include <string.h>
@@ -150,54 +151,10 @@ void pic_layer_render_satellite(cairo_t *cr, int width, int height,
             cairo_set_dash(cr, NULL, 0, 0);
         }
 
-        /* Satellite icon — body + two solar panel wings */
-        {
-            double s = dot_r * 1.2;  /* Scale unit */
-            double angle = 0.4;      /* Slight tilt (radians) */
-
-            cairo_save(cr);
-            cairo_translate(cr, x, y);
-            cairo_rotate(cr, angle);
-
-            /* Solar panel left */
-            cairo_rectangle(cr, -s * 3.0, -s * 0.6, s * 1.8, s * 1.2);
-            cairo_set_source_rgba(cr, 0.2, 0.3, 0.7, 0.85);
-            cairo_fill(cr);
-
-            /* Solar panel right */
-            cairo_rectangle(cr, s * 1.2, -s * 0.6, s * 1.8, s * 1.2);
-            cairo_set_source_rgba(cr, 0.2, 0.3, 0.7, 0.85);
-            cairo_fill(cr);
-
-            /* Panel grid lines */
-            cairo_set_source_rgba(cr, 0.4, 0.5, 0.9, 0.5);
-            cairo_set_line_width(cr, s * 0.08);
-            cairo_move_to(cr, -s * 2.1, -s * 0.6);
-            cairo_line_to(cr, -s * 2.1, s * 0.6);
-            cairo_move_to(cr, s * 2.1, -s * 0.6);
-            cairo_line_to(cr, s * 2.1, s * 0.6);
-            cairo_stroke(cr);
-
-            /* Body (centre rectangle) */
-            cairo_rectangle(cr, -s * 1.0, -s * 0.7, s * 2.0, s * 1.4);
-            cairo_set_source_rgba(cr, cr_r, cr_g, cr_b, 0.9);
-            cairo_fill(cr);
-
-            /* Body outline */
-            cairo_rectangle(cr, -s * 1.0, -s * 0.7, s * 2.0, s * 1.4);
-            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.5);
-            cairo_set_line_width(cr, s * 0.12);
-            cairo_stroke(cr);
-
-            /* Antenna nub */
-            cairo_move_to(cr, 0, -s * 0.7);
-            cairo_line_to(cr, 0, -s * 1.4);
-            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.6);
-            cairo_set_line_width(cr, s * 0.15);
-            cairo_stroke(cr);
-
-            cairo_restore(cr);
-        }
+        /* Satellite icon: ISS / Tiangong / Hubble silhouettes, or a
+         * generic body-and-panels satellite tinted with its colour */
+        pic_draw_sat_icon(cr, sat->name[0] ? sat->name : sat->config_key,
+                          x, y, dot_r * 8.0, 0.35, cr_r, cr_g, cr_b);
 
         /* Name + altitude label */
         {

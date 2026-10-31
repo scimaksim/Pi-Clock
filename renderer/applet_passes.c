@@ -15,6 +15,7 @@
  */
 
 #include "feature.h"
+#include "sat_icons.h"
 #include "features_all.h"
 #include "astro.h"
 #include "config.h"
@@ -317,7 +318,15 @@ double pic_applet_render_passes(cairo_t *cr, double width, time_t now,
         if (live)                 cairo_set_source_rgba(cr, 0.5, 1.0, 0.6, 1.0);
         else if (p->max_el >= 40) cairo_set_source_rgba(cr, 1.0, 0.9, 0.5, 0.95);
         else                      cairo_set_source_rgba(cr, 0.9, 0.9, 0.92, 0.9);
-        cairo_move_to(cr, 0, y + fs);
+        pic_draw_sat_icon(cr, p->sat, fs * 0.8, y + fs * 0.62, fs * 1.6,
+                          0, 0.9, 0.9, 0.6);
+        cairo_set_source_rgba(cr, live ? 0.5 : p->max_el >= 40 ? 1.0 : 0.9,
+                              live ? 1.0 : p->max_el >= 40 ? 0.9 : 0.9,
+                              live ? 0.6 : p->max_el >= 40 ? 0.5 : 0.92, 1.0);
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                               CAIRO_FONT_WEIGHT_BOLD);
+        cairo_set_font_size(cr, fs);
+        cairo_move_to(cr, fs * 2.0, y + fs);
         cairo_show_text(cr, p->sat);
         cairo_text_extents(cr, when, &e);
         cairo_move_to(cr, width - e.x_advance, y + fs);
@@ -331,7 +340,7 @@ double pic_applet_render_passes(cairo_t *cr, double width, time_t now,
                  (int)((p->end - p->start + 30) / 60), (int)(p->max_el + 0.5),
                  compass(p->az_start), compass(p->az_end));
         cairo_set_source_rgba(cr, 0.65, 0.7, 0.78, 0.9);
-        cairo_move_to(cr, fs * 0.2, y + fs + line_h * 0.85);
+        cairo_move_to(cr, fs * 2.0, y + fs + line_h * 0.85);
         cairo_show_text(cr, line);
         y += line_h * 2.0;
     }
@@ -419,6 +428,19 @@ void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
             cairo_close_path(cr);
             cairo_fill(cr);
         }
+        /* Spacecraft icon where it is now (live) or where it rises */
+        {
+            double ix = x0, iy = y0;
+            if (live) {
+                double lat, lon, alt;
+                pic_sat_position_at(s, now, &lat, &lon, &alt);
+                ix = pic_lon_to_x(lon, width);
+                iy = pic_lat_to_y(lat, height);
+            }
+            if (ix > -50 && ix < width + 50 && iy > -50 && iy < height + 50)
+                pic_draw_sat_icon(cr, p->sat, ix, iy, fs * 3.4, 0,
+                                  1.0, 0.95, 0.6);
+        }
         if (live) snprintf(lab, sizeof(lab), "%s now", p->sat);
         else {
             pic_fmt_when(hm, sizeof(hm), now, p->start);
@@ -426,7 +448,7 @@ void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
                      (int)(p->max_el + 0.5));
         }
         if (x0 > -50 && x0 < width + 50 && y0 > -20 && y0 < height + 20)
-            pic_draw_text_pill(cr, x0 + 4, y0 - fs * 0.5, lab,
+            pic_draw_text_pill(cr, x0 + fs * 1.8, y0 - fs * 1.2, lab,
                                live ? 0.6 : 1.0, live ? 1.0 : 0.95, live ? 0.7 : 0.7, 0.55);
     }
     pthread_mutex_unlock(&ps.mutex);

@@ -53,7 +53,7 @@ SOURCES = main.c display.c layer.c solar.c lunar.c image.c config.c borders.c \
           airquality.c layers_airquality.c \
           starlink.c layers_starlink.c \
           aircraft.c layers_aircraft.c \
-          feature.c geopoly.c ws.c layers_spc.c layers_launches.c \
+          feature.c sat_icons.c geopoly.c ws.c layers_spc.c layers_launches.c \
           layers_dsn.c applet_passes.c layers_satclouds.c layers_fires.c \
           applet_tides.c layers_planets.c layers_ships.c \
           layers_aurorawatch.c layers_lightpollution.c ha_notify.c \
