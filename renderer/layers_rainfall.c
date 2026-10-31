@@ -31,6 +31,7 @@
 static struct {
     pthread_mutex_t  mutex;
     cairo_surface_t *image;
+    double ext[4];
     int    hours, screen_w;
     time_t fetched;
 } rn;
@@ -47,13 +48,11 @@ static int rain_work(pic_feature_t *f)
     hours = rn.hours;
     sw = rn.screen_w > 0 ? rn.screen_w : 1920;
     pthread_mutex_unlock(&rn.mutex);
-    if (span < 0.0001) span = 360;
-    w = (int)((RADAR_EAST - RADAR_WEST) / span * sw);
-    if (w < 360) w = 360;
-    if (w > 2400) w = 2400;
-    h = (int)lround(w * (RADAR_NORTH - RADAR_SOUTH) / (RADAR_EAST - RADAR_WEST));
-    snprintf(url, sizeof(url), MRMS_FMT, hours, RADAR_WEST, RADAR_SOUTH,
-             RADAR_EAST, RADAR_NORTH, w, h);
+    static const double full[4] = { RADAR_WEST, RADAR_SOUTH, RADAR_EAST, RADAR_NORTH };
+    double ext[4];
+    (void)span;
+    if (!pic_view_extent(full, sw, 2400, ext, &w, &h)) goto wait;   /* off-screen */
+    snprintf(url, sizeof(url), MRMS_FMT, hours, ext[0], ext[1], ext[2], ext[3], w, h);
     if (pic_fetch_to_file(url, RAIN_TMP, 60) == 0)
         img = pic_radar_decode_png(RAIN_TMP);
     unlink(RAIN_TMP);
@@ -80,9 +79,11 @@ static int rain_work(pic_feature_t *f)
     pthread_mutex_lock(&rn.mutex);
     if (rn.image) cairo_surface_destroy(rn.image);
     rn.image = img;
+    memcpy(rn.ext, ext, sizeof(ext));
     rn.fetched = time(NULL);
     pthread_mutex_unlock(&rn.mutex);
     printf("rainfall: %dh totals %dx%d\n", hours, w, h);
+wait:
 
     for (s = 0; s < 30 * 60; s++) {
         if (pic_feature_interrupted(f)) return 1;
@@ -119,10 +120,10 @@ void pic_layer_render_rainfall(cairo_t *cr, int width, int height,
     if (span < 0.0001) span = 360.0;
     ppd = width / span;
     world = 360.0 * ppd;
-    w_px = (RADAR_EAST - RADAR_WEST) * ppd;
-    x0 = pic_lon_to_x((RADAR_WEST + RADAR_EAST) / 2.0, width) - w_px / 2.0;
-    y0 = pic_lat_to_y(RADAR_NORTH, height);
-    y1 = pic_lat_to_y(RADAR_SOUTH, height);
+    w_px = (rn.ext[2] - rn.ext[0]) * ppd;
+    x0 = pic_lon_to_x((rn.ext[0] + rn.ext[2]) / 2.0, width) - w_px / 2.0;
+    y0 = pic_lat_to_y(rn.ext[3], height);
+    y1 = pic_lat_to_y(rn.ext[1], height);
     iw = cairo_image_surface_get_width(rn.image);
     ih = cairo_image_surface_get_height(rn.image);
     for (rep = -1; rep <= 1; rep++) {

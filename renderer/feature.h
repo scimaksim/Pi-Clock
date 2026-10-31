@@ -116,6 +116,15 @@ void pic_draw_text_pill(cairo_t *cr, double x, double y, const char *text,
 void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
                           const char *text, double r, double g, double b);
 
+/*
+ * Part of a fixed data extent worth fetching for the current view:
+ * the extent clipped to the viewport (plus a 15% margin), and the
+ * image size that gives about screen resolution (max_w cap). ext is
+ * {west, south, east, north}. Returns 0 if the extent is off-screen.
+ */
+int pic_view_extent(const double full[4], int screen_w, int max_w,
+                    double ext[4], int *w, int *h);
+
 /* Short relative time: "in 3h 20m", "in 2d 4h", "now" */
 void pic_fmt_until(char *out, int n, time_t now, time_t t);
 

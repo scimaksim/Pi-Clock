@@ -13,6 +13,7 @@
 #include "radar.h"
 #include "config.h"
 #include "fetch.h"
+#include "feature.h"
 #include "stb_image.h"   /* declarations only; implemented in image.c */
 #include <math.h>
 #include <stdio.h>
@@ -122,13 +123,26 @@ static void *radar_thread_func(void *arg)
         pthread_mutex_lock(&cfg_data->mutex);
         sw = cfg_data->screen_w;
         pthread_mutex_unlock(&cfg_data->mutex);
-        request_size(sw, &w, &h);
-        snprintf(url, sizeof(url), RADAR_WMS_FMT,
-                 RADAR_WEST, RADAR_SOUTH, RADAR_EAST, RADAR_NORTH, w, h);
-
-        if (pic_fetch_to_file(url, RADAR_TMP, 30) == 0)
-            img = pic_radar_decode_png(RADAR_TMP);
-        unlink(RADAR_TMP);
+        /* Only the part of the US mosaic that's on screen, at about
+         * screen resolution, so zooming in gets sharper radar */
+        {
+            static const double full[4] = { RADAR_WEST, RADAR_SOUTH, RADAR_EAST, RADAR_NORTH };
+            double ext[4];
+            if (!pic_view_extent(full, sw, MAX_IMAGE_W, ext, &w, &h)) {
+                memcpy(ext, full, sizeof(ext));
+                request_size(sw, &w, &h);
+            }
+            snprintf(url, sizeof(url), RADAR_WMS_FMT,
+                     ext[0], ext[1], ext[2], ext[3], w, h);
+            if (pic_fetch_to_file(url, RADAR_TMP, 30) == 0)
+                img = pic_radar_decode_png(RADAR_TMP);
+            unlink(RADAR_TMP);
+            if (img) {
+                pthread_mutex_lock(&cfg_data->mutex);
+                memcpy(cfg_data->ext, ext, sizeof(ext));
+                pthread_mutex_unlock(&cfg_data->mutex);
+            }
+        }
 
         if (img) {
             cairo_surface_t *old;

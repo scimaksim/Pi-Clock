@@ -42,11 +42,15 @@ void pic_layer_render_radar(cairo_t *cr, int width, int height,
 
     /* Position from the extent's centre so the image never splits at
      * the map edge, then repeat one world-width either side. */
-    cx = pic_lon_to_x((RADAR_WEST + RADAR_EAST) / 2.0, width);
-    w_px = (RADAR_EAST - RADAR_WEST) * ppd;
+    if (d->ext[2] <= d->ext[0]) {   /* not set yet: full extent */
+        d->ext[0] = RADAR_WEST; d->ext[1] = RADAR_SOUTH;
+        d->ext[2] = RADAR_EAST; d->ext[3] = RADAR_NORTH;
+    }
+    cx = pic_lon_to_x((d->ext[0] + d->ext[2]) / 2.0, width);
+    w_px = (d->ext[2] - d->ext[0]) * ppd;
     x0 = cx - w_px / 2.0;
-    y0 = pic_lat_to_y(RADAR_NORTH, height);
-    y1 = pic_lat_to_y(RADAR_SOUTH, height);
+    y0 = pic_lat_to_y(d->ext[3], height);
+    y1 = pic_lat_to_y(d->ext[1], height);
 
     iw = cairo_image_surface_get_width(d->image);
     ih = cairo_image_surface_get_height(d->image);

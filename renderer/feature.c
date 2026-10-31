@@ -152,6 +152,36 @@ void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
     pic_draw_text_pill(cr, (width - e.x_advance) / 2.0, y, text, r, g, b, 0.65);
 }
 
+int pic_view_extent(const double full[4], int screen_w, int max_w,
+                    double ext[4], int *w, int *h)
+{
+    double span = pic_config.view_span_lon, span_lat = pic_config.view_span_lat;
+    double v0, v1, s0, s1;
+
+    if (span < 0.0001) span = 360;
+    if (span_lat < 0.0001) span_lat = 180;
+    v0 = pic_config.view_center_lon - span * 0.65;
+    v1 = pic_config.view_center_lon + span * 0.65;
+    s0 = pic_config.view_center_lat - span_lat * 0.65;
+    s1 = pic_config.view_center_lat + span_lat * 0.65;
+    /* Wide or wrapping views: just use the whole extent */
+    if (span > 180 || v0 < -180 || v1 > 180) {
+        v0 = -180; v1 = 180; s0 = -90; s1 = 90;
+    }
+    ext[0] = full[0] > v0 ? full[0] : v0;
+    ext[2] = full[2] < v1 ? full[2] : v1;
+    ext[1] = full[1] > s0 ? full[1] : s0;
+    ext[3] = full[3] < s1 ? full[3] : s1;
+    if (ext[2] - ext[0] < 0.05 || ext[3] - ext[1] < 0.05) return 0;
+    *w = (int)((ext[2] - ext[0]) / span * (screen_w > 0 ? screen_w : 1920));
+    if (*w < 64) *w = 64;
+    if (*w > max_w) *w = max_w;
+    *h = (int)(*w * (ext[3] - ext[1]) / (ext[2] - ext[0]));
+    if (*h < 16) *h = 16;
+    if (*h > max_w) *h = max_w;
+    return 1;
+}
+
 void pic_fmt_until(char *out, int n, time_t now, time_t t)
 {
     long d = (long)(t - now);
