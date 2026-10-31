@@ -59,6 +59,9 @@ func patternSetting(def string, re *regexp.Regexp) rendererSetting {
 var (
 	noradListRe = regexp.MustCompile(`^[0-9]{1,6}(,[0-9]{1,6}){0,5}$`)
 	tideIDRe    = regexp.MustCompile(`^[A-Za-z0-9]{3,12}$`)
+	buoyListRe  = regexp.MustCompile(`^[A-Za-z0-9]{3,6}(,[A-Za-z0-9]{3,6}){0,3}$`)
+	// "Name:lat:lon;Name:lat:lon" — names without ; : = or newlines
+	darkSitesRe = regexp.MustCompile(`^[A-Za-z0-9 .'()-]{1,31}:-?[0-9]{1,2}(\.[0-9]+)?:-?[0-9]{1,3}(\.[0-9]+)?(;[A-Za-z0-9 .'()-]{1,31}:-?[0-9]{1,2}(\.[0-9]+)?:-?[0-9]{1,3}(\.[0-9]+)?){0,9}$`)
 )
 
 func hostPortSetting() rendererSetting {
@@ -128,6 +131,18 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"VIEW_GLOBAL_MIN": intSetting("5", 1, 240),
 	"VIEW_LOCAL_MIN":  intSetting("5", 1, 240),
 	"LOCAL_TOWNS":     boolSetting("1"),
+
+	// Local layers
+	"LSR_HOURS":       enumSetting("24", "6", "12", "24", "48"),
+	"LSR_FOG":         boolSetting("0"),
+	"RAIN_HOURS":      enumSetting("24", "1", "24", "48", "72"),
+	"RIVER_RADIUS_KM": intSetting("150", 25, 500),
+	"EBIRD_RADIUS_KM": intSetting("50", 5, 50),
+	"EBIRD_DAYS":      intSetting("3", 1, 30),
+	"COAST_BUOYS":     patternSetting("", buoyListRe),
+	"COAST_METRIC":    boolSetting("0"),
+	"PASS_MAP_HOURS":  intSetting("12", 1, 48),
+	"DARK_SITES":      patternSetting("", darkSitesRe),
 
 	// Home Assistant phone alerts
 	"HA_NOTIFY_PASSES": boolSetting("1"),

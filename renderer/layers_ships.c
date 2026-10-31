@@ -279,6 +279,7 @@ void pic_layer_render_ships(cairo_t *cr, int width, int height,
 
         if (v->sog < 0.5) {
             cairo_set_source_rgba(cr, 0.6, 0.65, 0.7, 0.8);
+            cairo_new_path(cr);
             cairo_arc(cr, x, y, s * 0.55, 0, 2 * M_PI);
             cairo_fill(cr);
             continue;

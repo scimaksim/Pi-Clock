@@ -131,6 +131,24 @@ https://www.naturalearthdata.com/
 **NASA GIBS Blue Marble Next Generation / VIIRS Black Marble** —
 regional base maps for the local view.
 
+**Iowa Environmental Mesonet** — NWS Local Storm Reports and NOAA
+MRMS precipitation totals. https://mesonet.agron.iastate.edu/
+
+**NOAA National Water Prediction Service** — river gauges and flood
+categories. https://water.noaa.gov/
+
+**U.S. Drought Monitor** — National Drought Mitigation Center, USDA,
+NOAA. https://droughtmonitor.unl.edu/
+
+**eBird** — Cornell Lab of Ornithology; notable observations API
+(user's own key). https://ebird.org/
+
+**NOAA National Data Buoy Center** — buoy observations.
+https://www.ndbc.noaa.gov/
+
+**Open-Meteo** — backyard forecast, soil temperature and site cloud
+cover. https://open-meteo.com/
+
 **International Meteor Organization** — Meteor shower calendar.
 https://www.imo.net/
 

@@ -45,7 +45,14 @@ var layerExtraMb = {
     'satclouds':      12,
     'aurorawatch':    2,
     'lightpollution': 8,
-    'localmap':       6
+    'localmap':       6,
+    'passes':         1,
+    'lsr':            4,
+    'rainfall':       10,
+    'rivers':         4,
+    'ebird':          1,
+    'drought':        6,
+    'darksites':      2
 };
 
 /* Layers whose settings card uses the generic /api/renderer-settings
@@ -66,7 +73,13 @@ var rendererSettingCards = {
     'planets':   'planets-card',
     'ships':     'ships-card',
     'aurorawatch': 'aurorawatch-card',
-    'lightpollution': 'lightpollution-card'
+    'lightpollution': 'lightpollution-card',
+    'lsr':       'lsr-card',
+    'rainfall':  'rainfall-card',
+    'rivers':    'rivers-card',
+    'ebird':     'ebird-card',
+    'darksites': 'darksites-card',
+    'passes':    'passtracks-card'
 };
 
 /* Calculate total memory cost of all enabled layers */
@@ -1151,6 +1164,35 @@ function removeAISKey() {
     }).catch(function(e) { toast(e.message, 'error'); });
 }
 
+// ── eBird key (write-only, Rare Birds layer) ───────────────
+function loadEBirdKey() {
+    apiCall('GET', '/api/ebird-key').then(function(st) {
+        var el = document.getElementById('ebird_key_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? 'Key saved (ending ' + st.last4 + '). Stored only on this Pi.'
+            : 'No key saved. Get a free key at ebird.org/api/keygen (eBird account needed).';
+    });
+}
+
+function saveEBirdKey() {
+    var input = document.getElementById('ebird_key');
+    var key = input ? input.value.trim() : '';
+    if (!key) { toast('Paste your API key first', 'error'); return; }
+    apiCall('PUT', '/api/ebird-key', {key: key}).then(function() {
+        input.value = '';
+        toast('eBird key saved');
+        loadEBirdKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function removeEBirdKey() {
+    apiCall('PUT', '/api/ebird-key', {key: ''}).then(function() {
+        toast('eBird key removed');
+        loadEBirdKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
 // ── Home Assistant alerts ──────────────────────────────────
 function loadHAWebhook() {
     apiCall('GET', '/api/ha-webhook').then(function(st) {
@@ -1786,6 +1828,8 @@ document.addEventListener('DOMContentLoaded', function() {
     loadRendererSettings('panels-card');
     loadHAWebhook();
     loadRendererSettings('view-card');
+    loadEBirdKey();
+    loadRendererSettings('coast-card');
 
     setInterval(loadSystemInfo, 30000);
 });

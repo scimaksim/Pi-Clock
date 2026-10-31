@@ -628,6 +628,14 @@ static const struct {
     {"aurorawatch",    2},  /* OVATION JSON + Kp forecast            */
     {"lightpollution", 8},  /* Sky-brightness image (peak ~20MB calc) */
     {"localmap",       6},  /* 1:10m lines + towns (static)          */
+    {"twilight",       0},  /* Solar math only                       */
+    {"passes",         1},  /* TLEs + pass list                      */
+    {"lsr",            4},  /* Storm report JSON                     */
+    {"rainfall",      10},  /* MRMS image up to 2400 px wide         */
+    {"rivers",         4},  /* NWPS gauge JSON                       */
+    {"ebird",          1},  /* eBird JSON                            */
+    {"drought",        6},  /* USDM file (~17MB while parsing)       */
+    {"darksites",      2},  /* Site list + home sky grid             */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -1502,6 +1510,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
         pic_layer_stack_add(&stack, "borders",
                             pic_layer_render_borders, 0, 1.0, &borders);
     add_feature_layer(&stack, pic_feature_localmap());
+    add_feature_layer(&stack, pic_feature_twilight());
     pic_layer_stack_add(&stack, "grid",
                         pic_layer_render_grid, 0, 1.0, NULL);
     if (timezones_loaded)
@@ -1525,15 +1534,21 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_earthquake, 1, 1.0, &earthquakes);
     pic_layer_stack_add(&stack, "volcanoes",
                         pic_layer_render_volcano, 60, 1.0, &volcanoes);
+    add_feature_layer(&stack, pic_feature_drought());
     add_feature_layer(&stack, pic_feature_fires());
     pic_layer_stack_add(&stack, "precip",
                         pic_layer_render_precip, 60, 1.0, &wind);
     pic_layer_stack_add(&stack, "radar",
                         pic_layer_render_radar, 60, 0.8, &radar);
+    add_feature_layer(&stack, pic_feature_rainfall());
     add_feature_layer(&stack, pic_feature_spc());
+    add_feature_layer(&stack, pic_feature_rivers());
+    add_feature_layer(&stack, pic_feature_lsr());
     pic_layer_stack_add(&stack, "airquality",
                         pic_layer_render_airquality, 60, 1.0, &airquality);
     add_feature_layer(&stack, pic_feature_ships());
+    add_feature_layer(&stack, pic_feature_ebird());
+    add_feature_layer(&stack, pic_feature_darksites());
     pic_layer_stack_add(&stack, "qth",
                         pic_layer_render_qth, 0, 1.0, NULL);
     pic_layer_stack_add(&stack, "wind",
@@ -1559,6 +1574,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_satellite, 5, 1.0, &satellites);
     pic_layer_stack_add(&stack, "starlink",
                         pic_layer_render_starlink, 10, 1.0, &starlink);
+    add_feature_layer(&stack, pic_feature_passes());
     add_feature_layer(&stack, pic_feature_launches());
     add_feature_layer(&stack, pic_feature_dsn());
     pic_layer_stack_add(&stack, "sun",
@@ -1784,8 +1800,9 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_applet_stack_add(&applets, "astro", "Tonight's Sky",
                          pic_applet_render_astro, 60,
                          240, APPLET_SIDE_LEFT, &astro);
-    register_feature(pic_feature_passes());
     register_feature(pic_feature_tides());
+    register_feature(pic_feature_backyard());
+    register_feature(pic_feature_coast());
     register_feature(pic_feature_hanotify());   /* no layer or applet */
     register_feature(pic_feature_localbase());  /* regional imagery     */
     {

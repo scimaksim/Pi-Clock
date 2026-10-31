@@ -28,6 +28,10 @@ void pic_fetch_set_useragent(const char *version, const char *callsign);
  */
 int pic_fetch_to_buf(const char *url, char *buf, int buf_size);
 
+/* As pic_fetch_to_buf, with one extra request header ("Name: value"). */
+int pic_fetch_to_buf_header(const char *url, const char *header, char *buf,
+                            int buf_size);
+
 /*
  * pic_fetch_to_file - Download a URL to a file.
  *

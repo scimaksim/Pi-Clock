@@ -154,10 +154,14 @@ static float *fetch_radiance(double lon0, double lat0, double lon1,
     int iw, ih, ch;
     size_t i;
 
+    /* Serialised: the map thread and the dark-sites feature share the
+     * temp file */
+    static pthread_mutex_t fetch_mutex = PTHREAD_MUTEX_INITIALIZER;
     snprintf(url, sizeof(url), GIBS_NL, lon0, lat0, lon1, lat1, w, h);
-    if (pic_fetch_to_file(url, LP_TMP, 90) != 0) return NULL;
-    px = stbi_load(LP_TMP, &iw, &ih, &ch, 4);
+    pthread_mutex_lock(&fetch_mutex);
+    px = pic_fetch_to_file(url, LP_TMP, 90) == 0 ? stbi_load(LP_TMP, &iw, &ih, &ch, 4) : NULL;
     unlink(LP_TMP);
+    pthread_mutex_unlock(&fetch_mutex);
     if (!px) return NULL;
     if (iw != w || ih != h) {
         stbi_image_free(px);
@@ -190,6 +194,30 @@ static uint32_t colour_for(double sqm)
            ((uint32_t)(band[i].r * band[i].a * 255) << 16) |
            ((uint32_t)(band[i].g * band[i].a * 255) << 8) |
            (uint32_t)(band[i].b * band[i].a * 255);
+}
+
+/* The home-area sky grid, kept for pic_lp_sqm_at (dark sites) */
+static pthread_mutex_t hg_mutex = PTHREAD_MUTEX_INITIALIZER;
+static float *hg;
+static int hg_w, hg_h;
+static double hg_lon0, hg_lon1, hg_lat0, hg_lat1, hg_qlat = 999, hg_qlon = 999;
+
+double pic_lp_sqm_at(double lat, double lon)
+{
+    double v = NAN;
+    pthread_mutex_lock(&hg_mutex);
+    if (hg && lat > hg_lat0 && lat < hg_lat1 && lon > hg_lon0 && lon < hg_lon1) {
+        int x = (int)((lon - hg_lon0) / (hg_lon1 - hg_lon0) * hg_w);
+        int y = (int)((hg_lat1 - lat) / (hg_lat1 - hg_lat0) * hg_h);
+        v = ratio_to_sqm(hg[y * hg_w + x]);
+    }
+    pthread_mutex_unlock(&hg_mutex);
+    return v;
+}
+
+int pic_lp_bortle(double sqm)
+{
+    return isnan(sqm) ? 0 : bortle(sqm);
 }
 
 /* Home estimate and the nearest Bortle <= 3 sky. Returns 0 on success. */
@@ -232,8 +260,27 @@ static int analyse_home(double qlat, double qlon, double *sqm_home,
                        sin(qlat * r) * cos(la * r) * cos((lo - qlon) * r)) / r;
         if (*dbear < 0) *dbear += 360;
     }
-    free(ratio);
+    /* Keep the grid for site lookups */
+    pthread_mutex_lock(&hg_mutex);
+    free(hg);
+    hg = ratio;
+    hg_w = w; hg_h = h;
+    hg_lon0 = lon0; hg_lon1 = lon1; hg_lat0 = lat0; hg_lat1 = lat1;
+    hg_qlat = qlat; hg_qlon = qlon;
+    pthread_mutex_unlock(&hg_mutex);
     return 0;
+}
+
+/* Ensure the home grid exists (dark-site feature); 0 if available */
+int pic_lp_ensure_home(void)
+{
+    double a, b, c, d;
+    int have;
+    pthread_mutex_lock(&hg_mutex);
+    have = hg && hg_qlat == pic_config.qth_lat && hg_qlon == pic_config.qth_lon;
+    pthread_mutex_unlock(&hg_mutex);
+    if (have) return 0;
+    return analyse_home(pic_config.qth_lat, pic_config.qth_lon, &a, &b, &c, &d);
 }
 
 static int lp_work(pic_feature_t *f)

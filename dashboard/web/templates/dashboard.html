@@ -280,6 +280,22 @@
             </div>
         </div>
 
+        <div class="card" id="coast-card">
+            <div class="card-title">Coast Panel</div>
+            <p class="text-muted mb-8">Latest wave height, wave period, water temperature and wind from NOAA buoys (enable the Coast panel in the Applets card).</p>
+            <div class="form-group">
+                <label for="coast_buoys">Buoys</label>
+                <input type="text" id="coast_buoys" class="form-control" data-conf="COAST_BUOYS" maxlength="40" placeholder="41110,41025,41013">
+                <div class="hint">NDBC station IDs, up to 4. Blank = Wrightsville Beach (41110), Diamond Shoals (41025), Frying Pan Shoals (41013).</div>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="COAST_METRIC"> Metric units</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('coast-card', 'Coast')">Save</button>
+            </div>
+        </div>
+
         <!-- Tonight's Sky (Astronomy applet) settings -->
         <div class="card" id="astro-card">
             <div class="card-title">Tonight's Sky (Astronomy)</div>
@@ -705,6 +721,95 @@
             </div>
             <div class="mt-12">
                 <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('lightpollution-card', 'Light pollution')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="lsr-card" style="display:none">
+            <div class="card-title card-title-row">Storm Reports <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Tornado, hail, wind-damage, flood and snow/ice reports from the National Weather Service (via Iowa Environmental Mesonet), fading with age. Labelled with type and size in the local view.</p>
+            <div class="form-group">
+                <label for="lsr_hours">Show Reports From The Last</label>
+                <select id="lsr_hours" class="form-control" data-conf="LSR_HOURS"><option value="6">6 hours</option><option value="12">12 hours</option><option value="24">24 hours (default)</option><option value="48">48 hours</option></select>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="LSR_FOG"> Also show fog and routine wind-gust reports</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('lsr-card', 'Storm reports')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="rainfall-card" style="display:none">
+            <div class="card-title card-title-row">Rain Totals <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">How much rain actually fell (NOAA MRMS radar estimates corrected with rain gauges), contiguous US.</p>
+            <div class="form-group">
+                <label for="rain_hours">Period</label>
+                <select id="rain_hours" class="form-control" data-conf="RAIN_HOURS"><option value="1">Last hour</option><option value="24">Last 24 hours (default)</option><option value="48">Last 48 hours</option><option value="72">Last 72 hours</option></select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('rainfall-card', 'Rain totals')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="rivers-card" style="display:none">
+            <div class="card-title card-title-row">River &amp; Creek Gauges <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">NOAA river gauges near home, coloured by flood status: blue normal, yellow action stage, orange minor, red moderate, purple major flooding. A ring means the forecast reaches flood stage. Zoom in for names and levels.</p>
+            <div class="form-group">
+                <label for="river_radius">Area</label>
+                <select id="river_radius" class="form-control" data-conf="RIVER_RADIUS_KM"><option value="50">Within 50 km</option><option value="100">Within 100 km</option><option value="150">Within 150 km (default)</option><option value="300">Within 300 km</option></select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('rivers-card', 'Rivers')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="ebird-card" style="display:none">
+            <div class="card-title card-title-row">Rare Birds (eBird) <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Recent sightings eBird flags as rare or unusual for the area and season, near home. Zoom in to see the species at each spot. Needs a free eBird API key.</p>
+            <div class="form-group">
+                <label for="ebird_key">eBird API Key</label>
+                <input type="password" id="ebird_key" class="form-control" autocomplete="off" placeholder="From ebird.org/api/keygen">
+                <div class="hint" id="ebird_key_status">Stored only on this Pi (root-only file).</div>
+            </div>
+            <div class="mt-8" style="margin-bottom:12px">
+                <button class="btn btn-primary btn-sm" onclick="saveEBirdKey()">Save Key</button>
+                <button class="btn btn-outline btn-sm" onclick="removeEBirdKey()">Remove Key</button>
+            </div>
+            <div class="form-group">
+                <label for="ebird_days">Sightings From The Last</label>
+                <select id="ebird_days" class="form-control" data-conf="EBIRD_DAYS"><option value="1">1 day</option><option value="3">3 days (default)</option><option value="7">7 days</option><option value="14">14 days</option></select>
+            </div>
+            <div class="form-group">
+                <label for="ebird_radius">Within</label>
+                <select id="ebird_radius" class="form-control" data-conf="EBIRD_RADIUS_KM"><option value="15">15 km</option><option value="30">30 km</option><option value="50">50 km (default, maximum)</option></select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('ebird-card', 'Rare birds')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="darksites-card" style="display:none">
+            <div class="card-title card-title-row">Dark-Sky Sites Tonight <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Nearby observing sites, coloured by tonight&rsquo;s cloud cover during astronomical darkness (green clear, yellow partly cloudy, grey cloudy), with estimated Bortle class. A note names the best site tonight.</p>
+            <div class="form-group">
+                <label for="dark_sites">Your Sites (optional)</label>
+                <input type="text" id="dark_sites" class="form-control" data-conf="DARK_SITES" maxlength="400" placeholder="Name:lat:lon;Name:lat:lon">
+                <div class="hint">Blank = Jordan Lake, Medoc Mountain SP, Kerr Lake, Uwharrie NF, Staunton River SP (VA), Pettigrew SP and Lake Mattamuskeet. Up to 10, e.g. <code>Backyard:35.69:-78.71;Jordan Lake:35.736:-79.017</code></div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('darksites-card', 'Dark sites')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="passtracks-card" style="display:none">
+            <div class="card-title card-title-row">Visible Pass Tracks <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Draws where each visible ISS / Tiangong / Hubble pass travels across the map (best in the local view), with the start time and peak height. Satellites are set in the Passes &amp; Tides card.</p>
+            <div class="form-group">
+                <label for="pass_hours">Show Passes In The Next</label>
+                <select id="pass_hours" class="form-control" data-conf="PASS_MAP_HOURS"><option value="6">6 hours</option><option value="12">12 hours (default)</option><option value="24">24 hours</option></select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('passtracks-card', 'Pass tracks')">Save</button>
             </div>
         </div>
 

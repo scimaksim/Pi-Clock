@@ -109,6 +109,10 @@
 - [x] Light pollution — skyglow model from VIIRS night lights, home Bortle + nearest dark site
 - [x] Home Assistant webhook alerts — visible passes, aurora now/forecast (docs/home-assistant.md)
 - [x] World / local / auto-switch map view; GIBS hi-res regional base maps; Natural Earth 1:10m Local Detail layer (towns, states)
+- [x] Local layers: storm reports, MRMS rain totals, NWPS river gauges, US Drought Monitor, eBird rare birds, dark-sky sites tonight, twilight lines, visible-pass ground tracks
+- [x] Panels: Backyard (frost watch, soil temp, rain), Coast (NDBC buoys)
+- [ ] Lake Wheeler ECONet station (needs a free NC State Climate Office API hash)
+- [ ] BirdCast migration (no open API found)
 - [ ] Global radar fallback outside the US (e.g. RainViewer)
 - [ ] Satellite clouds over Europe/Africa (no free Meteosat feed on GIBS)
 - [ ] Global FIRMS fires (needs a free MAP_KEY)

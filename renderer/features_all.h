@@ -19,6 +19,15 @@ pic_feature_t *pic_feature_planets(void);   /* Planets + sky events    */
 pic_feature_t *pic_feature_ships(void);     /* AIS vessel positions    */
 pic_feature_t *pic_feature_aurorawatch(void);    /* Aurora view line   */
 pic_feature_t *pic_feature_hanotify(void);       /* Home Assistant alerts */
+pic_feature_t *pic_feature_lsr(void);            /* Storm reports      */
+pic_feature_t *pic_feature_rainfall(void);       /* MRMS rain totals   */
+pic_feature_t *pic_feature_rivers(void);         /* River gauges       */
+pic_feature_t *pic_feature_ebird(void);          /* Rare birds         */
+pic_feature_t *pic_feature_drought(void);        /* Drought Monitor    */
+pic_feature_t *pic_feature_coast(void);          /* Buoys panel        */
+pic_feature_t *pic_feature_backyard(void);       /* Backyard panel     */
+pic_feature_t *pic_feature_twilight(void);       /* Twilight lines     */
+pic_feature_t *pic_feature_darksites(void);      /* Dark-sky sites     */
 
 /* ── Data shared with the Home Assistant notifier ─────────────── */
 
@@ -27,6 +36,7 @@ typedef struct {
     time_t start, max, end;
     double max_el;
     double az_start, az_end;
+    int    sat_idx;          /* Internal: which TLE produced it */
 } pic_pass_t;
 
 /* Copy the predicted visible passes (sorted by start). */

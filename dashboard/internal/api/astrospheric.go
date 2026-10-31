@@ -145,3 +145,14 @@ func TestHAWebhook() http.HandlerFunc {
 		jsonResponse(w, http.StatusOK, map[string]string{"status": "sent"})
 	}
 }
+
+// eBird API key for the Rare Birds layer.
+var ebirdKeyPath = "/data/etc/pi-clock-ebird.key"
+
+var ebirdKey = secretKey{&ebirdKeyPath, regexp.MustCompile(`^[A-Za-z0-9]{6,64}$`), "eBird"}
+
+// GetEBirdKey reports whether an eBird key is configured.
+func GetEBirdKey() http.HandlerFunc { return ebirdKey.get() }
+
+// PutEBirdKey saves or removes the eBird key.
+func PutEBirdKey() http.HandlerFunc { return ebirdKey.put() }

@@ -45,6 +45,8 @@ typedef struct {
     int     nids;
     time_t  computed;
     int     have_tle;
+    pic_sat_t sats[MAX_PSATS];   /* Copy for drawing ground tracks */
+    int     map_hours;           /* PASS_MAP_HOURS: tracks shown ahead */
 } passes_t;
 
 static passes_t ps;
@@ -229,10 +231,12 @@ static int passes_work(pic_feature_t *f)
 
     for (i = 0; i < nids; i++) {
         char name[16];
+        int k0 = n, k;
         if (!loaded[i]) continue;
         sat_name(ids[i], name, sizeof(name));
         n += pic_passes_predict(&sats[i], name, now - 600, HORIZON_H,
                                 qlat, qlon, tmp + n, MAX_PASSES * 2 - n);
+        for (k = k0; k < n; k++) tmp[k].sat_idx = i;
     }
     qsort(tmp, (size_t)n, sizeof(pass_t), cmp_pass);
     if (n > MAX_PASSES) n = MAX_PASSES;
@@ -242,6 +246,7 @@ static int passes_work(pic_feature_t *f)
     ps.npasses = n;
     ps.computed = now;
     ps.have_tle = 1;
+    memcpy(ps.sats, sats, sizeof(ps.sats));
     pthread_mutex_unlock(&ps.mutex);
     printf("passes: %d visible passes in %dh\n", n, HORIZON_H);
     return 30 * 60;
@@ -252,6 +257,10 @@ static void passes_reload(pic_feature_t *f)
     char buf[128], *p;
     int ids[MAX_PSATS], n = 0;
 
+    pthread_mutex_lock(&ps.mutex);
+    ps.map_hours = pic_conf_int("PASS_MAP_HOURS", 12);
+    if (ps.map_hours < 1) ps.map_hours = 1;
+    pthread_mutex_unlock(&ps.mutex);
     if (!pic_conf_str("PASS_SATS", buf, sizeof(buf)) || !buf[0])
         snprintf(buf, sizeof(buf), "25544,48274,20580");
     for (p = buf; *p && n < MAX_PSATS; ) {
@@ -353,8 +362,79 @@ static int passes_wanted(pic_feature_t *f)
     return pic_hanotify_wants("HA_NOTIFY_PASSES");
 }
 
+/*
+ * Map layer: the ground track of each visible pass in the next
+ * PASS_MAP_HOURS hours (default 12), from where it becomes visible to
+ * where it fades, with an arrow for direction and the start time.
+ * Most useful in the local view, where the arc shows which part of
+ * the sky it crosses from home.
+ */
+void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
+                             void *ud)
+{
+    double fs = height / 90.0, wrap = pic_wrap_threshold_px(width);
+    double lw = height / 540.0 * (1 + 0.25 * (pic_symbol_zoom() - 1));
+    int i, shown = 0;
+
+    (void)ud;
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                           CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fs);
+    pthread_mutex_lock(&ps.mutex);
+    for (i = 0; i < ps.npasses && shown < 6; i++) {
+        const pass_t *p = &ps.passes[i];
+        const pic_sat_t *s = &ps.sats[p->sat_idx];
+        double px = 0, py = 0, lx = 0, ly = 0, x0 = 0, y0 = 0, pxp = 0;
+        int live = now >= p->start && now <= p->end, k = 0;
+        time_t t;
+        char hm[16], lab[48];
+
+        if (p->end < now || p->start > now + (time_t)ps.map_hours * 3600) continue;
+        if (p->sat_idx < 0 || p->sat_idx >= MAX_PSATS || !s->tle_loaded) continue;
+        shown++;
+        cairo_new_path(cr);
+        for (t = p->start; t <= p->end; t += 15, k++) {
+            double lat, lon, alt, x, y;
+            pic_sat_position_at(s, t, &lat, &lon, &alt);
+            x = pic_lon_to_x(lon, width);
+            y = pic_lat_to_y(lat, height);
+            if (k == 0) { cairo_move_to(cr, x, y); x0 = x; y0 = y; }
+            else if (fabs(x - pxp) > wrap) cairo_move_to(cr, x, y);
+            else cairo_line_to(cr, x, y);
+            lx = px; ly = py;
+            px = x; py = y; pxp = x;
+        }
+        if (live) cairo_set_source_rgba(cr, 0.5, 1.0, 0.6, 0.95);
+        else      cairo_set_source_rgba(cr, 1.0, 0.95, 0.6, 0.85);
+        cairo_set_line_width(cr, lw * 2);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_stroke(cr);
+
+        /* Arrowhead at the end */
+        if (k > 1) {
+            double a = atan2(py - ly, px - lx), h = lw * 7;
+            cairo_move_to(cr, px, py);
+            cairo_line_to(cr, px - h * cos(a - 0.45), py - h * sin(a - 0.45));
+            cairo_line_to(cr, px - h * cos(a + 0.45), py - h * sin(a + 0.45));
+            cairo_close_path(cr);
+            cairo_fill(cr);
+        }
+        if (live) snprintf(lab, sizeof(lab), "%s now", p->sat);
+        else {
+            pic_fmt_when(hm, sizeof(hm), now, p->start);
+            snprintf(lab, sizeof(lab), "%s %s \xc2\xb7 %d\xc2\xb0", p->sat, hm,
+                     (int)(p->max_el + 0.5));
+        }
+        if (x0 > -50 && x0 < width + 50 && y0 > -20 && y0 < height + 20)
+            pic_draw_text_pill(cr, x0 + 4, y0 - fs * 0.5, lab,
+                               live ? 0.6 : 1.0, live ? 1.0 : 0.95, live ? 0.7 : 0.7, 0.55);
+    }
+    pthread_mutex_unlock(&ps.mutex);
+}
+
 static pic_feature_t feature_def = {
-    .name = "passes", .wanted = passes_wanted, .is_applet = 1,
+    .name = "passes", .wanted = passes_wanted,
+    .layer = pic_layer_render_passes, .extra_mb = 1, .is_applet = 1,
     .applet = pic_applet_render_passes, .label = "Visible Passes",
     .interval = 30, .applet_w = 220, .side = APPLET_SIDE_LEFT,
     .reload = passes_reload, .work = passes_work, .needs_network = 1,
@@ -365,6 +445,7 @@ pic_feature_t *pic_feature_passes(void)
     static int inited;
     if (!inited) {
         pthread_mutex_init(&ps.mutex, NULL);
+        ps.map_hours = 12;
         inited = 1;
     }
     return &feature_def;

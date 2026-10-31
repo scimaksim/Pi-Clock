@@ -54,7 +54,8 @@ const char *pic_fetch_get_useragent(void)
  *
  * Returns the number of bytes read, or -1 on failure.
  */
-int pic_fetch_to_buf(const char *url, char *buf, int buf_size)
+static int fetch_impl(const char *url, const char *header, char *buf,
+                      int buf_size)
 {
     int pipefd[2];
     pid_t pid;
@@ -78,8 +79,12 @@ int pic_fetch_to_buf(const char *url, char *buf, int buf_size)
         /* Redirect stderr to /dev/null */
         freopen("/dev/null", "w", stderr);
 
-        execlp("wget", "wget", "-q", "-O", "-",
-               "--timeout=10", "-U", g_useragent, url, NULL);
+        if (header)
+            execlp("wget", "wget", "-q", "-O", "-", "--timeout=10",
+                   "-U", g_useragent, "--header", header, url, NULL);
+        else
+            execlp("wget", "wget", "-q", "-O", "-",
+                   "--timeout=10", "-U", g_useragent, url, NULL);
         _exit(127);
     }
 
@@ -110,6 +115,17 @@ int pic_fetch_to_buf(const char *url, char *buf, int buf_size)
     }
 
     return n > 0 ? n : -1;
+}
+
+int pic_fetch_to_buf(const char *url, char *buf, int buf_size)
+{
+    return fetch_impl(url, NULL, buf, buf_size);
+}
+
+int pic_fetch_to_buf_header(const char *url, const char *header, char *buf,
+                            int buf_size)
+{
+    return fetch_impl(url, header, buf, buf_size);
 }
 
 /*

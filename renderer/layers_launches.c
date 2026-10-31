@@ -224,7 +224,9 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
 
         if (!stacked) {
             if (near) {
-                cairo_pattern_t *p = cairo_pattern_create_radial(x, y, 0, x, y, s * 3);
+                cairo_pattern_t *p;
+                cairo_new_path(cr);
+                p = cairo_pattern_create_radial(x, y, 0, x, y, s * 3);
                 cairo_pattern_add_color_stop_rgba(p, 0, 1.0, 0.85, 0.3, 0.6);
                 cairo_pattern_add_color_stop_rgba(p, 1, 1.0, 0.85, 0.3, 0.0);
                 cairo_set_source(cr, p);

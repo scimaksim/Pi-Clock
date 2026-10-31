@@ -266,6 +266,7 @@ void pic_layer_render_planets(cairo_t *cr, int width, int height,
         pic_planet_subpoint(naked[i].idx, now, &lat, &lon);
         x = pic_lon_to_x(lon, width);
         y = pic_lat_to_y(lat, height);
+        cairo_new_path(cr);
         p = cairo_pattern_create_radial(x, y, 0, x, y, r * 3);
         cairo_pattern_add_color_stop_rgba(p, 0, naked[i].r, naked[i].g, naked[i].b, 0.5);
         cairo_pattern_add_color_stop_rgba(p, 1, naked[i].r, naked[i].g, naked[i].b, 0);

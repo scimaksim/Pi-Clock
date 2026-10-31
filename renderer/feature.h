@@ -110,7 +110,8 @@ void pic_draw_text_pill(cairo_t *cr, double x, double y, const char *text,
 /*
  * Bottom-centre status line for layer legends. Slots stack upward so
  * several layers' notes never overlap each other or the side panels:
- * 0 = SPC, 1 = light pollution, 2 = ships, 3 = aurora.
+ * 0 SPC, 1 light pollution, 2 ships, 3 aurora, 4 rain totals,
+ * 5 eBird, 6 drought, 7 dark sites.
  */
 void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
                           const char *text, double r, double g, double b);
