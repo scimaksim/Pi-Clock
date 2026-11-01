@@ -678,6 +678,26 @@ function loadLayers() {
         search.setAttribute('aria-label', 'Search layers');
         container.appendChild(search);
 
+        /* Suggested views: marked with a star in each menu; one click
+         * fills them all in (nothing is saved until Save Layers). */
+        var hint = document.createElement('div');
+        hint.className = 'layer-view-hint text-muted';
+        hint.textContent = 'With Map View on auto-switch, each layer can show in both views, only the world view or only the local view. \u2605 marks the suggested view: local detail (rivers, storm reports, radar, aircraft) when zoomed in, planet-wide layers (earthquakes, launches, satellites, zones) for the world. ';
+        var sugBtn = document.createElement('button');
+        sugBtn.type = 'button';
+        sugBtn.className = 'btn btn-sm';
+        sugBtn.textContent = 'Use suggested views';
+        sugBtn.addEventListener('click', function() {
+            var n = 0;
+            container.querySelectorAll('select[data-suggest]').forEach(function(sel) {
+                if (sel.value !== sel.getAttribute('data-suggest')) n++;
+                sel.value = sel.getAttribute('data-suggest');
+            });
+            toast(n ? n + ' layer views changed \u2014 press Save Layers to apply' : 'Already using the suggested views');
+        });
+        hint.appendChild(sugBtn);
+        container.appendChild(hint);
+
         var catOrder = ['Base Map', 'Weather', 'Hazards', 'Sky & Space',
                         'Traffic & Wildlife', 'Overlays & Clock', 'Ham Radio', 'Other'];
         var openCats = {};
@@ -772,10 +792,11 @@ function loadLayers() {
                 vs.setAttribute('data-layer-view', layer.name);
                 vs.setAttribute('aria-label', 'Show ' + layer.label + ' in');
                 vs.title = 'Which map view this layer shows in (used when Map View is set to cycle between global and local)';
+                if (layer.suggest) vs.setAttribute('data-suggest', layer.suggest);
                 [['any', 'Both views'], ['global', 'Global only'], ['local', 'Local only']].forEach(function(o) {
                     var opt = document.createElement('option');
                     opt.value = o[0];
-                    opt.textContent = o[1];
+                    opt.textContent = o[1] + (layer.suggest === o[0] ? ' \u2605' : '');
                     if ((layer.view || 'any') === o[0]) opt.selected = true;
                     vs.appendChild(opt);
                 });

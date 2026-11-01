@@ -322,6 +322,14 @@ select.form-control {
     .layer-opacity { width: 60px; }
 }
 
+.layer-view-hint {
+    font-size: 12px;
+    margin: 0 0 10px;
+    line-height: 1.5;
+}
+
+.layer-view-hint .btn { margin-left: 4px; padding: 2px 8px; }
+
 .layer-search {
     width: 100%;
     box-sizing: border-box;

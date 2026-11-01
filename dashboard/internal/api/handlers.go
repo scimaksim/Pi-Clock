@@ -278,6 +278,7 @@ func GetLayers() http.HandlerFunc {
 				"opacity": opacity,
 				"category": layerCat(def.Name),
 				"view":     layerViewName[view],
+				"suggest":  layerViewSuggestFor(def.Name),
 			})
 		}
 
@@ -285,11 +286,37 @@ func GetLayers() http.HandlerFunc {
 	}
 }
 
+// layerViewSuggest is the view each layer reads best in when Map View
+// auto-switches. Layers not listed work in both.
+var layerViewSuggest = map[string]string{
+	// Detailed or local data that is clutter (or invisible) at world scale
+	"localmap": "local", "twilight": "local", "passes": "local",
+	"lsr": "local", "rainfall": "local", "rivers": "local", "radar": "local",
+	"aircraft": "local", "ships": "local", "ebird": "local",
+	"darksites": "local", "airquality": "local", "spc": "local",
+	"lightpollution": "local",
+	// Planet-scale patterns, too coarse or too sparse up close
+	"grid": "global", "timezone": "global", "satellites": "global",
+	"starlink": "global", "launches": "global", "dsn": "global",
+	"planets": "global", "earthquakes": "global", "volcanoes": "global",
+	"aurora": "global", "aurorawatch": "global", "cloud": "global",
+	"precip": "global", "wind": "global", "cqzone": "global",
+	"ituzone": "global", "maidenhead": "global", "dxspots": "global",
+	"bandconditions": "global",
+}
+
 func layerCat(name string) string {
 	if c, ok := layerCategory[name]; ok {
 		return c
 	}
 	return "Other"
+}
+
+func layerViewSuggestFor(name string) string {
+	if v, ok := layerViewSuggest[name]; ok {
+		return v
+	}
+	return "any"
 }
 
 // PutLayers saves layer settings and signals the renderer.
