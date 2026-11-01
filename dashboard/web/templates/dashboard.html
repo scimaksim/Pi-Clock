@@ -123,7 +123,7 @@
         <!-- Global / local view -->
         <div class="card" id="view-card">
             <div class="card-title">Map View</div>
-            <p class="text-muted mb-8">Switch between the whole world and a close-up of your area, or alternate automatically. The local view uses sharper NASA imagery for the day/night maps and adds coastlines, state lines and towns (Local Detail layer). Local layers &mdash; aircraft, ships, light pollution, radar, fires, satellite clouds &mdash; fetch more detail when zoomed in. Changes apply immediately.</p>
+            <p class="text-muted mb-8">Switch between the whole world and a close-up of your area, or alternate automatically. The local view uses sharper NASA imagery for the day/night maps and adds coastlines, state lines and towns (Local Detail layer). Local layers &mdash; aircraft, ships, light pollution, radar, fires, satellite clouds &mdash; fetch more detail when zoomed in. Each layer in Map Layers can also be set to show in both views, only the world view or only the local view, so the auto-switch can bring in local layers (river gauges, storm reports, rain totals) when it zooms in and drop them when it zooms out. Changes apply immediately.</p>
             <div class="form-group">
                 <label for="view_mode">View</label>
                 <select id="view_mode" class="form-control" data-conf="VIEW_MODE" onchange="saveRendererSettings('view-card', 'Map view')">

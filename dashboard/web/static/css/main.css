@@ -301,6 +301,27 @@ select.form-control {
     border-bottom: none;
 }
 
+.layer-view {
+    flex-shrink: 0;
+    width: 104px;
+    box-sizing: border-box;
+    padding: 3px 4px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+}
+
+.layer-view option { color: #000; }
+
+.layer-view-spacer { border: none; visibility: hidden; }
+
+@media (max-width: 640px) {
+    .layer-view { width: 84px; font-size: 11px; }
+    .layer-opacity { width: 60px; }
+}
+
 .layer-search {
     width: 100%;
     box-sizing: border-box;

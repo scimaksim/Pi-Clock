@@ -80,6 +80,10 @@ typedef struct {
     volatile int        enabled;        /* Non-zero if layer is visible.
                                          * volatile: read by ticker thread,
                                          * written by main thread on reload. */
+    int                 view;           /* 0 any view, 1 global view only,
+                                         * 2 local (zoomed) view only       */
+    volatile int        view_hidden;    /* Enabled, but not shown in the
+                                         * current global/local view        */
     int                 update_interval;/* Seconds between re-renders       */
     time_t              last_rendered;  /* Timestamp of last render (UTC)   */
     int                 dirty;          /* Set by update() when re-rendered */
@@ -98,6 +102,13 @@ typedef struct {
     int         width;                  /* Output width in pixels          */
     int         height;                 /* Output height in pixels         */
 } pic_layer_stack_t;
+
+/*
+ * Show or hide layers set to "global view only" / "local view only"
+ * for the view now on screen. Their data threads keep running so a
+ * layer appears at once when the view switches.
+ */
+void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local);
 
 /*
  * pic_layer_stack_init - Initialise a layer stack.

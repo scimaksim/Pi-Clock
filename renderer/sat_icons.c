@@ -315,13 +315,10 @@ int pic_draw_rocket_icon(cairo_t *cr, const char *name, double x, double y,
     memcpy(st.boost, WHITE, sizeof(WHITE));
 
     if (has(name, "falcon heavy")) {
-        rocket_style_t side;
         double w;
         st.core_w = 0.085; st.band = 0.05; st.fair_w = 1.25;
-        side = st;
         w = H * st.core_w;
         cairo_save(cr);
-        side.split = 0.0; side.band = 0;
         body(cr, x - w, w, y, y - H * 0.66, w * 1.6, WHITE, e);
         body(cr, x + w, w, y, y - H * 0.66, w * 1.6, WHITE, e);
         band(cr, x - w, w, y - H * 0.64, H * 0.04, e);

@@ -251,7 +251,7 @@ var layerCategory = map[string]string{
 
 // layersConfPath is on the persistent /data partition so it survives OS
 // upgrades. The renderer checks for changes via the pi-clock-reload trigger file.
-const layersConfPath = "/data/etc/pi-clock-layers.conf"
+var layersConfPath = "/data/etc/pi-clock-layers.conf"
 
 // GetLayers returns current layer settings, merged with defaults.
 func GetLayers() http.HandlerFunc {
@@ -263,10 +263,12 @@ func GetLayers() http.HandlerFunc {
 		for _, def := range layerDefs {
 			enabled := def.Default
 			opacity := def.Opacity
+			view := 0
 
 			if s, ok := saved[def.Name]; ok {
 				enabled = s.enabled
 				opacity = s.opacity
+				view = s.view
 			}
 
 			layers = append(layers, map[string]interface{}{
@@ -275,6 +277,7 @@ func GetLayers() http.HandlerFunc {
 				"enabled": enabled,
 				"opacity": opacity,
 				"category": layerCat(def.Name),
+				"view":     layerViewName[view],
 			})
 		}
 
@@ -296,6 +299,7 @@ func PutLayers() http.HandlerFunc {
 			Name    string  `json:"name"`
 			Enabled bool    `json:"enabled"`
 			Opacity float64 `json:"opacity"`
+			View    string  `json:"view"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&layers); err != nil {
@@ -317,7 +321,11 @@ func PutLayers() http.HandlerFunc {
 			if l.Enabled {
 				e = "1"
 			}
-			lines = append(lines, fmt.Sprintf("%s=%s,%.2f", l.Name, e, l.Opacity))
+			if v := layerViewCode[l.View]; v != 0 {
+				lines = append(lines, fmt.Sprintf("%s=%s,%.2f,%d", l.Name, e, l.Opacity, v))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s=%s,%.2f", l.Name, e, l.Opacity))
+			}
 		}
 
 		content := strings.Join(lines, "\n") + "\n"
@@ -338,7 +346,13 @@ func PutLayers() http.HandlerFunc {
 type layerSetting struct {
 	enabled bool
 	opacity float64
+	view    int // 0 any view, 1 global view only, 2 local view only
 }
+
+// layerViewCode maps the dashboard's view names to the renderer's
+// third field in pi-clock-layers.conf.
+var layerViewCode = map[string]int{"any": 0, "global": 1, "local": 2}
+var layerViewName = []string{"any", "global", "local"}
 
 func readLayersConf() map[string]layerSetting {
 	result := make(map[string]layerSetting)
@@ -363,16 +377,22 @@ func readLayersConf() map[string]layerSetting {
 		if !validName.MatchString(name) {
 			continue
 		}
-		vals := strings.SplitN(parts[1], ",", 2)
-		if len(vals) != 2 {
+		vals := strings.Split(parts[1], ",")
+		if len(vals) < 2 {
 			continue
 		}
 
 		enabled := vals[0] == "1"
 		opacity := 1.0
 		fmt.Sscanf(vals[1], "%f", &opacity)
+		view := 0
+		if len(vals) >= 3 {
+			if v, err := strconv.Atoi(strings.TrimSpace(vals[2])); err == nil && v >= 0 && v <= 2 {
+				view = v
+			}
+		}
 
-		result[name] = layerSetting{enabled: enabled, opacity: opacity}
+		result[name] = layerSetting{enabled: enabled, opacity: opacity, view: view}
 	}
 
 	return result

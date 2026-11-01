@@ -24,6 +24,7 @@
  */
 
 #include "config.h"
+#include "localview.h"
 #include "layer.h"
 #include <math.h>
 #include <stdio.h>
@@ -258,7 +259,7 @@ void pic_load_layer_config(pic_layer_stack_t *stack)
 
     while (fgets(line, sizeof(line), f)) {
         char name[32];
-        int enabled;
+        int enabled, view = 0, n;
         double opacity;
 
         /* Skip comments and blank lines */
@@ -266,10 +267,13 @@ void pic_load_layer_config(pic_layer_stack_t *stack)
             continue;
         }
 
-        /* Parse: name=enabled,opacity */
-        if (sscanf(line, "%31[^=]=%d,%lf", name, &enabled, &opacity) != 3) {
+        /* Parse: name=enabled,opacity[,view] (view 0 any, 1 global
+         * only, 2 local only) */
+        n = sscanf(line, "%31[^=]=%d,%lf,%d", name, &enabled, &opacity, &view);
+        if (n < 3) {
             continue;
         }
+        if (n < 4 || view < 0 || view > 2) view = 0;
 
         /* Find matching layer in the stack and apply settings */
         for (i = 0; i < stack->count; i++) {
@@ -280,6 +284,7 @@ void pic_load_layer_config(pic_layer_stack_t *stack)
                 if (opacity < 0.0) opacity = 0.0;
                 if (opacity > 1.0) opacity = 1.0;
                 stack->layers[i].opacity = opacity;
+                stack->layers[i].view = view;
 
                 /* Free surface memory when a layer is disabled.
                  * On a 256MB Pi 1, each 1080p surface is ~8MB —
@@ -298,6 +303,7 @@ void pic_load_layer_config(pic_layer_stack_t *stack)
     }
 
     fclose(f);
+    pic_layer_stack_apply_view(stack, pic_view_is_local());
 }
 
 /*

@@ -2150,6 +2150,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             if (pic_view_update(now) || rg != last_reg_gen) {
                 int li;
                 last_reg_gen = rg;
+                pic_layer_stack_apply_view(&stack, pic_view_is_local());
                 pic_qth_invalidate();
                 for (li = 0; li < stack.count; li++)
                     stack.layers[li].last_rendered = 0;
@@ -2205,7 +2206,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
 
                 for (li = 0; li < stack.count; li++) {
                     pic_layer_t *layer = &stack.layers[li];
-                    if (!layer->enabled || !layer->surface) continue;
+                    if (!layer->enabled || layer->view_hidden || !layer->surface) continue;
                     /* Skip HUD and ticker — they're handled separately */
                     if (strcmp(layer->name, "hud") == 0) continue;
                     if (strcmp(layer->name, "ticker") == 0) continue;

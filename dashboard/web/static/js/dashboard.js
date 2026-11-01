@@ -651,6 +651,8 @@ function loadLayers() {
         var requiredLayers = {'basemap': true, 'daylight': true};
         /* Layers with no useful opacity control */
         var noOpacity = {'ticker': true};
+        /* Layers that only make sense in every view */
+        var noViewChoice = {'hud': true, 'ticker': true, 'qth': true};
 
         /* Map layer names to their config card IDs — defined once
          * outside the loop to avoid rebuilding on every iteration. */
@@ -760,6 +762,29 @@ function loadLayers() {
 
             /* Layer name */
             row.appendChild(buildLabel(layer.label));
+
+            /* Which view the layer shows in: when Map View cycles,
+             * local-only layers appear while zoomed in on home and
+             * global-only ones while showing the whole map. */
+            if (!requiredLayers[layer.name] && !noViewChoice[layer.name]) {
+                var vs = document.createElement('select');
+                vs.className = 'layer-view';
+                vs.setAttribute('data-layer-view', layer.name);
+                vs.setAttribute('aria-label', 'Show ' + layer.label + ' in');
+                vs.title = 'Which map view this layer shows in (used when Map View is set to cycle between global and local)';
+                [['any', 'Both views'], ['global', 'Global only'], ['local', 'Local only']].forEach(function(o) {
+                    var opt = document.createElement('option');
+                    opt.value = o[0];
+                    opt.textContent = o[1];
+                    if ((layer.view || 'any') === o[0]) opt.selected = true;
+                    vs.appendChild(opt);
+                });
+                row.appendChild(vs);
+            } else {
+                var vsp = document.createElement('span');
+                vsp.className = 'layer-view layer-view-spacer';
+                row.appendChild(vsp);
+            }
 
             if (!noOpacity[layer.name]) {
                 /* Opacity slider */
@@ -918,10 +943,12 @@ function saveLayers() {
     document.querySelectorAll('[data-layer]').forEach(function(toggle) {
         var name = toggle.getAttribute('data-layer');
         var slider = document.querySelector('[data-layer-opacity="' + name + '"]');
+        var vsel = document.querySelector('[data-layer-view="' + name + '"]');
         layers.push({
             name: name,
             enabled: toggle.checked,
-            opacity: slider ? parseInt(slider.value) / 100 : 1.0
+            opacity: slider ? parseInt(slider.value) / 100 : 1.0,
+            view: vsel ? vsel.value : 'any'
         });
     });
 

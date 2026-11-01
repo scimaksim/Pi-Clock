@@ -131,7 +131,7 @@ int pic_layer_stack_update(pic_layer_stack_t *stack, time_t now)
         layer->dirty = 0;
 
         /* Skip disabled layers entirely — no CPU cost */
-        if (!layer->enabled) {
+        if (!layer->enabled || layer->view_hidden) {
             continue;
         }
 
@@ -208,7 +208,7 @@ void pic_layer_stack_composite(pic_layer_stack_t *stack, cairo_t *cr)
         pic_layer_t *layer = &stack->layers[i];
 
         /* Skip disabled layers or layers with no surface */
-        if (!layer->enabled || !layer->surface) {
+        if (!layer->enabled || layer->view_hidden || !layer->surface) {
             continue;
         }
 
@@ -237,7 +237,7 @@ void pic_layer_stack_render_legends(pic_layer_stack_t *stack, cairo_t *cr,
     for (i = 0; i < stack->count; i++) {
         pic_layer_t *layer = &stack->layers[i];
 
-        if (!layer->enabled || !layer->render_legend) continue;
+        if (!layer->enabled || layer->view_hidden || !layer->render_legend) continue;
 
         layer->render_legend(cr, stack->width, stack->height,
                              now, layer->user_data);
@@ -296,4 +296,20 @@ void pic_layer_stack_destroy(pic_layer_stack_t *stack)
 
     stack->count = 0;
     printf("layer: stack destroyed\n");
+}
+
+void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local)
+{
+    int i;
+    for (i = 0; i < stack->count; i++) {
+        pic_layer_t *l = &stack->layers[i];
+        int hide = (l->view == 1 && local) || (l->view == 2 && !local);
+        if (hide != l->view_hidden) {
+            l->view_hidden = hide;
+            l->last_rendered = 0;
+            if (l->enabled)
+                printf("layer: '%s' %s for the %s view\n", l->name,
+                       hide ? "hidden" : "shown", local ? "local" : "global");
+        }
+    }
 }
