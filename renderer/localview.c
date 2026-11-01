@@ -39,6 +39,7 @@ static double local_zoom = 8;
 static int    global_min = 5, local_min = 5;
 static int    showing_local;
 static time_t switch_at;
+static int    cycle_started;     /* switch_at is live for the cycle */
 
 void pic_view_reload(time_t now)
 {
@@ -53,9 +54,19 @@ void pic_view_reload(time_t now)
     local_min = pic_conf_int("VIEW_LOCAL_MIN", 5);
     if (global_min < 1) global_min = 1;
     if (local_min < 1) local_min = 1;
-    /* Restart the cycle from the global view after a settings change */
-    showing_local = view_mode == VIEW_LOCAL;
-    switch_at = now + (time_t)global_min * 60;
+    /*
+     * Any dashboard save reloads this. When auto-switching, stay in the
+     * view now on screen (so layer changes can be seen in it) and keep
+     * the timer, only shortening it if the new duration is shorter.
+     */
+    if (view_mode == VIEW_CYCLE) {
+        time_t max_at = now + (time_t)(showing_local ? local_min : global_min) * 60;
+        if (!cycle_started || switch_at > max_at) switch_at = max_at;
+        cycle_started = 1;
+    } else {
+        showing_local = view_mode == VIEW_LOCAL;
+        cycle_started = 0;
+    }
     pic_config.local_zoom = showing_local ? local_zoom : 0;
     printf("view: mode=%s local_zoom=%.0fx global=%dmin local=%dmin\n",
            view_mode == VIEW_LOCAL ? "local" : view_mode == VIEW_CYCLE ? "cycle" : "global",

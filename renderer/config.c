@@ -131,6 +131,8 @@ void pic_config_recompute_viewport(void)
 {
     double f = pic_config.map_zoom;
     double z, half_lat;
+    double old[4] = { pic_config.view_span_lon, pic_config.view_span_lat,
+                      pic_config.view_center_lon, pic_config.view_center_lat };
 
     if (f < 0.0) f = 0.0;
     if (f > 1.0) f = 1.0;
@@ -166,7 +168,11 @@ void pic_config_recompute_viewport(void)
         pic_config.view_center_lat = -90.0 + half_lat;
     }
 
-    pic_config.viewport_gen++;
+    /* Only a real change counts: every dashboard save lands here, and
+     * a new generation makes the imagery layers fetch again. */
+    if (old[0] != pic_config.view_span_lon || old[1] != pic_config.view_span_lat ||
+        old[2] != pic_config.view_center_lon || old[3] != pic_config.view_center_lat)
+        pic_config.viewport_gen++;
 }
 
 /*
