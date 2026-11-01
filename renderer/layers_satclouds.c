@@ -483,7 +483,7 @@ void pic_layer_render_satclouds(cairo_t *cr, int width, int height,
     pthread_mutex_lock(&sc.mutex);
     sc.screen_w = width;
     sc.screen_h = height;
-    if (!sc.image || pic_view_zoomed_out_since(sc.span)) {
+    if (!sc.image || pic_view_image_stale(sc.span)) {
         pthread_mutex_unlock(&sc.mutex);
         return;
     }
@@ -523,7 +523,9 @@ static void satclouds_stopped(pic_feature_t *f)
 
 static pic_feature_t feature_def = {
     .name = "satclouds", .layer = pic_layer_render_satclouds,
-    .interval = 60, .extra_mb = 12,
+    /* Redraw often enough that a new image (e.g. after a global/local
+     * switch) shows within seconds; drawing is a single scaled paint */
+    .interval = 15, .extra_mb = 12,
     .reload = satclouds_reload, .work = satclouds_work, .needs_network = 1,
     .stopped = satclouds_stopped,
 };

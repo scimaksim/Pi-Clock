@@ -157,16 +157,20 @@ void pic_map_key_add(const char *label, double r, double g, double b,
 void pic_map_key_draw(cairo_t *cr, int width, int height, double bottom);
 
 /*
- * True when the view has zoomed out since an image was fetched for a
- * view `fetched_span` degrees wide. Drawing it then shows a small
- * rectangle of data in the middle of the map, so callers skip the
- * image until the refetch for the new view lands.
+ * True when an image fetched for a view `fetched_span` degrees wide no
+ * longer fits the current view (after a zoom or a global/local
+ * switch). Callers skip the image until the refetch for the new view
+ * lands.
  */
-static inline int pic_view_zoomed_out_since(double fetched_span)
+static inline int pic_view_image_stale(double fetched_span)
 {
     double span = pic_config.view_span_lon;
     if (span < 0.0001) span = 360.0;
-    return fetched_span > 0 && span > fetched_span * 1.2;
+    /* Zoomed out: the image would be a box in the middle. Zoomed far
+     * in: it would be blown up into blocks. Either way skip it until
+     * the image for the new view arrives (a few seconds). */
+    return fetched_span > 0 &&
+           (span > fetched_span * 1.2 || span < fetched_span / 2.0);
 }
 
 #endif /* PIC_FEATURE_H */

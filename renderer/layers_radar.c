@@ -31,7 +31,7 @@ void pic_layer_render_radar(cairo_t *cr, int width, int height,
 
     pthread_mutex_lock(&d->mutex);
     d->screen_w = width;
-    if (!d->image || pic_view_zoomed_out_since(d->span)) {
+    if (!d->image || pic_view_image_stale(d->span)) {
         pthread_mutex_unlock(&d->mutex);
         return;
     }

@@ -114,7 +114,7 @@ void pic_layer_render_rainfall(cairo_t *cr, int width, int height,
     (void)now; (void)ud;
     pthread_mutex_lock(&rn.mutex);
     rn.screen_w = width;
-    if (!rn.image || pic_view_zoomed_out_since(rn.span)) {
+    if (!rn.image || pic_view_image_stale(rn.span)) {
         pthread_mutex_unlock(&rn.mutex);
         return;
     }
