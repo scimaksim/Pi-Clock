@@ -2,7 +2,7 @@
  * layers_launches.c - Upcoming rocket launches
  *
  * Map layer: a rocket marker at each pad with a launch in the next
- * LAUNCH_DAYS days (default 7), labelled with the rocket and a
+ * LAUNCH_DAYS days (default 1), labelled with the rocket and a
  * countdown. Pads within ~1100 km of the home QTH (Cape Canaveral
  * and Wallops from North Carolina) get a highlight ring, since those
  * launches can often be seen from home.
@@ -145,7 +145,7 @@ static void launches_reload(pic_feature_t *f)
 {
     (void)f;
     pthread_mutex_lock(&ll.mutex);
-    ll.days = pic_conf_int("LAUNCH_DAYS", 7);
+    ll.days = pic_conf_int("LAUNCH_DAYS", 1);
     if (ll.days < 1) ll.days = 1;
     ll.labels = pic_conf_int("LAUNCH_LABELS", 1);
     pthread_mutex_unlock(&ll.mutex);

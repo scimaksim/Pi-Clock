@@ -110,7 +110,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"SATCLOUD_STYLE": enumSetting("white", "white", "enhanced"),
 
 	// Rocket launches
-	"LAUNCH_DAYS":   intSetting("7", 1, 30),
+	"LAUNCH_DAYS":   intSetting("1", 1, 30),
 	"LAUNCH_LABELS": boolSetting("1"),
 
 	// Planets, passes, tides, ships

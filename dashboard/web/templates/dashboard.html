@@ -644,12 +644,14 @@
 
         <div class="card" id="launches-card" style="display:none">
             <div class="card-title card-title-row">Rocket Launches <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
-            <p class="text-muted mb-8">Upcoming launches worldwide from The Space Devs Launch Library. Pads near your QTH (Cape Canaveral and Wallops from the Carolinas) glow gold &mdash; those launches are often visible from home. Enable the Rocket Launches panel in the Applets card for a list.</p>
+            <p class="text-muted mb-8">Upcoming launches worldwide from The Space Devs Launch Library. Pads near your QTH (Cape Canaveral and Wallops from the Carolinas) glow gold &mdash; those launches are often visible from home. Markers appear on the map only for launches coming up soon; the Rocket Launches panel (Applets card) still lists the next several.</p>
             <div class="form-group">
                 <label for="launch_days">Show Launches Within</label>
                 <select id="launch_days" class="form-control" data-conf="LAUNCH_DAYS">
+                    <option value="1">Next 24 hours (default)</option>
+                    <option value="2">2 days</option>
                     <option value="3">3 days</option>
-                    <option value="7">7 days (default)</option>
+                    <option value="7">7 days</option>
                     <option value="14">14 days</option>
                 </select>
             </div>
