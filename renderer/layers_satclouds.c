@@ -146,6 +146,59 @@ uint32_t pic_satcloud_pixel(unsigned r, unsigned g, unsigned b, unsigned a,
 }
 
 /*
+ * GIBS's band 13 palette uses grey twice: for anything warmer than
+ * -19 °C (ground and low cloud) and again for -70..-79 °C, the coldest
+ * storm tops, which sit inside the dark-red (-61..-70) and pink
+ * (-80..-91) rings. RGB alone can't tell them apart, so mark grey
+ * pixels near those colours as cold. Returns a w*h mask, or NULL.
+ */
+static int very_cold_rgb(const unsigned char *s)
+{
+    int r = s[0], g = s[1], b = s[2];
+    if (s[3] < 128) return 0;
+    if (r >= 20 && g < 50 && b < 50 && r > g + 15) return 1;          /* reds  */
+    if (r >= 120 && b >= 120 && g + 50 < r && g + 50 < b) return 1;   /* pinks */
+    return 0;
+}
+
+static unsigned char *cold_mask(const unsigned char *px, int w, int h)
+{
+    unsigned char *m = calloc((size_t)w * h, 1), *t = calloc((size_t)w * h, 1);
+    int x, y, k, rad = w / 500 + 3, any = 0;
+
+    if (!m || !t) { free(m); free(t); return NULL; }
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            if (very_cold_rgb(px + ((size_t)y * w + x) * 4)) {
+                m[(size_t)y * w + x] = 1;
+                any = 1;
+            }
+    if (!any) { free(m); free(t); return NULL; }
+    /* Dilate: rows, then columns (running counts) */
+    for (y = 0; y < h; y++) {
+        int c = 0;
+        unsigned char *row = m + (size_t)y * w, *out = t + (size_t)y * w;
+        for (k = 0; k < rad && k < w; k++) c += row[k];
+        for (x = 0; x < w; x++) {
+            if (x + rad < w) c += row[x + rad];
+            if (x - rad - 1 >= 0) c -= row[x - rad - 1];
+            out[x] = c > 0;
+        }
+    }
+    for (x = 0; x < w; x++) {
+        int c = 0;
+        for (k = 0; k < rad && k < h; k++) c += t[(size_t)k * w + x];
+        for (y = 0; y < h; y++) {
+            if (y + rad < h) c += t[(size_t)(y + rad) * w + x];
+            if (y - rad - 1 >= 0) c -= t[(size_t)(y - rad - 1) * w + x];
+            m[(size_t)y * w + x] = c > 0;
+        }
+    }
+    free(t);
+    return m;
+}
+
+/*
  * Blit an RGBA PNG into the composite at column x0, filling only
  * pixels not already covered (have[] marks covered tile pixels), so
  * an older time step can patch tiles missing from a newer one.
@@ -158,7 +211,7 @@ static int blit_png(const char *path, cairo_surface_t *dst, int x0,
                     unsigned char *have, int *expect)
 {
     int w, h, ch, x, y, dw, dh, stride, covered = 0;
-    unsigned char *px = stbi_load(path, &w, &h, &ch, 4), *d;
+    unsigned char *px = stbi_load(path, &w, &h, &ch, 4), *d, *cold = NULL;
 
     if (!px) return -1;
     dw = cairo_image_surface_get_width(dst);
@@ -177,6 +230,7 @@ static int blit_png(const char *path, cairo_surface_t *dst, int x0,
         w = want_w;
         h = dh;
     }
+    cold = cold_mask(px, w, h);
     *expect = 0;
     for (y = 0; y < h && y < dh; y++) {
         uint32_t *row = (uint32_t *)(d + (size_t)y * stride);
@@ -198,7 +252,14 @@ static int blit_png(const char *path, cairo_surface_t *dst, int x0,
                 if (s[3] < 128) continue;
                 *hv = 1;
                 covered += c < 70;
-                p = pic_satcloud_pixel(s[0], s[1], s[2], s[3], enhanced);
+                if (cold && cold[(size_t)y * w + x] &&
+                    abs((int)s[0] - s[1]) < 25 && abs((int)s[1] - s[2]) < 25) {
+                    /* -70..-79 °C grey inside a storm core */
+                    unsigned v = enhanced ? s[0] : 250;
+                    p = (229u << 24) | ((v * 229 / 255) << 16) |
+                        ((v * 229 / 255) << 8) | (v * 229 / 255);
+                } else
+                    p = pic_satcloud_pixel(s[0], s[1], s[2], s[3], enhanced);
                 if (fade < 1.0) {
                     uint32_t a = (uint32_t)((p >> 24) * fade);
                     uint32_t r = (uint32_t)(((p >> 16) & 255) * fade);
@@ -209,6 +270,7 @@ static int blit_png(const char *path, cairo_surface_t *dst, int x0,
                 row[x0 + x] = p;
             }
     }
+    free(cold);
     stbi_image_free(px);
     return covered;
 }
@@ -514,6 +576,88 @@ void pic_layer_render_satclouds(cairo_t *cr, int width, int height,
     pthread_mutex_unlock(&sc.mutex);
 }
 
+/*
+ * Legend for the enhanced style: GIBS's cloud-top temperature colours
+ * (band 13 brightness temperature, °C). Colder = higher cloud tops =
+ * stronger storms.
+ */
+static const struct { double t; unsigned char r, g, b; } sc_stops[] = {
+    { -10.0, 215, 215, 220 }, { -19.4, 245, 245, 245 },
+    { -19.6,   0, 255, 255 }, { -24.6,   0, 128, 185 }, { -29.6,   0,   0, 125 },
+    { -35.0,   0, 128,  58 }, { -40.6,   0, 255,   0 }, { -50.6, 255, 255,   0 },
+    { -60.6, 255,   0,   0 }, { -69.6,  26,   0,   0 }, { -70.6,   5,   5,   5 },
+    { -78.6, 204, 204, 204 }, { -80.0, 230, 230, 230 }, { -80.6, 255, 127, 203 },
+    { -90.6, 127,   0, 127 }, { -92.0, 255, 255, 255 },
+};
+
+static void satclouds_legend(cairo_t *cr, int width, int height, time_t now,
+                             void *ud)
+{
+    double fs = height / 90.0, bw = fs * 34, bh = fs * 0.75, pad = fs * 0.6;
+    double t0 = -10, t1 = -92, x0, y, tw, boxw;
+    int enhanced, have, i, n = sizeof(sc_stops) / sizeof(sc_stops[0]);
+    const char *title = "Cloud tops \xc2\xb0""C";
+    cairo_text_extents_t e;
+
+    (void)now; (void)ud;
+    pthread_mutex_lock(&sc.mutex);
+    enhanced = sc.enhanced;
+    have = sc.image != NULL && !pic_view_image_stale(sc.span);
+    pthread_mutex_unlock(&sc.mutex);
+    if (!enhanced || !have) return;
+
+    cairo_save(cr);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                           CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fs);
+    cairo_text_extents(cr, title, &e);
+    tw = e.x_advance + fs * 0.8;
+    boxw = tw + bw + pad * 2;
+    x0 = (width - boxw) / 2.0;
+    /* Legend slot 8, above the other bottom-centre notes */
+    y = height - fs * 90.0 / 72.0 * (3.2 + 1.75 * 8);
+
+    cairo_new_path(cr);
+    cairo_rectangle(cr, x0, y - fs * 0.2, boxw, bh + fs * 1.75);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.6);
+    cairo_fill(cr);
+    cairo_set_source_rgba(cr, 0.9, 0.92, 0.96, 0.95);
+    cairo_move_to(cr, x0 + pad, y + bh * 0.9);
+    cairo_show_text(cr, title);
+
+    {
+        cairo_pattern_t *g = cairo_pattern_create_linear(x0 + pad + tw, 0,
+                                                         x0 + pad + tw + bw, 0);
+        for (i = 0; i < n; i++)
+            cairo_pattern_add_color_stop_rgb(g, (sc_stops[i].t - t0) / (t1 - t0),
+                                             sc_stops[i].r / 255.0,
+                                             sc_stops[i].g / 255.0,
+                                             sc_stops[i].b / 255.0);
+        cairo_rectangle(cr, x0 + pad + tw, y, bw, bh);
+        cairo_set_source(cr, g);
+        cairo_fill(cr);
+        cairo_pattern_destroy(g);
+    }
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                           CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, fs * 0.8);
+    for (i = -20; i >= -90; i -= 10) {
+        char lab[8];
+        double x = x0 + pad + tw + (i - t0) / (t1 - t0) * bw;
+        snprintf(lab, sizeof(lab), "%d", i);
+        cairo_text_extents(cr, lab, &e);
+        cairo_set_source_rgba(cr, 0.85, 0.87, 0.9, 0.95);
+        cairo_move_to(cr, x - e.x_advance / 2, y + bh + fs * 1.05);
+        cairo_show_text(cr, lab);
+        cairo_new_path(cr);
+        cairo_move_to(cr, x, y + bh);
+        cairo_line_to(cr, x, y + bh + fs * 0.2);
+        cairo_set_line_width(cr, 1);
+        cairo_stroke(cr);
+    }
+    cairo_restore(cr);
+}
+
 void pic_satclouds_free(void);
 static void satclouds_stopped(pic_feature_t *f)
 {
@@ -526,6 +670,7 @@ static pic_feature_t feature_def = {
     /* Redraw often enough that a new image (e.g. after a global/local
      * switch) shows within seconds; drawing is a single scaled paint */
     .interval = 15, .extra_mb = 12,
+    .legend = satclouds_legend,
     .reload = satclouds_reload, .work = satclouds_work, .needs_network = 1,
     .stopped = satclouds_stopped,
 };
