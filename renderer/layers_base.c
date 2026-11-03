@@ -71,10 +71,12 @@ cairo_pattern_t *pic_viewport_pattern(cairo_surface_t *src,
 
     /* Daytime map: the current-season composite, when built (season.c) */
     {
-        cairo_surface_t *alt = pic_season_world_for(src);
-        if (alt) {
-            pattern = pic_viewport_pattern(alt, width, height);
-            cairo_surface_destroy(alt);       /* the pattern holds a ref */
+        cairo_surface_t *whole = NULL;
+        pattern = pic_season_pattern(src, width, height, &whole);
+        if (pattern) return pattern;
+        if (whole) {
+            pattern = pic_viewport_pattern(whole, width, height);
+            cairo_surface_destroy(whole);     /* the pattern holds a ref */
             if (pattern) return pattern;
         }
     }

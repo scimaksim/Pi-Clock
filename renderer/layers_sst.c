@@ -301,9 +301,107 @@ static int sst_work(pic_feature_t *f)
     return 6 * 3600;
 }
 
+/* ── Zoomed-in drawing ─────────────────────────────────────────────
+ * At world scale a 0.25° cell is a pixel or two and the wash image is
+ * drawn as is. Zoomed in, a cell becomes a block up to ~30 px across:
+ * coasts turn into staircases and the colour spills onto land. Then
+ * the view is redrawn from the temperatures themselves: bilinear
+ * between cell centres, with the ocean edge where the interpolated
+ * "ocean share" crosses one half (a smooth line through the coastal
+ * cells) and the front lines narrowed to the ridge. */
+
+static inline double cell_c(const unsigned char *idx, int x, int y)
+{
+    int k;
+    if (y < 0 || y >= SST_H) return NAN;
+    x = (x % SST_W + SST_W) % SST_W;
+    k = idx[(size_t)y * SST_W + x];
+    return k ? cmap[k - 1].c : NAN;
+}
+
+/* Front strength 0..1 at a cell (as in the world image) */
+static double cell_front(const unsigned char *idx, int x, int y)
+{
+    double l = cell_c(idx, x - 1, y), r = cell_c(idx, x + 1, y);
+    double u = cell_c(idx, x, y - 1), d = cell_c(idx, x, y + 1), g;
+    if (isnan(l) || isnan(r) || isnan(u) || isnan(d)) return 0;
+    g = sqrt((r - l) * (r - l) / 4 + (d - u) * (d - u) / 4);
+    if (g < FRONT_C) return 0;
+    g = (g - FRONT_C) / FRONT_C;
+    return g > 1 ? 1 : g;
+}
+
+static double smooth01(double e0, double e1, double v)
+{
+    double t = (v - e0) / (e1 - e0);
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    return t * t * (3 - 2 * t);
+}
+
+static cairo_surface_t *zoom_image(const unsigned char *idx, int w, int h)
+{
+    double span = pic_config.view_span_lon, span_lat = pic_config.view_span_lat;
+    double lon0 = pic_config.view_center_lon - span / 2;
+    double lat1 = pic_config.view_center_lat + span_lat / 2;
+    cairo_surface_t *img = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
+    unsigned char *px;
+    int stride, x, y;
+
+    if (cairo_surface_status(img) != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(img);
+        return NULL;
+    }
+    cairo_surface_flush(img);
+    px = cairo_image_surface_get_data(img);
+    stride = cairo_image_surface_get_stride(img);
+    for (y = 0; y < h; y++) {
+        uint32_t *row = (uint32_t *)(px + (size_t)y * stride);
+        double lat = lat1 - (y + 0.5) * span_lat / h;
+        double fy = (90 - lat) * 4 - 0.5;          /* cell-centre coords */
+        int y0 = (int)floor(fy);
+        double ty = fy - y0;
+        for (x = 0; x < w; x++) {
+            double lon = lon0 + (x + 0.5) * span / w;
+            double fx = (lon + 180) * 4 - 0.5;
+            int x0 = (int)floor(fx), i;
+            double tx = fx - x0, wsum = 0, tsum = 0, fsum = 0, a, t, fr, r, g, b;
+            static const int ox[4] = { 0, 1, 0, 1 }, oy[4] = { 0, 0, 1, 1 };
+            for (i = 0; i < 4; i++) {
+                double wt = (ox[i] ? tx : 1 - tx) * (oy[i] ? ty : 1 - ty);
+                double c = cell_c(idx, x0 + ox[i], y0 + oy[i]);
+                if (isnan(c)) continue;
+                wsum += wt;
+                tsum += wt * c;
+                fsum += wt * cell_front(idx, x0 + ox[i], y0 + oy[i]);
+            }
+            if (wsum <= 0.001) { row[x] = 0; continue; }
+            a = smooth01(0.5, 0.75, wsum) * SST_ALPHA;
+            if (a <= 0) { row[x] = 0; continue; }
+            t = tsum / wsum;
+            fr = smooth01(0.45, 0.9, fsum / wsum) * FRONT_ALPHA;
+            pic_sst_colour(c_to_f(t), &r, &g, &b);
+            /* front: translucent white over the wash, as in the world image */
+            r = (r * a) * (1 - fr) + fr;
+            g = (g * a) * (1 - fr) + fr;
+            b = (b * a) * (1 - fr) + fr;
+            a = a * (1 - fr) + fr;
+            if (wsum < 0.75) {          /* fade the front out at the coast too */
+                double k = smooth01(0.5, 0.75, wsum);
+                r *= k; g *= k; b *= k; a *= k;
+            }
+            row[x] = ((uint32_t)(a * 255) << 24) | ((uint32_t)(r * 255) << 16) |
+                     ((uint32_t)(g * 255) << 8) | (uint32_t)(b * 255);
+        }
+    }
+    cairo_surface_mark_dirty(img);
+    return img;
+}
+
 void pic_layer_render_sst(cairo_t *cr, int width, int height, time_t now,
                           void *ud)
 {
+    double span = pic_config.view_span_lon > 0 ? pic_config.view_span_lon : 360;
     (void)now; (void)ud;
     pthread_mutex_lock(&sst.mutex);
     /* The home note follows a QTH change without a refetch */
@@ -312,7 +410,31 @@ void pic_layer_render_sst(cairo_t *cr, int width, int height, time_t now,
         sst.qlon = pic_config.qth_lon;
         near_home(sst.idx, sst.qlat, sst.qlon, &sst.near_f, &sst.warm_f);
     }
-    if (sst.image) pic_paint_viewport(cr, sst.image, width, height);
+    /* Cells wider than ~3 px: draw from the temperatures at half the
+     * screen resolution (cached until the view or data change) */
+    if (sst.idx && width / span * 0.25 > 3) {
+        static cairo_surface_t *zimg;
+        static double zkey[4];
+        static unsigned char *zidx;
+        double key[4] = { pic_config.view_center_lon, pic_config.view_center_lat,
+                          span, (double)width };
+        if (!zimg || zidx != sst.idx || memcmp(key, zkey, sizeof(key)) != 0) {
+            if (zimg) cairo_surface_destroy(zimg);
+            zimg = zoom_image(sst.idx, width / 2, height / 2);
+            zidx = sst.idx;
+            memcpy(zkey, key, sizeof(key));
+        }
+        if (zimg) {
+            cairo_save(cr);
+            cairo_scale(cr, 2.0, 2.0);
+            cairo_set_source_surface(cr, zimg, 0, 0);
+            cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BILINEAR);
+            cairo_paint(cr);
+            cairo_restore(cr);
+        }
+    } else if (sst.image) {
+        pic_paint_viewport(cr, sst.image, width, height);
+    }
     pthread_mutex_unlock(&sst.mutex);
 }
 

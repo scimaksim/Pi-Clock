@@ -491,8 +491,11 @@ out:
 /* ── World map feature ────────────────────────────────────────── */
 
 static pthread_mutex_t w_mutex = PTHREAD_MUTEX_INITIALIZER;
-static cairo_surface_t *w_classic;     /* Blue Marble (not owned)       */
-static cairo_surface_t *w_season;      /* Composite (owned)             */
+static cairo_surface_t *w_classic;     /* Blue Marble (not owned)        */
+static cairo_surface_t *w_season;      /* Whole world, 2560x1280 (owned) */
+static cairo_surface_t *w_region;      /* World view when zoomed in      */
+static double w_box[4];                /* region lon0, lat0, lon1, lat1  */
+static int w_screen_w = 1920, w_screen_h = 1080;
 static char w_newest[16];
 
 void pic_season_set_world(cairo_surface_t *blue_marble)
@@ -502,15 +505,52 @@ void pic_season_set_world(cairo_surface_t *blue_marble)
     pthread_mutex_unlock(&w_mutex);
 }
 
-cairo_surface_t *pic_season_world_for(cairo_surface_t *src)
+/* Pattern for the visible area from a region image, or NULL if the
+ * region doesn't cover it (same mapping as pic_regional_pattern) */
+static cairo_pattern_t *region_pattern(cairo_surface_t *img, const double *b,
+                                       int width, int height)
 {
-    cairo_surface_t *s = NULL;
-    if (!season_on) return NULL;
+    double span_lon = pic_config.view_span_lon, span_lat = pic_config.view_span_lat;
+    double vlon0 = pic_config.view_center_lon - span_lon / 2;
+    double vlat1 = pic_config.view_center_lat + span_lat / 2;
+    double rw, rh;
+    cairo_pattern_t *pat;
+    cairo_matrix_t m;
+
+    if (vlon0 < b[0] - 1e-6 || vlon0 + span_lon > b[2] + 1e-6 ||
+        vlat1 > b[3] + 1e-6 || vlat1 - span_lat < b[1] - 1e-6)
+        return NULL;
+    rw = cairo_image_surface_get_width(img);
+    rh = cairo_image_surface_get_height(img);
+    pat = cairo_pattern_create_for_surface(img);
+    cairo_matrix_init(&m,
+                      span_lon * rw / ((b[2] - b[0]) * width), 0, 0,
+                      span_lat * rh / ((b[3] - b[1]) * height),
+                      (vlon0 - b[0]) * rw / (b[2] - b[0]),
+                      (b[3] - vlat1) * rh / (b[3] - b[1]));
+    cairo_pattern_set_matrix(pat, &m);
+    cairo_pattern_set_extend(pat, CAIRO_EXTEND_PAD);
+    cairo_pattern_set_filter(pat, CAIRO_FILTER_BILINEAR);
+    return pat;
+}
+
+cairo_pattern_t *pic_season_pattern(cairo_surface_t *src, int width, int height,
+                                    cairo_surface_t **whole)
+{
+    cairo_pattern_t *pat = NULL;
+    *whole = NULL;
+    if (!season_on || !src) return NULL;
     pthread_mutex_lock(&w_mutex);
-    if (src && src == w_classic && w_season)
-        s = cairo_surface_reference(w_season);
+    if (src == w_classic) {
+        w_screen_w = width;
+        w_screen_h = height;
+        if (w_region)
+            pat = region_pattern(w_region, w_box, width, height);
+        if (!pat && w_season)
+            *whole = cairo_surface_reference(w_season);
+    }
     pthread_mutex_unlock(&w_mutex);
-    return s;
+    return pat;
 }
 
 const char *pic_season_world_date(void)
@@ -518,54 +558,126 @@ const char *pic_season_world_date(void)
     return w_newest;
 }
 
-static int season_work(pic_feature_t *f)
+/* World-view area worth a sharper image of its own (MAP_ZOOM above
+ * ~1.2x), with a 10% margin; 0 if the whole-world image will do */
+static int world_box(double b[4])
 {
-    cairo_surface_t *bm, *img;
-    char newest[16] = "";
-    int w, h, s;
+    double v[4];
+    pic_config_viewport_for(0, v);
+    if (v[0] > 300) return 0;
+    b[0] = v[2] - v[0] * 0.55;
+    b[2] = v[2] + v[0] * 0.55;
+    b[1] = v[3] - v[1] * 0.55;
+    b[3] = v[3] + v[1] * 0.55;
+    if (b[1] < -90) b[1] = -90;
+    if (b[3] > 90) b[3] = 90;
+    /* Across the date line: the whole-world image covers it */
+    return b[0] >= -180 && b[2] <= 180;
+}
+
+/* Blue Marble resampled into an RGB24 image of box b, w x h */
+static cairo_surface_t *classic_box(cairo_surface_t *bm, const double *b,
+                                    int w, int h)
+{
+    cairo_surface_t *img = cairo_image_surface_create(CAIRO_FORMAT_RGB24, w, h);
+    double bw = cairo_image_surface_get_width(bm), bh = cairo_image_surface_get_height(bm);
     cairo_t *cr;
-
-    pthread_mutex_lock(&w_mutex);
-    bm = w_classic ? cairo_surface_reference(w_classic) : NULL;
-    pthread_mutex_unlock(&w_mutex);
-    if (!bm) return 600;
-
-    /* 2048x1024 is past the ~2 km detail of the world-scale tiles and
-     * keeps RAM modest (the Blue Marble may be the 4k image) */
-    w = cairo_image_surface_get_width(bm);
-    if (w > 2048) w = 2048;
-    h = w / 2;
-    img = cairo_image_surface_create(CAIRO_FORMAT_RGB24, w, h);
     if (cairo_surface_status(img) != CAIRO_STATUS_SUCCESS) {
         cairo_surface_destroy(img);
-        cairo_surface_destroy(bm);
-        return 1800;
+        return NULL;
     }
     cr = cairo_create(img);
-    cairo_scale(cr, (double)w / cairo_image_surface_get_width(bm),
-                (double)h / cairo_image_surface_get_height(bm));
+    cairo_scale(cr, w / ((b[2] - b[0]) / 360.0 * bw), h / ((b[3] - b[1]) / 180.0 * bh));
+    cairo_translate(cr, -(b[0] + 180) / 360.0 * bw, -(90 - b[3]) / 180.0 * bh);
     cairo_set_source_surface(cr, bm, 0, 0);
     cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_paint(cr);
     cairo_destroy(cr);
+    return img;
+}
+
+static int season_work(pic_feature_t *f)
+{
+    static time_t full_at, region_at;
+    static double built_box[4];
+    cairo_surface_t *bm, *img;
+    char newest[16] = "";
+    double b[4];
+    int has_box, s, sw, sh;
+    time_t now = time(NULL);
+
+    pthread_mutex_lock(&w_mutex);
+    bm = w_classic ? cairo_surface_reference(w_classic) : NULL;
+    sw = w_screen_w;
+    sh = w_screen_h;
+    pthread_mutex_unlock(&w_mutex);
+    if (!bm) return 600;
+
+    /* Whole world, every six hours (only new tiles are downloaded).
+     * 2560x1280 matches the world-scale tiles (7 px per degree), enough
+     * for the full view and the 1.5x zoom that crosses the date line;
+     * closer world zooms get their own image below. */
+    if (!w_season || now - full_at >= 6 * 3600) {
+        double whole[4] = { -180, -90, 180, 90 };
+        img = classic_box(bm, whole, 2560, 1280);
+        if (img && pic_season_composite(img, -180, -90, 180, 90, f,
+                                        newest, sizeof(newest)) == 0) {
+            pthread_mutex_lock(&w_mutex);
+            if (w_season) cairo_surface_destroy(w_season);
+            w_season = img;
+            snprintf(w_newest, sizeof(w_newest), "%s", newest);
+            pthread_mutex_unlock(&w_mutex);
+            full_at = now;
+            pic_regional_bump();
+        } else {
+            if (img) cairo_surface_destroy(img);
+            cairo_surface_destroy(bm);
+            return pic_feature_interrupted(f) ? 1 : 1800;
+        }
+    }
+
+    /* The zoomed-in world view, at screen resolution */
+    has_box = world_box(b);
+    if (has_box && (!w_region || memcmp(b, built_box, sizeof(b)) != 0 ||
+                    now - region_at >= 6 * 3600)) {
+        double v[4];
+        int w, h;
+        pic_config_viewport_for(0, v);
+        w = (int)(sw * (b[2] - b[0]) / v[0]);
+        h = (int)(sh * (b[3] - b[1]) / v[1]);
+        if (w > 2400) { h = h * 2400 / w; w = 2400; }
+        img = w > 64 && h > 32 ? classic_box(bm, b, w, h) : NULL;
+        if (img && pic_season_composite(img, b[0], b[1], b[2], b[3], f, NULL, 0) == 0) {
+            pthread_mutex_lock(&w_mutex);
+            if (w_region) cairo_surface_destroy(w_region);
+            w_region = img;
+            memcpy(w_box, b, sizeof(b));
+            pthread_mutex_unlock(&w_mutex);
+            memcpy(built_box, b, sizeof(b));
+            region_at = now;
+            pic_regional_bump();
+        } else if (img) {
+            cairo_surface_destroy(img);
+        }
+    } else if (!has_box && w_region) {
+        pthread_mutex_lock(&w_mutex);
+        cairo_surface_destroy(w_region);
+        w_region = NULL;
+        pthread_mutex_unlock(&w_mutex);
+    }
     cairo_surface_destroy(bm);
 
-    if (pic_season_composite(img, -180, -90, 180, 90, f, newest, sizeof(newest)) != 0) {
-        cairo_surface_destroy(img);
-        return pic_feature_interrupted(f) ? 1 : 1800;
-    }
-    pthread_mutex_lock(&w_mutex);
-    if (w_season) cairo_surface_destroy(w_season);
-    w_season = img;
-    snprintf(w_newest, sizeof(w_newest), "%s", newest);
-    pthread_mutex_unlock(&w_mutex);
-    pic_regional_bump();
-
-    /* New imagery appears daily; rebuild every six hours (only new
-     * tiles are downloaded) */
+    /* Wait for the next refresh, or a change of map zoom / centre */
     for (s = 0; s < 6 * 3600; s++) {
+        double nb[4];
+        int nh;
         if (pic_feature_interrupted(f)) return 1;
+        if (s % 10 == 0) {
+            nh = world_box(nb);
+            if (nh != has_box || (nh && memcmp(nb, built_box, sizeof(nb)) != 0))
+                return 2;
+        }
         sleep(1);
     }
     return 1;
@@ -588,7 +700,8 @@ static void season_stopped(pic_feature_t *f)
     (void)f;
     pthread_mutex_lock(&w_mutex);
     if (w_season) cairo_surface_destroy(w_season);
-    w_season = NULL;
+    if (w_region) cairo_surface_destroy(w_region);
+    w_season = w_region = NULL;
     pthread_mutex_unlock(&w_mutex);
 }
 

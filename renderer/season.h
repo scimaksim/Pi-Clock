@@ -24,10 +24,15 @@ int pic_season_composite(cairo_surface_t *dst, double lon0, double lat0,
                          double lon1, double lat1, pic_feature_t *f,
                          char *newest, int newest_len);
 
-/* World daytime map: register the Blue Marble, and look up the
- * composite standing in for it (a new reference, or NULL). */
+/*
+ * World daytime map: register the Blue Marble; then, for a source that
+ * is the Blue Marble, get a ready pattern of the zoomed-in world-view
+ * image, or (pattern NULL, *whole set to a new reference) the
+ * whole-world composite to draw instead. Both NULL = draw the classic.
+ */
 void pic_season_set_world(cairo_surface_t *blue_marble);
-cairo_surface_t *pic_season_world_for(cairo_surface_t *src);
+cairo_pattern_t *pic_season_pattern(cairo_surface_t *src, int width, int height,
+                                    cairo_surface_t **whole);
 const char *pic_season_world_date(void);
 
 pic_feature_t *pic_feature_season(void);
