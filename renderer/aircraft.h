@@ -43,6 +43,8 @@ typedef struct {
     int      radius_nm;     /* Area around QTH (adsb.lol)                */
     int      show_mil;      /* Also fetch military aircraft worldwide    */
     int      labels;        /* 0 none, 1 emergencies/military, 2 all     */
+    int      airliners;     /* 1: only airline flights (3-letter callsign) */
+    int      min_alt;       /* hide aircraft below this many feet (0 off) */
     char     local[96];     /* "host:port" of a local receiver, or ""    */
     char     source[24];    /* "adsb.lol" / "local receiver"             */
     pthread_mutex_t mutex;
@@ -53,7 +55,11 @@ int  pic_ac_start(pic_aircraft_t *data);
 void pic_ac_stop(void);
 
 /* Keys: AIRCRAFT_RADIUS_NM=25..250, AIRCRAFT_MIL=0|1,
- *       AIRCRAFT_LABELS=0..2, AIRCRAFT_LOCAL=host[:port] */
+ *       AIRCRAFT_LABELS=0..2, AIRCRAFT_LOCAL=host[:port],
+ *       AIRCRAFT_AIRLINERS=0|1, AIRCRAFT_MIN_ALT=0..10000 (ft) */
+
+/* Airline-style callsign: 3 letters then a digit (AAL2947) */
+int pic_ac_is_airline(const char *callsign);
 void pic_ac_reload(pic_aircraft_t *data);
 
 /*

@@ -45,6 +45,7 @@
 #include <errno.h>
 #include <time.h>
 #include <stdint.h>
+#include <math.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
@@ -93,6 +94,19 @@ static void add_strike(pic_lightning_t *data, double lat, double lon)
 
     data->head = (data->head + 1) % PIC_MAX_STRIKES;
     if (data->count < PIC_MAX_STRIKES) data->count++;
+
+    /* Near home? Keep it longer for the distance rings */
+    if (!(pic_config.qth_lat == 0 && pic_config.qth_lon == 0)) {
+        double p1 = pic_config.qth_lat * M_PI / 180, p2 = lat * M_PI / 180;
+        double dl = (lon - pic_config.qth_lon) * M_PI / 180;
+        double c = sin(p1) * sin(p2) + cos(p1) * cos(p2) * cos(dl);
+        if (c > 1) c = 1;
+        if (acos(c) * 6371.0 < PIC_NEAR_KM) {
+            data->near[data->near_head] = *s;
+            data->near_head = (data->near_head + 1) % PIC_NEAR_STRIKES;
+            if (data->near_count < PIC_NEAR_STRIKES) data->near_count++;
+        }
+    }
     pthread_mutex_unlock(&data->mutex);
 }
 

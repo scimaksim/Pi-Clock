@@ -129,6 +129,8 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"AIRCRAFT_MIL":       boolSetting("0"),
 	"AIRCRAFT_LABELS":    enumSetting("1", "0", "1", "2"),
 	"AIRCRAFT_LOCAL":     hostPortSetting(),
+	"AIRCRAFT_AIRLINERS": boolSetting("0"),
+	"AIRCRAFT_MIN_ALT":   intSetting("0", 0, 10000),
 
 	// Starlink trains
 	"STARLINK_MAX_AGE_D": intSetting("10", 1, 30),

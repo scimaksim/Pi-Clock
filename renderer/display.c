@@ -161,6 +161,8 @@ extern void pic_layer_render_starlink(cairo_t *cr, int width, int height,
                                       time_t now, void *user_data);
 extern void pic_layer_render_aircraft_legend(cairo_t *cr, int width, int height,
                                              time_t now, void *user_data);
+extern void pic_layer_render_lightning_near(cairo_t *cr, int width, int height,
+                                            time_t now, void *user_data);
 extern void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
                                       time_t now, void *user_data);
 extern void pic_layer_render_airquality_badge(cairo_t *cr, int width,
@@ -1629,6 +1631,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                          pic_layer_render_nwsalert_banner);
     pic_layer_set_legend(&stack, "aircraft",
                          pic_layer_render_aircraft_legend);
+    pic_layer_set_legend(&stack, "lightning",
+                         pic_layer_render_lightning_near);
     pic_layer_set_legend(&stack, "airquality",
                          pic_layer_render_airquality_badge);
     {

@@ -142,7 +142,7 @@ static int rcache_next;
 
 /* Airline-style callsign: 3 letters then a digit (AAL2947, DAL1234),
  * not a registration (N1234X) or a military/private name */
-static int airline_callsign(const char *cs)
+int pic_ac_is_airline(const char *cs)
 {
     return isalpha((unsigned char)cs[0]) && isalpha((unsigned char)cs[1]) &&
            isalpha((unsigned char)cs[2]) && isdigit((unsigned char)cs[3]);
@@ -253,7 +253,7 @@ static void add_routes(pic_ac_t *ac, int count)
     for (i = 0; i < count; i++) {
         pic_ac_t *a = &ac[i];
         a->route[0] = '\0';
-        if (a->alt <= 0 || !airline_callsign(a->flight)) continue;
+        if (a->alt <= 0 || !pic_ac_is_airline(a->flight)) continue;
         if (km_between(a->lat, a->lon, pic_config.qth_lat, pic_config.qth_lon) > ROUTE_NEAR_KM)
             continue;
         fetched += route_for(a->flight, a->lat, a->lon, a->route, sizeof(a->route),
@@ -373,7 +373,7 @@ void pic_ac_reload(pic_aircraft_t *data)
 {
     FILE *f;
     char line[160], local[96] = "";
-    int radius = 150, mil = 0, labels = 1;
+    int radius = 150, mil = 0, labels = 1, airliners = 0, min_alt = 0;
 
     f = fopen("/data/etc/pi-clock-renderer.conf", "r");
     if (f) {
@@ -385,6 +385,10 @@ void pic_ac_reload(pic_aircraft_t *data)
                 mil = atoi(line + 13) != 0;
             else if (strncmp(line, "AIRCRAFT_LABELS=", 16) == 0)
                 labels = atoi(line + 16);
+            else if (strncmp(line, "AIRCRAFT_AIRLINERS=", 19) == 0)
+                airliners = atoi(line + 19) != 0;
+            else if (strncmp(line, "AIRCRAFT_MIN_ALT=", 17) == 0)
+                min_alt = atoi(line + 17);
             else if (strncmp(line, "AIRCRAFT_LOCAL=", 15) == 0)
                 snprintf(local, sizeof(local), "%.95s", line + 15);
         }
@@ -394,12 +398,16 @@ void pic_ac_reload(pic_aircraft_t *data)
     if (radius > 250) radius = 250;
     if (labels < 0) labels = 0;
     if (labels > 2) labels = 2;
+    if (min_alt < 0) min_alt = 0;
+    if (min_alt > 10000) min_alt = 10000;
     if (!valid_hostport(local)) local[0] = '\0';
 
     pthread_mutex_lock(&data->mutex);
     data->radius_nm = radius;
     data->show_mil = mil;
     data->labels = labels;
+    data->airliners = airliners;
+    data->min_alt = min_alt;
     snprintf(data->local, sizeof(data->local), "%s", local);
     pthread_mutex_unlock(&data->mutex);
 }

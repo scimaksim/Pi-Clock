@@ -553,7 +553,7 @@
         <!-- Aircraft Settings (hidden when aircraft layer is off) -->
         <div class="card" id="aircraft-card" style="display:none">
             <div class="card-title card-title-row">Aircraft (ADS-B) <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
-            <p class="text-muted mb-8">Live aircraft around your QTH from the adsb.lol community network (free), updated every 30 seconds and moved smoothly in between. Colour shows altitude (green low &rarr; violet high); amber outline = military; red ring = emergency squawk.</p>
+            <p class="text-muted mb-8">Live aircraft around your QTH from the adsb.lol community network (free), updated every 30 seconds and moved smoothly in between. Colour shows altitude (green low &rarr; violet high, legend at the bottom); amber outline = military; red ring = emergency squawk. Airliners within 50&nbsp;nm of home show their route (e.g. RDU&rarr;LGA) when the flight database confirms it.</p>
             <div class="form-group">
                 <label for="ac_radius">Area</label>
                 <select id="ac_radius" class="form-control" data-conf="AIRCRAFT_RADIUS_NM">
@@ -571,7 +571,18 @@
                     <option value="2">All (callsign + flight level)</option>
                 </select>
             </div>
+            <div class="form-group">
+                <label for="ac_min_alt">Hide Aircraft Below</label>
+                <select id="ac_min_alt" class="form-control" data-conf="AIRCRAFT_MIN_ALT">
+                    <option value="0">Show all altitudes (default)</option>
+                    <option value="1000">1,000 ft</option>
+                    <option value="3000">3,000 ft (hides most local traffic)</option>
+                    <option value="5000">5,000 ft</option>
+                    <option value="10000">10,000 ft (cruising jets only)</option>
+                </select>
+            </div>
             <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="AIRCRAFT_AIRLINERS"> Airliners only (hide private and small planes)</label>
                 <label class="checkbox-label"><input type="checkbox" data-conf="AIRCRAFT_MIL"> Also show military aircraft worldwide</label>
             </div>
             <div class="form-group">

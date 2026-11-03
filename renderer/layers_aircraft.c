@@ -126,6 +126,10 @@ void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
             if (special != pass) continue;
             /* Parked/taxiing aircraft only clutter airports at wide zoom */
             if (a->alt == -1 && zoom < 3.0 && !special) continue;
+            /* Declutter filters (military/emergencies always shown):
+             * airline flights only, and/or nothing below min_alt */
+            if (!special && d->airliners && !pic_ac_is_airline(a->flight)) continue;
+            if (!special && d->min_alt > 0 && a->alt < d->min_alt) continue;
 
             if (a->track >= 0 && a->gs > 0 && a->alt != -1) {
                 double dist = a->gs * dt / 3600.0 / 60.0;
