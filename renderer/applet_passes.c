@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define MAX_PSATS   6
 #define MAX_PASSES  24
@@ -155,7 +156,60 @@ int pic_passes_predict(const pic_sat_t *s, const char *name, time_t t0,
  * One satellite's TLE: CelesTrak first, then the tle.ivanstanojevic.me
  * API (CelesTrak throttles bursts of requests).
  */
+/* TLE cache in /tmp (survives renderer restarts, not reboots), so
+ * restarts don't ask CelesTrak again: it blocks addresses that fetch
+ * the same data more than about every 2 hours. */
+static int tle_cache_path(int id, char *out, size_t n)
+{
+    return snprintf(out, n, "/tmp/pi-clock-cache/tle-%d.txt", id) < (int)n;
+}
+
+static int tle_cache_read(int id, char *l1, char *l2, time_t max_age)
+{
+    char path[64];
+    struct stat st;
+    FILE *fp;
+    int ok = 0;
+    if (!tle_cache_path(id, path, sizeof(path)) || stat(path, &st) != 0 ||
+        time(NULL) - st.st_mtime > max_age)
+        return -1;
+    fp = fopen(path, "r");
+    if (!fp) return -1;
+    if (fgets(l1, 96, fp) && fgets(l2, 96, fp)) {
+        l1[strcspn(l1, "\r\n")] = '\0';
+        l2[strcspn(l2, "\r\n")] = '\0';
+        ok = l1[0] == '1' && l2[0] == '2';
+    }
+    fclose(fp);
+    return ok ? 0 : -1;
+}
+
+static void tle_cache_write(int id, const char *l1, const char *l2)
+{
+    char path[64];
+    FILE *fp;
+    mkdir("/tmp/pi-clock-cache", 0755);
+    if (!tle_cache_path(id, path, sizeof(path))) return;
+    fp = fopen(path, "w");
+    if (!fp) return;
+    fprintf(fp, "%s\n%s\n", l1, l2);
+    fclose(fp);
+}
+
+static int fetch_tle_net(int id, char *l1, char *l2);
+
 static int fetch_tle(int id, char *l1, char *l2)
+{
+    if (tle_cache_read(id, l1, l2, 12 * 3600) == 0) return 0;
+    if (fetch_tle_net(id, l1, l2) == 0) {
+        tle_cache_write(id, l1, l2);
+        return 0;
+    }
+    /* Network failed: an older cached copy is still good for days */
+    return tle_cache_read(id, l1, l2, 7 * 86400);
+}
+
+static int fetch_tle_net(int id, char *l1, char *l2)
 {
     char url[128], buf[1536], *a, *b;
     int len;

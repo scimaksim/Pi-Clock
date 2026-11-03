@@ -19,13 +19,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 /* CelesTrak asks clients not to re-download the same data more often
  * than every couple of hours; 4 h keeps trains current. */
 #define SL_URL "https://celestrak.org/NORAD/elements/gp.php?GROUP=last-30-days&FORMAT=tle"
 #define SL_CACHE "/tmp/pi-clock-last30.tle"
 #define FETCH_INTERVAL (4 * 3600)
-#define RETRY_INTERVAL (30 * 60)
+/* CelesTrak blocks addresses that ask too often (their guidance: the
+ * same data at most once every 2 hours), so failures back off to 2 h */
+#define RETRY_INTERVAL (2 * 3600)
 /* Pass predictions are refreshed more often than the TLEs */
 #define PREDICT_INTERVAL (15 * 60)
 
@@ -294,8 +297,15 @@ static void *sl_thread_func(void *arg)
         int i, n, age;
 
         if (now >= next_fetch) {
-            /* Slow TLS on single-core Pis: allow a generous timeout */
-            if (pic_fetch_to_file(SL_URL, SL_CACHE, 60) == 0) {
+            struct stat st;
+            /* A renderer restart reuses a recent download rather than
+             * asking CelesTrak again (it survives until reboot) */
+            int cached = next_fetch == 0 && stat(SL_CACHE, &st) == 0 &&
+                         st.st_size > 1000 && now - st.st_mtime < FETCH_INTERVAL;
+            /* Slow TLS on single-core Pis: allow a generous timeout.
+             * Download beside the cache so a failure keeps the old copy. */
+            if (cached || (pic_fetch_to_file(SL_URL, SL_CACHE ".new", 60) == 0 &&
+                           rename(SL_CACHE ".new", SL_CACHE) == 0)) {
                 char *text = read_file(SL_CACHE);
                 pthread_mutex_lock(&cfg_data->mutex);
                 age = cfg_data->max_age_days;
@@ -308,11 +318,13 @@ static void *sl_thread_func(void *arg)
                     cfg_data->ntrains = n;
                     cfg_data->fetched = now;
                     pthread_mutex_unlock(&cfg_data->mutex);
-                    printf("starlink: %d recent train(s)\n", n);
-                    next_fetch = now + FETCH_INTERVAL;
+                    printf("starlink: %d recent train(s)%s\n", n,
+                           cached ? " (cached TLEs)" : "");
+                    next_fetch = (cached ? st.st_mtime : now) + FETCH_INTERVAL;
                 }
             } else {
-                printf("starlink: CelesTrak fetch failed\n");
+                unlink(SL_CACHE ".new");
+                printf("starlink: CelesTrak fetch failed, retry in 2 h\n");
                 next_fetch = now + RETRY_INTERVAL;
             }
         }
