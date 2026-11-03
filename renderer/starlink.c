@@ -307,6 +307,8 @@ static void *sl_thread_func(void *arg)
             if (cached || (pic_fetch_to_file(SL_URL, SL_CACHE ".new", 60) == 0 &&
                            rename(SL_CACHE ".new", SL_CACHE) == 0)) {
                 char *text = read_file(SL_CACHE);
+                /* Don't come straight back if the file can't be read */
+                next_fetch = now + RETRY_INTERVAL;
                 pthread_mutex_lock(&cfg_data->mutex);
                 age = cfg_data->max_age_days;
                 pthread_mutex_unlock(&cfg_data->mutex);

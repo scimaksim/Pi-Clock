@@ -26,6 +26,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,6 +85,7 @@ type settingsBackup struct {
 	Renderer map[string]string   `json:"renderer"`
 	Lists    map[string][]string `json:"lists"`
 	Secrets  map[string]string   `json:"secrets,omitempty"`
+	skipped  []string            // invalid values dropped on import
 }
 
 func readKV(path string) (map[string]string, []string) {
@@ -164,6 +166,35 @@ func ExportSettings() http.HandlerFunc {
 	}
 }
 
+// Core station/display keys are written by their own dashboard
+// handlers rather than rendererSettingDefs; check them the same way
+// before importing.
+func floatIn(min, max float64) func(string) bool {
+	return func(v string) bool {
+		f, err := strconv.ParseFloat(v, 64)
+		return err == nil && f >= min && f <= max
+	}
+}
+
+var backupCoreValid = map[string]func(string) bool{
+	"QTH_LAT":            floatIn(-90, 90),
+	"QTH_LON":            floatIn(-180, 180),
+	"CENTER_LON":         floatIn(-180, 180),
+	"MAP_ZOOM":           intSetting("0", 0, 100).Valid,
+	"DISPLAY_RESOLUTION": enumSetting("1080p", "native", "720p", "1080p", "1440p", "4k").Valid,
+	"DISPLAY_ROTATE":     enumSetting("0", "0", "180").Valid,
+	"CALLSIGN":           regexp.MustCompile(`^[A-Za-z0-9/]{0,16}$`).MatchString,
+	"GRID_SQUARE":        regexp.MustCompile(`^([A-Ra-r]{2}[0-9]{2}([A-Xa-x]{2})?)?$`).MatchString,
+	"DX_BANDS":           regexp.MustCompile(`^[0-9A-Fa-f]{1,8}$`).MatchString,
+	"DX_DISTANCE":        intSetting("0", 0, 25000).Valid,
+	"DX_SPOT_AGE":        intSetting("900", 0, 86400).Valid,
+}
+
+// validateBackup checks the whole file before anything is written.
+// Structural problems (wrong format, unknown section, bad list line,
+// bad key) reject the file. A renderer setting whose value doesn't
+// pass its check is dropped with a warning instead, so one
+// hand-edited value doesn't block the rest.
 func validateBackup(b *settingsBackup) error {
 	if b.Format != backupFormat {
 		return fmt.Errorf("not a Pi-Clock settings file")
@@ -175,15 +206,24 @@ func validateBackup(b *settingsBackup) error {
 		return fmt.Errorf("too many renderer settings")
 	}
 	for k, v := range b.Renderer {
-		if def, ok := rendererSettingDefs[k]; ok {
-			if !def.Valid(v) {
-				return fmt.Errorf("invalid value for %s", k)
-			}
-			continue
-		}
-		if !backupKeyRe.MatchString(k) || !backupValueRe.MatchString(v) {
+		if !backupKeyRe.MatchString(k) {
 			return fmt.Errorf("invalid renderer setting %q", k)
 		}
+		v = normalizeSetting(k, v)
+		ok := false
+		if def, known := rendererSettingDefs[k]; known {
+			ok = def.Valid(v)
+		} else if check, core := backupCoreValid[k]; core {
+			ok = check(v)
+		} else {
+			ok = backupValueRe.MatchString(v)
+		}
+		if !ok {
+			delete(b.Renderer, k)
+			b.skipped = append(b.skipped, k)
+			continue
+		}
+		b.Renderer[k] = v
 	}
 	known := map[string]bool{}
 	for _, f := range backupLists {
@@ -288,6 +328,7 @@ func ImportSettings(cfg *config.RendererConfig) http.HandlerFunc {
 			"status":   "imported",
 			"settings": len(b.Renderer),
 			"keys":     nkeys,
+			"skipped":  b.skipped,
 		})
 	}
 }

@@ -145,6 +145,8 @@ static int ships_work(pic_feature_t *f)
     pic_ws_t ws;
     double box[4];
     unsigned gen;
+    static int errors;          /* consecutive server errors */
+    int server_error = 0;
     time_t last_prune = 0;
     int msgs = 0;
 
@@ -186,6 +188,7 @@ static int ships_work(pic_feature_t *f)
     memcpy(sh.box, box, sizeof(box));
     pthread_mutex_unlock(&sh.mutex);
 
+    server_error = 0;
     buf = malloc(16384);
     if (!buf) {
         pic_ws_close(&ws);
@@ -200,6 +203,7 @@ static int ships_work(pic_feature_t *f)
             /* Errors arrive as {"error": "..."} */
             if (!memcmp(buf, "{\"error\"", 8)) {
                 printf("ships: server error: %.80s\n", (char *)buf);
+                server_error = 1;
                 break;
             }
             msgs += pic_ships_handle((char *)buf, (size_t)n, now);
@@ -220,7 +224,16 @@ static int ships_work(pic_feature_t *f)
     pthread_mutex_unlock(&fd_mutex);
     pic_ws_close(&ws);
     printf("ships: stream closed after %d reports\n", msgs);
-    return !pic_feature_interrupted(f) && pic_config.viewport_gen == gen ? 30 : 1;
+    if (pic_feature_interrupted(f) || pic_config.viewport_gen != gen) return 1;
+    /* A server error (bad key, too many connections) backs off
+     * 2, 4, 8 ... up to 30 minutes instead of retrying every 30 s */
+    if (server_error) {
+        int wait = 120 << (errors < 4 ? errors : 4);
+        errors++;
+        return wait > 1800 ? 1800 : wait;
+    }
+    errors = 0;
+    return msgs > 0 ? 30 : 120;
 }
 
 static void ships_reload(pic_feature_t *f)

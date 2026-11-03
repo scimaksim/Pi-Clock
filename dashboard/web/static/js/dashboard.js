@@ -683,7 +683,7 @@ function loadLayers() {
          * fills them all in (nothing is saved until Save Layers). */
         var hint = document.createElement('div');
         hint.className = 'layer-view-hint text-muted';
-        hint.textContent = 'With Map View on auto-switch, each layer can show in both views, only the world view or only the local view. \u2605 marks the suggested view: local detail (rivers, storm reports, radar, aircraft) when zoomed in, planet-wide layers (earthquakes, launches, satellites, zones) for the world. ';
+        hint.textContent = 'When Map View auto-switches, each layer can show in both views, only the world view or only the local view (with a fixed view every enabled layer shows). \u2605 marks the suggested view: local detail (rivers, storm reports, radar, aircraft) when zoomed in, planet-wide layers (earthquakes, launches, satellites, zones) for the world. ';
         var sugBtn = document.createElement('button');
         sugBtn.type = 'button';
         sugBtn.className = 'btn btn-sm';
@@ -1214,7 +1214,19 @@ function loadRendererSettings(cardId) {
             var v = settings[el.getAttribute('data-conf')];
             if (v === undefined) return;
             if (el.type === 'checkbox') el.checked = (v === '1');
-            else el.value = v;
+            else {
+                /* A stored value that isn't one of the menu's choices
+                 * (imported or hand-edited) is added as an option, so
+                 * saving the card doesn't send an empty value. */
+                if (el.tagName === 'SELECT' && v !== '' &&
+                    !Array.prototype.some.call(el.options, function(o) { return o.value === v; })) {
+                    var opt = document.createElement('option');
+                    opt.value = v;
+                    opt.textContent = v + ' (custom)';
+                    el.appendChild(opt);
+                }
+                el.value = v;
+            }
         });
     });
 }
@@ -2034,13 +2046,14 @@ function importSettings(input) {
         if (!data || data.format !== 'pi-clock-settings') {
             toast('That isn\'t a Pi-Clock settings file', 'error'); return;
         }
-        var msg = 'Replace this Pi-Clock\'s settings with the ones in ' + file.name;
+        var msg = 'Apply the settings in ' + file.name + ' to this Pi-Clock? Layers, panels, satellites and ticker are replaced; other settings in the file overwrite the ones here';
         if (data.host) msg += ' (from ' + data.host + ')';
         msg += '?';
         if (data.secrets && Object.keys(data.secrets).length) msg += '\n\nThe file also contains API keys; they will be installed.';
         if (!confirm(msg)) return;
         apiCall('POST', '/api/settings/import', data).then(function(res) {
-            toast('Imported ' + res.settings + ' settings' + (res.keys ? ' and ' + res.keys + ' keys' : '') + '. Reloading\u2026');
+            var skipped = (res.skipped && res.skipped.length) ? ' (skipped invalid: ' + res.skipped.join(', ') + ')' : '';
+            toast('Imported ' + res.settings + ' settings' + (res.keys ? ' and ' + res.keys + ' keys' : '') + skipped + '. Reloading\u2026');
             setTimeout(function() { window.location.reload(); }, 1500);
         }).catch(function(e) { toast(e.message, 'error'); });
     };

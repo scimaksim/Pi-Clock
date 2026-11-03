@@ -89,6 +89,11 @@ int pic_view_is_local(void)
     return showing_local;
 }
 
+int pic_view_is_cycling(void)
+{
+    return view_mode == VIEW_CYCLE;
+}
+
 int pic_view_other(double v[4])
 {
     if (view_mode != VIEW_CYCLE) return 0;

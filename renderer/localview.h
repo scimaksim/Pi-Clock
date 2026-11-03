@@ -32,6 +32,9 @@ int pic_view_update(time_t now);
 /* 1 while the local view is showing */
 int pic_view_is_local(void);
 
+/* Map View is set to auto-switch between the world and local views */
+int pic_view_is_cycling(void);
+
 /* When auto-switching: the viewport (span lon/lat, centre lon/lat) of
  * the view not on screen, so imagery can be fetched before the switch.
  * Returns 0 when the view is fixed. */

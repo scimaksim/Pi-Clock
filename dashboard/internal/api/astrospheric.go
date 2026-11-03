@@ -9,10 +9,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"time"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // astroKeyPath is a var so tests can redirect it.

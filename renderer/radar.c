@@ -119,6 +119,7 @@ static void *radar_thread_func(void *arg)
         int w, h, i, sw, wait = RETRY_INTERVAL;
         unsigned int gen = pic_config.viewport_gen;
         cairo_surface_t *img = NULL;
+        double new_ext[4] = { 0, 0, 0, 0 }, new_span = 0;
 
         pthread_mutex_lock(&cfg_data->mutex);
         sw = cfg_data->screen_w;
@@ -138,10 +139,8 @@ static void *radar_thread_func(void *arg)
                 img = pic_radar_decode_png(RADAR_TMP);
             unlink(RADAR_TMP);
             if (img) {
-                pthread_mutex_lock(&cfg_data->mutex);
-                memcpy(cfg_data->ext, ext, sizeof(ext));
-                cfg_data->span = pic_config.view_span_lon;
-                pthread_mutex_unlock(&cfg_data->mutex);
+                memcpy(new_ext, ext, sizeof(ext));
+                new_span = pic_config.view_span_lon;
             }
         }
 
@@ -149,6 +148,9 @@ static void *radar_thread_func(void *arg)
             cairo_surface_t *old;
             pthread_mutex_lock(&cfg_data->mutex);
             old = cfg_data->image;
+            /* Image and its extent change together */
+            memcpy(cfg_data->ext, new_ext, sizeof(new_ext));
+            cfg_data->span = new_span;
             cfg_data->image = img;
             cfg_data->fetched = time(NULL);
             pthread_mutex_unlock(&cfg_data->mutex);

@@ -60,3 +60,26 @@ func TestRendererSettingsRoundTrip(t *testing.T) {
 		t.Errorf("GET leaked non-whitelisted key: %s", rec.Body.String())
 	}
 }
+
+func TestDarkSitesNormalized(t *testing.T) {
+	cases := map[string]string{
+		"Jordan Lake:35.70:-79.07; Falls Lake:36.01:-78.69": "Jordan_Lake:35.70:-79.07,Falls_Lake:36.01:-78.69",
+		"Bob's (Field):1:2": "Bobs_Field:1:2",
+		"":                  "",
+	}
+	for in, want := range cases {
+		got := normalizeSetting("DARK_SITES", in)
+		if got != want {
+			t.Fatalf("%q -> %q want %q", in, got, want)
+		}
+		if got != "" && !darkSitesRe.MatchString(got) {
+			t.Fatalf("%q not valid after normalising", got)
+		}
+	}
+	for _, bad := range []string{"A:1:2;touch pwned :1:2", "x$(id):1:2", "a:1:2|b:3:4"} {
+		v := normalizeSetting("DARK_SITES", bad)
+		if darkSitesRe.MatchString(v) && strings.ContainsAny(v, " ;$()|'\"`") {
+			t.Fatalf("unsafe value accepted: %q", v)
+		}
+	}
+}

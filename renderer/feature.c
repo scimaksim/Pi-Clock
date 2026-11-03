@@ -147,10 +147,22 @@ void pic_draw_text_pill(cairo_t *cr, double x, double y, const char *text,
  */
 static double legend_used;   /* rows of height/72*1.75 already taken */
 
+/* Top of the news ticker bar (display.c), 0 when it's off. Weak so
+ * test harnesses without display.c still link. */
+extern double pic_ticker_bar_top __attribute__((weak));
+
+static double legend_bottom(int height)
+{
+    double t = &pic_ticker_bar_top ? pic_ticker_bar_top : 0;
+    return t > height * 0.5 && t < height ? t : height;
+}
+
 double pic_legend_take(int height, double rows)
 {
     double fs = height / 72.0, y;
-    y = height - fs * (3.2 + 1.75 * legend_used);
+    /* Lowest row clears the map key row, which sits just above the
+     * ticker (or the bottom edge) */
+    y = legend_bottom(height) - fs * (3.2 + 1.75 * legend_used);
     legend_used += rows;
     return y;
 }
@@ -261,6 +273,32 @@ void pic_fit_text(cairo_t *cr, char *text, double max_w)
     }
 }
 
+void pic_show_text_fit(cairo_t *cr, const char *text, double max_w)
+{
+    cairo_text_extents_t e;
+    cairo_matrix_t fm;
+    char buf[256];
+
+    cairo_text_extents(cr, text, &e);
+    if (e.x_advance <= max_w || max_w <= 0) {
+        cairo_show_text(cr, text);
+        return;
+    }
+    /* Shrink up to ~20%, then shorten with an ellipsis */
+    cairo_get_font_matrix(cr, &fm);
+    {
+        double k = max_w / e.x_advance;
+        cairo_matrix_t m = fm;
+        if (k < 0.8) k = 0.8;
+        cairo_matrix_scale(&m, k, k);
+        cairo_set_font_matrix(cr, &m);
+    }
+    snprintf(buf, sizeof(buf), "%s", text);
+    pic_fit_text(cr, buf, max_w);
+    cairo_show_text(cr, buf);
+    cairo_set_font_matrix(cr, &fm);
+}
+
 double pic_applet_title(cairo_t *cr, double width, const char *title)
 {
     double fs = width / 12.0;
@@ -336,7 +374,8 @@ void pic_map_key_draw(cairo_t *cr, int width, int height, double bottom)
     }
     x = (width - total) / 2.0;
     /* Just above the bottom edge, or above the news ticker if shown */
-    y = (bottom > 0 && bottom < height ? bottom : height) - h - fs * 0.4;
+    (void)bottom;
+    y = legend_bottom(height) - h - fs * 0.4;
 
     cairo_new_path(cr);
     key_rrect(cr, x - pad, y, total + pad * 2, h, h * 0.3);

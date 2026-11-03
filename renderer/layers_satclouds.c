@@ -724,7 +724,17 @@ static void satclouds_legend(cairo_t *cr, int width, int height, time_t now,
     (void)now; (void)ud;
     pthread_mutex_lock(&sc.mutex);
     enhanced = sc.enhanced;
-    have = (sc.image != NULL && !pic_view_image_stale(sc.span)) || sc.alt != NULL;
+    {
+        double v[4] = { pic_config.view_span_lon, pic_config.view_span_lat,
+                        pic_config.view_center_lon, pic_config.view_center_lat };
+        if (v[0] < 0.0001) v[0] = 360.0;
+        if (v[1] < 0.0001) v[1] = 180.0;
+        /* Same choice as the layer: an image drawn for this view */
+        have = (sc.image != NULL && !pic_view_image_stale(sc.span)) ||
+               (sc.alt != NULL && slot_fits(sc.alt_span,
+                                            (sc.alt_box[0] + sc.alt_box[1]) / 2,
+                                            sc.alt_ccl, v));
+    }
     pthread_mutex_unlock(&sc.mutex);
     if (!enhanced || !have) return;
 

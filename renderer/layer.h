@@ -36,7 +36,7 @@
  * Keeping this small and fixed avoids dynamic allocation
  * on a memory-constrained Pi Zero W (512MB RAM).
  */
-#define PIC_MAX_LAYERS 48
+#define PIC_MAX_LAYERS 64
 
 /*
  * pic_layer_render_fn - Function pointer type for layer renderers.
@@ -105,7 +105,8 @@ typedef struct {
 
 /*
  * Show or hide layers set to "global view only" / "local view only"
- * for the view now on screen. Their data threads keep running so a
+ * for the view now on screen (local = 1/0), or show them all when the
+ * view is fixed (local = -1). Their data threads keep running so a
  * layer appears at once when the view switches.
  */
 void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local);
@@ -244,6 +245,11 @@ void pic_layer_stack_destroy(pic_layer_stack_t *stack);
  */
 void pic_paint_viewport(cairo_t *cr, cairo_surface_t *src,
                         int width, int height);
+
+/* Same for a point grid (samples on lat/lon nodes, e.g. 360x181 GFS):
+ * centres each grid pixel on its sample. */
+void pic_paint_viewport_grid(cairo_t *cr, cairo_surface_t *src,
+                             int width, int height);
 
 /*
  * pic_viewport_pattern - Build a Cairo pattern that samples `src`

@@ -33,6 +33,7 @@ typedef struct {
     char   type[6];         /* ICAO type, e.g. "B738"                    */
     unsigned char military; /* dbFlags bit 0 or from /v2/mil             */
     unsigned char emergency;/* squawk 7500/7600/7700 or emergency set    */
+    char   route[16];       /* "RDU→ORD" for airliners near home, or ""  */
 } pic_ac_t;
 
 typedef struct {

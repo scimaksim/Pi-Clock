@@ -13,6 +13,7 @@
 #include "layer.h"
 #include "config.h"
 #include "aircraft.h"
+#include "feature.h"
 #include <cairo/cairo.h>
 #include <math.h>
 #include <stdio.h>
@@ -100,8 +101,9 @@ void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
     double s = height / 135.0 * (1.0 + 0.35 * (szoom - 1.0));
     double fs = height / 75.0;
     double dt;
-    int i, pass, nlab = 0;
+    int i, pass, nlab = 0, nroute = 0;
     static rect_t labs[MAX_LABELS];
+    static struct { double x, y, r, g, b; char text[40]; } routes[64];
 
     if (!d) return;
 
@@ -158,6 +160,20 @@ void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
             cairo_stroke(cr);
             cairo_restore(cr);
 
+            /* Airliners near home: callsign and route, drawn after all
+             * the glyphs so later planes don't cover the text */
+            if (a->route[0] && d->labels > 0 && !a->emergency) {
+                if (nroute < (int)(sizeof(routes) / sizeof(routes[0]))) {
+                    routes[nroute].x = x + s * 1.3;
+                    routes[nroute].y = y;
+                    routes[nroute].r = r; routes[nroute].g = g; routes[nroute].b = b;
+                    snprintf(routes[nroute].text, sizeof(routes[nroute].text),
+                             "%s %s", a->flight, a->route);
+                    nroute++;
+                }
+                continue;
+            }
+
             if ((d->labels == 2 || (d->labels == 1 && special)) && a->flight[0]) {
                 char label[32];
                 cairo_text_extents_t ext;
@@ -190,4 +206,119 @@ void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
         }
     }
     pthread_mutex_unlock(&d->mutex);
+
+    /* Route labels on top, small, skipping any that would overlap */
+    {
+        double rfs = fs * 0.8;
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                               CAIRO_FONT_WEIGHT_BOLD);
+        cairo_set_font_size(cr, rfs);
+        for (i = 0; i < nroute; i++) {
+            cairo_text_extents_t ext;
+            rect_t q;
+            cairo_text_extents(cr, routes[i].text, &ext);
+            q.x0 = routes[i].x - 3;
+            q.y0 = routes[i].y - rfs * 0.8;
+            q.x1 = q.x0 + ext.x_advance + 6;
+            q.y1 = routes[i].y + rfs * 0.6;
+            if (overlaps(labs, nlab, &q)) continue;
+            if (nlab < MAX_LABELS) labs[nlab++] = q;
+            cairo_new_path(cr);
+            cairo_rectangle(cr, q.x0, q.y0, q.x1 - q.x0, q.y1 - q.y0);
+            cairo_set_source_rgba(cr, 0, 0, 0, 0.7);
+            cairo_fill(cr);
+            cairo_set_source_rgba(cr, routes[i].r, routes[i].g, routes[i].b, 1.0);
+            cairo_move_to(cr, routes[i].x, routes[i].y + rfs * 0.35);
+            cairo_show_text(cr, routes[i].text);
+        }
+    }
+}
+
+/*
+ * Legend: what the plane colours mean (altitude), plus the military
+ * and emergency marks. Sits in the bottom-centre legend stack.
+ */
+void pic_layer_render_aircraft_legend(cairo_t *cr, int width, int height,
+                                      time_t now, void *user_data)
+{
+    pic_aircraft_t *d = (pic_aircraft_t *)user_data;
+    double fs = height / 90.0, bw = fs * 22, bh = fs * 0.75, pad = fs * 0.6;
+    double x0, y, tw, boxw, bx, mw;
+    const char *title = "Aircraft altitude, ft";
+    const char *mil = "amber edge = military";
+    cairo_text_extents_t e;
+    int i, n;
+
+    (void)now;
+    if (!d) return;
+    pthread_mutex_lock(&d->mutex);
+    n = d->count;
+    pthread_mutex_unlock(&d->mutex);
+    if (n == 0) return;
+
+    cairo_save(cr);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                           CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fs);
+    cairo_text_extents(cr, title, &e);
+    tw = e.x_advance + fs * 0.8;
+    cairo_set_font_size(cr, fs * 0.85);
+    cairo_text_extents(cr, mil, &e);
+    mw = e.x_advance + fs * 1.2;
+    cairo_set_font_size(cr, fs);
+    boxw = tw + bw + mw + pad * 2;
+    x0 = (width - boxw) / 2.0;
+    {
+        double f72 = height / 72.0;
+        double bottom = pic_legend_take(height, 1.5) + f72 * 0.45;
+        y = bottom - (bh + fs * 1.75) + fs * 0.2;
+    }
+    cairo_new_path(cr);
+    cairo_rectangle(cr, x0, y - fs * 0.2, boxw, bh + fs * 1.75);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.6);
+    cairo_fill(cr);
+    cairo_set_source_rgba(cr, 0.9, 0.92, 0.96, 0.95);
+    cairo_move_to(cr, x0 + pad, y + bh * 0.9);
+    cairo_show_text(cr, title);
+
+    /* Ground swatch, then 0 → 40,000 ft in the glyph colours */
+    bx = x0 + pad + tw;
+    {
+        double gw = bw * 0.08, r, g, b;
+        alt_colour(-1, &r, &g, &b);
+        cairo_rectangle(cr, bx, y, gw - 2, bh);
+        cairo_set_source_rgb(cr, r, g, b);
+        cairo_fill(cr);
+        for (i = 0; i < 64; i++) {
+            double xx = bx + gw + (bw - gw) * i / 64.0;
+            alt_colour((int)(40000.0 * i / 63.0), &r, &g, &b);
+            cairo_rectangle(cr, xx, y, (bw - gw) / 64.0 + 0.5, bh);
+            cairo_set_source_rgb(cr, r, g, b);
+            cairo_fill(cr);
+        }
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                               CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, fs * 0.8);
+        cairo_set_source_rgba(cr, 0.85, 0.87, 0.9, 0.95);
+        {
+            const char *gl = "gnd";
+            cairo_text_extents(cr, gl, &e);
+            cairo_move_to(cr, bx + (gw - 2 - e.x_advance) / 2, y + bh + fs * 1.05);
+            cairo_show_text(cr, gl);
+        }
+        for (i = 1; i <= 4; i++) {
+            char lab[8];
+            double xx = bx + gw + (bw - gw) * i / 4.0;
+            snprintf(lab, sizeof(lab), i ? "%dk%s" : "0", i * 10, i == 4 ? "+" : "");
+            cairo_text_extents(cr, lab, &e);
+            if (i == 4) xx -= e.x_advance / 2;
+            cairo_move_to(cr, xx - e.x_advance / 2, y + bh + fs * 1.05);
+            cairo_show_text(cr, lab);
+        }
+    }
+    cairo_set_font_size(cr, fs * 0.85);
+    cairo_set_source_rgba(cr, 1.0, 0.75, 0.25, 1.0);
+    cairo_move_to(cr, bx + bw + fs * 1.2, y + bh * 0.9);
+    cairo_show_text(cr, mil);
+    cairo_restore(cr);
 }

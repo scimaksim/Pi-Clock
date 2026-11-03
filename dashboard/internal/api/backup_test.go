@@ -73,15 +73,12 @@ func TestSettingsExportImport(t *testing.T) {
 		t.Fatal("key not restored 0600")
 	}
 
-	// Hostile files are rejected without writing anything.
+	// Structurally hostile files are rejected without writing anything.
 	before, _ := os.ReadFile(rendererConfPath)
 	bad := []settingsBackup{
 		{Format: "x", Version: 1},
 		{Format: backupFormat, Version: 99},
-		{Format: backupFormat, Version: 1, Renderer: map[string]string{"FOO": "a;reboot"}},
-		{Format: backupFormat, Version: 1, Renderer: map[string]string{"FOO": "$(id)"}},
 		{Format: backupFormat, Version: 1, Renderer: map[string]string{"foo\nX": "1"}},
-		{Format: backupFormat, Version: 1, Renderer: map[string]string{"VIEW_MODE": "bogus"}},
 		{Format: backupFormat, Version: 1, Lists: map[string][]string{"layers": {"radar=1\nX=2"}}},
 		{Format: backupFormat, Version: 1, Lists: map[string][]string{"../etc": {"a=1"}}},
 		{Format: backupFormat, Version: 1, Secrets: map[string]string{"astrospheric": "bad key"}},
@@ -94,5 +91,23 @@ func TestSettingsExportImport(t *testing.T) {
 	}
 	if after, _ := os.ReadFile(rendererConfPath); string(after) != string(before) {
 		t.Fatal("rejected import modified renderer.conf")
+	}
+
+	// Bad values are dropped (never written); the rest imports.
+	mixed := settingsBackup{Format: backupFormat, Version: 1, Renderer: map[string]string{
+		"FOO": "a;reboot", "BAR": "$(id)", "VIEW_MODE": "bogus", "QTH_LAT": "999",
+		"DISPLAY_RESOLUTION": "8k", "LOCAL_ZOOM": "12", "DARK_SITES": "Jordan Lake:35.7:-79.0",
+	}}
+	if c := imp(mixed); c != http.StatusOK {
+		t.Fatalf("mixed import %d", c)
+	}
+	got, _ = os.ReadFile(rendererConfPath)
+	for _, gone := range []string{"FOO=", "BAR=", "VIEW_MODE=bogus", "QTH_LAT=999", "DISPLAY_RESOLUTION=8k", "reboot", "$("} {
+		if strings.Contains(string(got), gone) {
+			t.Fatalf("invalid value %q written:\n%s", gone, got)
+		}
+	}
+	if !strings.Contains(string(got), "LOCAL_ZOOM=12\n") || !strings.Contains(string(got), "DARK_SITES=Jordan_Lake:35.7:-79.0\n") {
+		t.Fatalf("valid values missing:\n%s", got)
 	}
 }

@@ -144,6 +144,10 @@ double pic_dist_km(double lat1, double lon1, double lat2, double lon2);
 /* Shorten `text` in place with an ellipsis so it fits max_w. */
 void pic_fit_text(cairo_t *cr, char *text, double max_w);
 
+/* Show text at the current point, shrinking it slightly (and then
+ * ellipsizing) if it is wider than max_w. */
+void pic_show_text_fit(cairo_t *cr, const char *text, double max_w);
+
 /*
  * Applet title in the common style (bold, width/12, rule beneath).
  * cr may be NULL (measure only). Returns the height used.

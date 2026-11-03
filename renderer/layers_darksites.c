@@ -7,7 +7,8 @@
  * pollution model) when zoomed in. A note names the best site tonight.
  *
  * Default sites are within ~2.5 h of Raleigh; DARK_SITES can replace
- * them: "Name:lat:lon;Name:lat:lon" (up to 10). Clouds: Open-Meteo,
+ * them: "Name:lat:lon,Name:lat:lon" (up to 10; ";" also accepted, "_"
+ * in a name shows as a space). Clouds: Open-Meteo,
  * every hour (one request for all sites).
  *
  * SPDX-License-Identifier: GPL-2.0-only
@@ -145,13 +146,16 @@ static void sites_reload(pic_feature_t *f)
     int n = 0, i, changed;
 
     if (pic_conf_str("DARK_SITES", cfg, sizeof(cfg)) && cfg[0]) {
-        for (p = strtok_r(cfg, ";", &save); p && n < MAX_SITES; p = strtok_r(NULL, ";", &save)) {
+        for (p = strtok_r(cfg, ",;", &save); p && n < MAX_SITES; p = strtok_r(NULL, ",;", &save)) {
             char name[32];
             double la, lo;
             if (sscanf(p, "%31[^:]:%lf:%lf", name, &la, &lo) == 3 &&
                 fabs(la) <= 90 && fabs(lo) <= 180) {
                 memset(&s[n], 0, sizeof(s[n]));
+                char *u;
                 snprintf(s[n].name, sizeof(s[n].name), "%s", name);
+                for (u = s[n].name; *u; u++)
+                    if (*u == '_') *u = ' ';
                 s[n].lat = la;
                 s[n].lon = lo;
                 s[n].cloud = -1;

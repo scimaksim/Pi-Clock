@@ -318,8 +318,12 @@ select.form-control {
 .layer-view-spacer { border: none; visibility: hidden; }
 
 @media (max-width: 640px) {
-    .layer-view { width: 84px; font-size: 11px; }
-    .layer-opacity { width: 60px; }
+    /* Phones: name on the first line, view menu + opacity under it */
+    .layer-row { flex-wrap: wrap; row-gap: 4px; }
+    .layer-name { flex: 1 1 calc(100% - 92px); min-width: 0; }
+    .layer-view { width: auto; flex: 1 1 auto; max-width: 140px; font-size: 12px; margin-left: 48px; }
+    .layer-view-spacer { display: none; }
+    .layer-opacity { width: auto; flex: 1 1 80px; }
 }
 
 .layer-view-hint {

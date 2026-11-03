@@ -95,9 +95,9 @@ func TestLocalSettingsValidation(t *testing.T) {
 	for v, ok := range map[string]bool{
 		"": true, "Jordan Lake:35.736:-79.017": true,
 		"Backyard:35.69:-78.71;Medoc Mountain SP:36.264:-77.888": true,
-		"Bad\nName:1:2": false, "X:1:2;": false, "X=1:2:3": false,
+		"Bad\nName:1:2": false, "X:1:2;": true, "X=1:2:3": false,
 	} {
-		if rendererSettingDefs["DARK_SITES"].Valid(v) != ok {
+		if rendererSettingDefs["DARK_SITES"].Valid(normalizeSetting("DARK_SITES", v)) != ok {
 			t.Errorf("DARK_SITES %q: want %v", v, ok)
 		}
 	}

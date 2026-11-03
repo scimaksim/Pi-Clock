@@ -60,9 +60,44 @@ var (
 	noradListRe = regexp.MustCompile(`^[0-9]{1,6}(,[0-9]{1,6}){0,5}$`)
 	tideIDRe    = regexp.MustCompile(`^[A-Za-z0-9]{3,12}$`)
 	buoyListRe  = regexp.MustCompile(`^[A-Za-z0-9]{3,6}(,[A-Za-z0-9]{3,6}){0,3}$`)
-	// "Name:lat:lon;Name:lat:lon" — names without ; : = or newlines
-	darkSitesRe = regexp.MustCompile(`^[A-Za-z0-9 .'()-]{1,31}:-?[0-9]{1,2}(\.[0-9]+)?:-?[0-9]{1,3}(\.[0-9]+)?(;[A-Za-z0-9 .'()-]{1,31}:-?[0-9]{1,2}(\.[0-9]+)?:-?[0-9]{1,3}(\.[0-9]+)?){0,9}$`)
+	// Stored as "Name:lat:lon,Name:lat:lon" with "_" for spaces, so the
+	// value is inert even if an old init script sources the file as
+	// shell (see normalizeSetting). Max 10 sites, 400 characters.
+	darkSitesRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,31}:-?[0-9]{1,2}(\.[0-9]{1,6})?:-?[0-9]{1,3}(\.[0-9]{1,6})?(,[A-Za-z0-9_.-]{1,31}:-?[0-9]{1,2}(\.[0-9]{1,6})?:-?[0-9]{1,3}(\.[0-9]{1,6})?){0,9}$`)
 )
+
+// normalizeSetting rewrites friendly input into the stored form before
+// validation: dark-site names typed with spaces become "_" and ";"
+// separators become ",". Everything stored in renderer.conf stays free
+// of shell metacharacters.
+func normalizeSetting(k, v string) string {
+	if k != "DARK_SITES" {
+		return v
+	}
+	parts := strings.FieldsFunc(v, func(r rune) bool { return r == ';' || r == ',' })
+	out := parts[:0]
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		p = strings.Map(func(r rune) rune {
+			switch r {
+			case ' ':
+				return '_'
+			case '\'', '(', ')':
+				return -1
+			}
+			return r
+		}, p)
+		out = append(out, p)
+	}
+	v = strings.Join(out, ",")
+	if len(v) > 400 {
+		return "!" // over the cap: fails validation
+	}
+	return v
+}
 
 func hostPortSetting() rendererSetting {
 	return rendererSetting{"", func(v string) bool { return v == "" || hostPortRe.MatchString(v) }}
@@ -191,6 +226,9 @@ func PutRendererSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		if len(req) == 0 {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "no settings"})
 			return
+		}
+		for k, v := range req {
+			req[k] = normalizeSetting(k, v)
 		}
 		for k, v := range req {
 			def, ok := rendererSettingDefs[k]

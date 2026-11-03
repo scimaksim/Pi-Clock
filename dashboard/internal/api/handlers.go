@@ -27,10 +27,10 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
-	"sync"
-	"sync/atomic"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -62,7 +62,14 @@ var validDxValue = regexp.MustCompile(`^[0-9a-fA-F]*$`)
 // Prevents corrupt config files on power loss (common on Pi appliances).
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	tmp := path + ".tmp"
+	// A stale .tmp from a crash keeps its old mode through WriteFile,
+	// which matters for 0600 secrets: start fresh and set the mode.
+	os.Remove(tmp)
 	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, perm); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -273,10 +280,10 @@ func GetLayers() http.HandlerFunc {
 			}
 
 			layers = append(layers, map[string]interface{}{
-				"name":    def.Name,
-				"label":   def.Label,
-				"enabled": enabled,
-				"opacity": opacity,
+				"name":     def.Name,
+				"label":    def.Label,
+				"enabled":  enabled,
+				"opacity":  opacity,
 				"category": layerCat(def.Name),
 				"view":     layerViewName[view],
 				"suggest":  layerViewSuggestFor(def.Name),
@@ -291,7 +298,7 @@ func GetLayers() http.HandlerFunc {
 // auto-switches. Layers not listed work in both.
 var layerViewSuggest = map[string]string{
 	// Detailed or local data that is clutter (or invisible) at world scale
-	"localmap": "local", "twilight": "local", "passes": "local", "overhead": "local",
+	"localmap": "local", "passes": "local", "overhead": "local",
 	"lsr": "local", "rainfall": "local", "rivers": "local", "radar": "local",
 	"aircraft": "local", "ships": "local", "ebird": "local",
 	"darksites": "local", "airquality": "local", "spc": "local",
@@ -1159,17 +1166,17 @@ func currentWifiAuthBlock(confPath, targetSSID string) (block string, ok bool) {
 //
 // Three modes, resolved from the request body:
 //
-//   1. open_network=true:      write key_mgmt=NONE (unsecured network).
-//   2. password non-empty:     derive the PSK via PBKDF2-HMAC-SHA1 per
-//                              IEEE 802.11i / RFC 8018 — the same hash
-//                              `wpa_passphrase(8)` would produce.
-//   3. password empty:         reuse the existing auth line from
-//                              wpa_supplicant.conf, but only if the
-//                              requested SSID matches the one already
-//                              stored. Otherwise reject — we have no
-//                              credentials to fall back on and silently
-//                              dropping the network to open would be a
-//                              data-loss footgun.
+//  1. open_network=true:      write key_mgmt=NONE (unsecured network).
+//  2. password non-empty:     derive the PSK via PBKDF2-HMAC-SHA1 per
+//     IEEE 802.11i / RFC 8018 — the same hash
+//     `wpa_passphrase(8)` would produce.
+//  3. password empty:         reuse the existing auth line from
+//     wpa_supplicant.conf, but only if the
+//     requested SSID matches the one already
+//     stored. Otherwise reject — we have no
+//     credentials to fall back on and silently
+//     dropping the network to open would be a
+//     data-loss footgun.
 //
 // PBKDF2 is computed in-process rather than by shelling out to
 // `wpa_passphrase`. That removes a whole class of failure modes (PATH,
@@ -1800,7 +1807,9 @@ func PutSatellites() http.HandlerFunc {
 				continue
 			}
 			e := "0"
-			if s.Enabled { e = "1" }
+			if s.Enabled {
+				e = "1"
+			}
 			lines = append(lines, fmt.Sprintf("%s=%s", s.Name, e))
 		}
 
@@ -1817,10 +1826,14 @@ func PutSatellites() http.HandlerFunc {
 func readSatConf() map[string]bool {
 	result := make(map[string]bool)
 	data, err := os.ReadFile(satConfPath)
-	if err != nil { return result }
+	if err != nil {
+		return result
+	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") { continue }
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 && validName.MatchString(parts[0]) {
 			result[parts[0]] = parts[1] == "1"
@@ -1941,8 +1954,8 @@ func PutDxSettings(cfg *config.RendererConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var settings struct {
 			DxDistance string `json:"dx_distance"`
-			DxBands   string `json:"dx_bands"`
-			DxSpotAge string `json:"dx_spot_age"`
+			DxBands    string `json:"dx_bands"`
+			DxSpotAge  string `json:"dx_spot_age"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {

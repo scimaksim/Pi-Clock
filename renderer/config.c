@@ -321,7 +321,7 @@ void pic_load_layer_config(pic_layer_stack_t *stack)
     }
 
     fclose(f);
-    pic_layer_stack_apply_view(stack, pic_view_is_local());
+    pic_layer_stack_apply_view(stack, pic_view_is_cycling() ? pic_view_is_local() : -1);
 }
 
 /*

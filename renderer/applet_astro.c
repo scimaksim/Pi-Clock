@@ -26,6 +26,7 @@
  */
 
 #include "applet.h"
+#include "feature.h"
 #include "astro.h"
 #include "config.h"
 #include <cairo/cairo.h>
@@ -193,7 +194,7 @@ double pic_applet_render_astro(cairo_t *cr, double width,
     snprintf(line, sizeof(line), "Sunset %s   Sunrise %s", b1, b2);
     cairo_set_source_rgba(cr, 1.0, 0.8, 0.45, 0.9);
     cairo_move_to(cr, 0, y);
-    cairo_show_text(cr, line);
+    pic_show_text_fit(cr, line, width);
     y += line_h;
 
     hm(dark_start, b1, sizeof(b1));
@@ -204,7 +205,7 @@ double pic_applet_render_astro(cairo_t *cr, double width,
         snprintf(line, sizeof(line), "No astronomical darkness");
     cairo_set_source_rgba(cr, 0.6, 0.7, 1.0, 0.9);
     cairo_move_to(cr, 0, y);
-    cairo_show_text(cr, line);
+    pic_show_text_fit(cr, line, width);
     y += line_h;
 
     draw_moon_disc(cr, fs * 0.55, y - fs * 0.35, fs * 0.55, illum, waxing);
@@ -214,7 +215,7 @@ double pic_applet_render_astro(cairo_t *cr, double width,
              illum * 100.0, b1, b2);
     cairo_set_source_rgba(cr, 0.9, 0.9, 0.85, 0.9);
     cairo_move_to(cr, fs * 1.4, y);
-    cairo_show_text(cr, line);
+    pic_show_text_fit(cr, line, width - fs * 1.4);
     y += line_h * 0.6;
 
     /* ── Hour labels ───────────────────────────────────────── */
@@ -317,7 +318,7 @@ double pic_applet_render_astro(cairo_t *cr, double width,
             cairo_set_source_rgba(cr, 0.95, 0.55, 0.4, 0.95);
         }
         cairo_move_to(cr, 0, y + fs);
-        cairo_show_text(cr, line);
+        pic_show_text_fit(cr, line, width);
         y += line_h;
 
         /* Footer: source / status */
@@ -330,7 +331,7 @@ double pic_applet_render_astro(cairo_t *cr, double width,
             snprintf(line, sizeof(line), "%s", a->status);
         }
         cairo_move_to(cr, 0, y + fs * 0.9);
-        cairo_show_text(cr, line);
+        pic_show_text_fit(cr, line, width);
     }
     pthread_mutex_unlock(&a->mutex);
 

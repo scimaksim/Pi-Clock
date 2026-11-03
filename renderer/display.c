@@ -159,6 +159,8 @@ extern void pic_layer_render_airquality(cairo_t *cr, int width, int height,
                                         time_t now, void *user_data);
 extern void pic_layer_render_starlink(cairo_t *cr, int width, int height,
                                       time_t now, void *user_data);
+extern void pic_layer_render_aircraft_legend(cairo_t *cr, int width, int height,
+                                             time_t now, void *user_data);
 extern void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
                                       time_t now, void *user_data);
 extern void pic_layer_render_airquality_badge(cairo_t *cr, int width,
@@ -522,13 +524,16 @@ static int get_total_ram_mb(void)
  * Registered pic_feature_t overlays (layers and/or applets). Each runs
  * its fetch thread only while its layer or applet is enabled.
  */
-static pic_feature_t *features[24];
+static pic_feature_t *features[48];
 static int nfeatures;
 
 static void register_feature(pic_feature_t *f)
 {
-    if (f && nfeatures < (int)(sizeof(features) / sizeof(features[0])))
+    if (!f) return;
+    if (nfeatures < (int)(sizeof(features) / sizeof(features[0])))
         features[nfeatures++] = f;
+    else
+        printf("display: too many features, '%s' not registered\n", f->name);
 }
 
 /* Register a feature and add its map layer (off until configured). */
@@ -624,12 +629,13 @@ static const struct {
     {"dsn",            1},  /* DSN XML                               */
     {"ships",          2},  /* TLS WebSocket + vessel table          */
     {"planets",        0},  /* Orbital math only                     */
-    {"satclouds",     12},  /* GIBS PNGs + composited cloud image    */
+    {"satclouds",     20},  /* GIBS PNGs + two composited images     */
     {"aurorawatch",    2},  /* OVATION JSON + Kp forecast            */
     {"lightpollution", 8},  /* Sky-brightness image (peak ~20MB calc) */
     {"localmap",       6},  /* 1:10m lines + towns (static)          */
     {"twilight",       0},  /* Solar math only                       */
     {"passes",         1},  /* TLEs + pass list                      */
+    {"overhead",       5},  /* ~1,700 TLEs (pic_sat_t ~2 KB each)    */
     {"lsr",            4},  /* Storm report JSON                     */
     {"rainfall",      10},  /* MRMS image up to 2400 px wide         */
     {"rivers",         4},  /* NWPS gauge JSON                       */
@@ -1621,6 +1627,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                          pic_layer_render_propagation_legend);
     pic_layer_set_legend(&stack, "wxalerts",
                          pic_layer_render_nwsalert_banner);
+    pic_layer_set_legend(&stack, "aircraft",
+                         pic_layer_render_aircraft_legend);
     pic_layer_set_legend(&stack, "airquality",
                          pic_layer_render_airquality_badge);
     {
@@ -2151,7 +2159,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             if (pic_view_update(now) || rg != last_reg_gen) {
                 int li;
                 last_reg_gen = rg;
-                pic_layer_stack_apply_view(&stack, pic_view_is_local());
+                pic_layer_stack_apply_view(&stack, pic_view_is_cycling() ?
+                                           pic_view_is_local() : -1);
                 pic_qth_invalidate();
                 for (li = 0; li < stack.count; li++)
                     stack.layers[li].last_rendered = 0;

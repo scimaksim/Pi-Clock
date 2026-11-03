@@ -173,7 +173,7 @@ void pic_layer_render_aurora(cairo_t *cr, int width, int height,
         cairo_paint(cc);
         cairo_set_operator(cc, CAIRO_OPERATOR_OVER);
 
-        pic_paint_viewport(cc, grid_surf, width, height);
+        pic_paint_viewport_grid(cc, grid_surf, width, height);
 
         cairo_destroy(cc);
         cairo_surface_destroy(grid_surf);

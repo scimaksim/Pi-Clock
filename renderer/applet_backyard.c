@@ -135,7 +135,7 @@ double pic_applet_render_backyard(cairo_t *cr, double width, time_t now,
              by.temp, by.rh, compass(by.wdir), by.wind);
     cairo_set_source_rgba(cr, 0.95, 0.95, 0.97, 0.95);
     cairo_move_to(cr, 0, y + fs);
-    cairo_show_text(cr, line);
+    pic_show_text_fit(cr, line, width);
     y += line_h;
 
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
@@ -144,7 +144,7 @@ double pic_applet_render_backyard(cairo_t *cr, double width, time_t now,
     snprintf(line, sizeof(line), "Soil %.0f\xc2\xb0" "F at 2 in", by.soil);
     cairo_set_source_rgba(cr, 0.85, 0.75, 0.55, 0.95);
     cairo_move_to(cr, 0, y + fs);
-    cairo_show_text(cr, line);
+    pic_show_text_fit(cr, line, width);
     y += line_h;
 
     /* Overnight lows: day i's minimum ≈ the night before it, so start
@@ -189,7 +189,7 @@ double pic_applet_render_backyard(cairo_t *cr, double width, time_t now,
         cairo_set_source_rgba(cr, 0.6, 0.9, 0.6, 0.95);
     }
     cairo_move_to(cr, 0, y + fs);
-    cairo_show_text(cr, line);
+    pic_show_text_fit(cr, line, width);
     y += line_h;
 
     for (i = 2; i < by.ndays; i++) rain_next += by.rain[i];
@@ -197,7 +197,7 @@ double pic_applet_render_backyard(cairo_t *cr, double width, time_t now,
              by.rain[0], rain_next, by.ndays - 2);
     cairo_set_source_rgba(cr, 0.55, 0.7, 1.0, 0.9);
     cairo_move_to(cr, 0, y + fs);
-    cairo_show_text(cr, line);
+    pic_show_text_fit(cr, line, width);
     pthread_mutex_unlock(&by.mutex);
     return total;
 }

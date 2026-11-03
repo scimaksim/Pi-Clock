@@ -34,6 +34,12 @@ static struct {
     double ext[4];
     double span;
     int    hours, screen_w;
+    /* The previous view's image, kept so a global/local auto-switch
+     * back to it doesn't download the 30-minute product again */
+    cairo_surface_t *alt;
+    double alt_ext[4], alt_span;
+    int    alt_hours;
+    time_t alt_fetched;
     time_t fetched;
 } rn;
 
@@ -53,6 +59,28 @@ static int rain_work(pic_feature_t *f)
     double ext[4];
     (void)span;
     if (!pic_view_extent(full, sw, 2400, ext, &w, &h)) goto wait;   /* off-screen */
+    pthread_mutex_lock(&rn.mutex);
+    if (rn.alt && rn.alt_hours == hours && time(NULL) - rn.alt_fetched < 25 * 60 &&
+        fabs(rn.alt_ext[0] - ext[0]) < 0.01 && fabs(rn.alt_ext[1] - ext[1]) < 0.01 &&
+        fabs(rn.alt_ext[2] - ext[2]) < 0.01 && fabs(rn.alt_ext[3] - ext[3]) < 0.01) {
+        /* Switched back to a view fetched recently: swap it in */
+        cairo_surface_t *t = rn.image;
+        double te[4], ts = rn.span;
+        time_t tf = rn.fetched;
+        memcpy(te, rn.ext, sizeof(te));
+        rn.image = rn.alt;
+        memcpy(rn.ext, rn.alt_ext, sizeof(te));
+        rn.span = rn.alt_span;
+        rn.fetched = rn.alt_fetched;
+        rn.alt = t;
+        memcpy(rn.alt_ext, te, sizeof(te));
+        rn.alt_span = ts;
+        rn.alt_fetched = tf;
+        rn.alt_hours = hours;
+        pthread_mutex_unlock(&rn.mutex);
+        goto wait;
+    }
+    pthread_mutex_unlock(&rn.mutex);
     snprintf(url, sizeof(url), MRMS_FMT, hours, ext[0], ext[1], ext[2], ext[3], w, h);
     if (pic_fetch_to_file(url, RAIN_TMP, 60) == 0)
         img = pic_radar_decode_png(RAIN_TMP);
@@ -78,7 +106,12 @@ static int rain_work(pic_feature_t *f)
         return 300;
     }
     pthread_mutex_lock(&rn.mutex);
-    if (rn.image) cairo_surface_destroy(rn.image);
+    if (rn.alt) cairo_surface_destroy(rn.alt);
+    rn.alt = rn.image;               /* keep the previous view's image */
+    memcpy(rn.alt_ext, rn.ext, sizeof(rn.ext));
+    rn.alt_span = rn.span;
+    rn.alt_fetched = rn.fetched;
+    rn.alt_hours = rn.hours;
     rn.image = img;
     memcpy(rn.ext, ext, sizeof(ext));
     rn.span = span;
@@ -165,6 +198,8 @@ static void rain_stopped(pic_feature_t *f)
     pthread_mutex_lock(&rn.mutex);
     if (rn.image) cairo_surface_destroy(rn.image);
     rn.image = NULL;
+    if (rn.alt) cairo_surface_destroy(rn.alt);
+    rn.alt = NULL;
     pthread_mutex_unlock(&rn.mutex);
 }
 

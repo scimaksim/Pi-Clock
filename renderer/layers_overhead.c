@@ -40,6 +40,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <utime.h>
 
 #define OV_MAX       2000
 #define OV_DIR       "/tmp/pi-clock-cache"
@@ -71,7 +72,7 @@ static struct {
  * short all-caps runs (NOAA, SL-16, R/B) stay as they are */
 static void tidy_name(const char *in, char *out, size_t n)
 {
-    char buf[96];
+    char buf[160];
     size_t i = 0, k, len;
 
     while (*in == ' ') in++;
@@ -97,33 +98,59 @@ static void tidy_name(const char *in, char *out, size_t n)
     snprintf(out, n, "%s", buf);
 }
 
-/* Parse a 3-line TLE file into list[], skipping duplicates and high orbits */
+/*
+ * Parse a TLE file (2- or 3-line form) into list[], skipping
+ * duplicates and high orbits. Lines are matched by their "1 "/"2 "
+ * prefix, so a long or missing name line can't throw the rest off.
+ */
 static int load_tles(const char *path, ov_sat_t *list, int n, int max)
 {
     FILE *fp = fopen(path, "r");
-    char name[80], l1[100], l2[100];
+    char line[160], name[160] = "", l1[160] = "";
     int i;
 
     if (!fp) return n;
-    while (n < max && fgets(name, sizeof(name), fp)) {
-        if (name[0] == '1' && name[1] == ' ') continue;   /* out of step */
-        if (!fgets(l1, sizeof(l1), fp) || !fgets(l2, sizeof(l2), fp)) break;
-        if (l1[0] != '1' || l2[0] != '2') continue;
-        l1[strcspn(l1, "\r\n")] = '\0';
-        l2[strcspn(l2, "\r\n")] = '\0';
+    while (n < max && fgets(line, sizeof(line), fp)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] == '1' && line[1] == ' ' && strlen(line) >= 69) {
+            snprintf(l1, sizeof(l1), "%s", line);
+            continue;
+        }
+        if (!(line[0] == '2' && line[1] == ' ' && strlen(line) >= 69)) {
+            snprintf(name, sizeof(name), "%s", line);   /* name line */
+            l1[0] = '\0';
+            continue;
+        }
+        if (!l1[0]) continue;
         memset(&list[n], 0, sizeof(list[n]));
-        if (pic_sat_parse_tle(&list[n].sat, l1, l2) != 0) continue;
+        if (pic_sat_parse_tle(&list[n].sat, l1, line) != 0) { l1[0] = '\0'; continue; }
         list[n].sat.norad_id = atoi(l1 + 2);
+        l1[0] = '\0';
         if (list[n].sat.mean_motion < 11.0) continue;      /* not LEO */
         for (i = 0; i < n; i++)
             if (list[i].sat.norad_id == list[n].sat.norad_id) break;
         if (i < n) continue;
-        tidy_name(name, list[n].label, sizeof(list[n].label));
+        tidy_name(name[0] ? name : "Satellite", list[n].label, sizeof(list[n].label));
         snprintf(list[n].sat.name, sizeof(list[n].sat.name), "%s", list[n].label);
         n++;
+        name[0] = '\0';
     }
     fclose(fp);
     return n;
+}
+
+/*
+ * A download failed: keep using the old copy, and date it so the next
+ * attempt is OV_RETRY from now rather than at the next hourly check
+ * (CelesTrak blocks addresses that keep asking). -1 if there is none.
+ */
+static int keep_stale(const char *path)
+{
+    struct utimbuf t;
+    if (access(path, R_OK) != 0) return -1;
+    t.actime = t.modtime = time(NULL) - OV_REFRESH + OV_RETRY;
+    utime(path, &t);
+    return 0;
 }
 
 static int fresh(const char *path, time_t max_age)
@@ -142,7 +169,7 @@ static int refresh(const char *url, const char *path)
     if (pic_fetch_to_file(url, tmp, 60) == 0 && rename(tmp, path) == 0)
         return 0;
     unlink(tmp);
-    return access(path, R_OK) == 0 ? 0 : -1;   /* stale copy still usable */
+    return keep_stale(path);
 }
 
 /* SatNOGS JSON -> 3-line TLE file. Returns 0 when a copy exists. */
@@ -157,7 +184,7 @@ static int refresh_satnogs(void)
     if (fresh(OV_SATNOGS, OV_REFRESH)) return 0;
     if (pic_fetch_to_file(URL_SATNOGS, tmp, 90) != 0) {
         unlink(tmp);
-        return access(OV_SATNOGS, R_OK) == 0 ? 0 : -1;
+        return keep_stale(OV_SATNOGS);
     }
     in = fopen(tmp, "rb");
     if (!in) return -1;
@@ -203,7 +230,7 @@ static int refresh_satnogs(void)
     free(buf);
     if (n < 10 || rename(OV_SATNOGS ".new", OV_SATNOGS) != 0) {
         unlink(OV_SATNOGS ".new");
-        return access(OV_SATNOGS, R_OK) == 0 ? 0 : -1;
+        return keep_stale(OV_SATNOGS);
     }
     return 0;
 }
@@ -230,8 +257,9 @@ static int overhead_work(pic_feature_t *f)
     ov.n = n;
     pthread_mutex_unlock(&ov.mutex);
     printf("overhead: %d low-orbit satellites (%d/3 sources)\n", n, got);
-    /* Recheck hourly: refresh() only downloads once a copy is a day old */
-    return got == 3 ? 3600 : OV_RETRY;
+    /* Recheck hourly: refresh() only downloads once a copy is a day
+     * old, and a failed source waits OV_RETRY (keep_stale) */
+    return got ? 3600 : OV_RETRY;
 }
 
 void pic_layer_render_overhead(cairo_t *cr, int width, int height,

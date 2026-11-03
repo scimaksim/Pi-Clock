@@ -72,6 +72,10 @@ int pic_launches_parse(const char *js, size_t len, launch_t *out, int max)
 
     if (pic_json_parse(&j, js, len) < 0) return -1;
     res = pic_json_get(&j, 0, "results");
+    if (res < 0) {            /* e.g. rate-limit reply: keep the old list */
+        pic_json_free(&j);
+        return -1;
+    }
     n = pic_json_size(&j, res);
     for (i = 0; i < n && count < max; i++) {
         int r = pic_json_at(&j, res, i);

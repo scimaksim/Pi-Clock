@@ -120,6 +120,147 @@ int pic_ac_parse(const char *js, size_t len, pic_ac_t *out, int *count,
     return added;
 }
 
+/*
+ * Flight routes (origin → destination) for airline callsigns near
+ * home, from the adsbdb.com callsign database. ADS-B itself doesn't
+ * carry them. Cached for 6 h per callsign (misses too), and at most a
+ * few new lookups per fetch so the API is never hammered.
+ */
+#define ROUTE_URL     "https://api.adsbdb.com/v0/callsign/%s"
+#define ROUTE_CACHE   256
+#define ROUTE_TTL     (6 * 3600)
+#define ROUTE_NEAR_KM 92.6          /* 50 nautical miles */
+#define ROUTE_PER_CYCLE 4
+
+static struct {
+    char   cs[10];
+    char   o[8], d[8];              /* IATA (or ICAO) codes, "" if unknown */
+    double olat, olon, dlat, dlon;
+    time_t t;
+} rcache[ROUTE_CACHE];
+static int rcache_next;
+
+/* Airline-style callsign: 3 letters then a digit (AAL2947, DAL1234),
+ * not a registration (N1234X) or a military/private name */
+static int airline_callsign(const char *cs)
+{
+    return isalpha((unsigned char)cs[0]) && isalpha((unsigned char)cs[1]) &&
+           isalpha((unsigned char)cs[2]) && isdigit((unsigned char)cs[3]);
+}
+
+static void airport(pic_json_t *j, int obj, char *code, size_t n,
+                    double *lat, double *lon)
+{
+    char v[8] = "", num[24] = "";
+    code[0] = '\0';
+    *lat = *lon = 0;
+    if (obj < 0) return;
+    pic_json_str(j, pic_json_get(j, obj, "iata_code"), v, sizeof(v));
+    if (!v[0]) pic_json_str(j, pic_json_get(j, obj, "icao_code"), v, sizeof(v));
+    snprintf(code, n, "%s", v);
+    if (pic_json_str(j, pic_json_get(j, obj, "latitude"), num, sizeof(num)) >= 0)
+        *lat = atof(num);
+    if (pic_json_str(j, pic_json_get(j, obj, "longitude"), num, sizeof(num)) >= 0)
+        *lon = atof(num);
+}
+
+static double km_between(double la1, double lo1, double la2, double lo2)
+{
+    double p1 = la1 * DEG_TO_RAD, p2 = la2 * DEG_TO_RAD;
+    double dp = p2 - p1, dl = (lo2 - lo1) * DEG_TO_RAD;
+    double h = sin(dp / 2) * sin(dp / 2) + cos(p1) * cos(p2) * sin(dl / 2) * sin(dl / 2);
+    return 2 * 6371.0 * asin(sqrt(h));
+}
+
+static double bearing(double la1, double lo1, double la2, double lo2)
+{
+    double p1 = la1 * DEG_TO_RAD, p2 = la2 * DEG_TO_RAD, dl = (lo2 - lo1) * DEG_TO_RAD;
+    return atan2(sin(dl) * cos(p2), cos(p1) * sin(p2) - sin(p1) * cos(p2) * cos(dl));
+}
+
+/*
+ * The callsign database lists a flight's usual route, which can be out
+ * of date (airlines reuse flight numbers). Only show it if the plane
+ * really is on that route: within ~250 km of the great circle between
+ * the two airports and not beyond either end.
+ */
+static int on_route(double lat, double lon, int i)
+{
+    double R = 6371.0, d13, d12, xt, at;
+    if (!rcache[i].o[0] || !rcache[i].d[0]) return 0;
+    d12 = km_between(rcache[i].olat, rcache[i].olon, rcache[i].dlat, rcache[i].dlon);
+    d13 = km_between(rcache[i].olat, rcache[i].olon, lat, lon);
+    if (d12 < 1) return 0;
+    xt = asin(sin(d13 / R) *
+              sin(bearing(rcache[i].olat, rcache[i].olon, lat, lon) -
+                  bearing(rcache[i].olat, rcache[i].olon, rcache[i].dlat, rcache[i].dlon))) * R;
+    at = acos(fmax(-1, fmin(1, cos(d13 / R) / cos(xt / R)))) * R;
+    {   /* Behind the origin (more than 90° off the route's heading)? */
+        double db = bearing(rcache[i].olat, rcache[i].olon, lat, lon) -
+                    bearing(rcache[i].olat, rcache[i].olon, rcache[i].dlat, rcache[i].dlon);
+        if (cos(db) < 0) at = -at;
+    }
+    return fabs(xt) < 250 && at > -100 && at < d12 + 100;
+}
+
+/* Fill route for cs at (lat, lon); returns 1 if it used the network */
+static int route_for(const char *cs, double lat, double lon, char *route,
+                     size_t n, int allow_fetch, char *buf, int buf_size)
+{
+    time_t now = time(NULL);
+    char url[96];
+    int i, len;
+    pic_json_t j;
+
+    route[0] = '\0';
+    for (i = 0; i < ROUTE_CACHE; i++)
+        if (rcache[i].cs[0] && !strcmp(rcache[i].cs, cs) &&
+            now - rcache[i].t < ROUTE_TTL)
+            break;
+    if (i == ROUTE_CACHE) {
+        if (!allow_fetch) return 0;
+        snprintf(url, sizeof(url), ROUTE_URL, cs);
+        len = pic_fetch_to_buf(url, buf, buf_size);
+        if (len <= 0) return 1;   /* network failure: try again later */
+        i = rcache_next;
+        rcache_next = (rcache_next + 1) % ROUTE_CACHE;
+        memset(&rcache[i], 0, sizeof(rcache[i]));
+        snprintf(rcache[i].cs, sizeof(rcache[i].cs), "%s", cs);
+        rcache[i].t = now;
+        if (pic_json_parse(&j, buf, (size_t)len) >= 0) {
+            int fr = pic_json_path(&j, 0, "response.flightroute");
+            if (fr >= 0) {
+                airport(&j, pic_json_get(&j, fr, "origin"), rcache[i].o,
+                        sizeof(rcache[i].o), &rcache[i].olat, &rcache[i].olon);
+                airport(&j, pic_json_get(&j, fr, "destination"), rcache[i].d,
+                        sizeof(rcache[i].d), &rcache[i].dlat, &rcache[i].dlon);
+            }
+            pic_json_free(&j);
+        }
+        if (on_route(lat, lon, i))
+            snprintf(route, n, "%s\xe2\x86\x92%s", rcache[i].o, rcache[i].d);
+        return 1;
+    }
+    if (on_route(lat, lon, i))
+        snprintf(route, n, "%s\xe2\x86\x92%s", rcache[i].o, rcache[i].d);   /* "→" */
+    return 0;
+}
+
+static void add_routes(pic_ac_t *ac, int count)
+{
+    static char rbuf[16384];
+    int i, fetched = 0;
+    for (i = 0; i < count; i++) {
+        pic_ac_t *a = &ac[i];
+        a->route[0] = '\0';
+        if (a->alt <= 0 || !airline_callsign(a->flight)) continue;
+        if (km_between(a->lat, a->lon, pic_config.qth_lat, pic_config.qth_lon) > ROUTE_NEAR_KM)
+            continue;
+        fetched += route_for(a->flight, a->lat, a->lon, a->route, sizeof(a->route),
+                             fetched < ROUTE_PER_CYCLE, rbuf, sizeof(rbuf));
+    }
+}
+
 static void *ac_thread_func(void *arg)
 {
     char *buf;
@@ -170,6 +311,7 @@ static void *ac_thread_func(void *arg)
         }
 
         if (ok) {
+            add_routes(temp, count);
             pthread_mutex_lock(&cfg_data->mutex);
             memcpy(cfg_data->ac, temp, (size_t)count * sizeof(pic_ac_t));
             cfg_data->count = count;

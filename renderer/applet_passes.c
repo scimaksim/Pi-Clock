@@ -252,6 +252,7 @@ static int passes_work(pic_feature_t *f)
     static pic_sat_t sats[MAX_PSATS];
     static int loaded[MAX_PSATS];
     static time_t tle_time;
+    static time_t fail_at[MAX_PSATS];   /* last failed TLE fetch per slot */
     static pass_t tmp[MAX_PASSES * 2];
     int ids[MAX_PSATS], nids, i, n = 0;
     time_t now = time(NULL);
@@ -263,15 +264,24 @@ static int passes_work(pic_feature_t *f)
     memcpy(ids, ps.ids, sizeof(ids));
     pthread_mutex_unlock(&ps.mutex);
 
-    /* Refresh TLEs every 12 h (or when the list changed) */
+    /* Refresh TLEs every 12 h, or when the list changed. A satellite
+     * whose TLE couldn't be fetched (bad or decayed ID, source down)
+     * is retried after 2 h at the soonest: CelesTrak blocks addresses
+     * that keep asking. */
     for (i = 0; i < nids; i++)
-        if (!loaded[i] || sats[i].norad_id != ids[i]) tle_time = 0;
+        if (sats[i].norad_id != ids[i] ||
+            (!loaded[i] && now - fail_at[i] > 2 * 3600))
+            tle_time = 0;
     if (now - tle_time > 12 * 3600) {
         int ok = 0;
         for (i = 0; i < nids; i++) {
             char l1[96], l2[96];
             if (sats[i].norad_id != ids[i]) loaded[i] = 0;
-            if (fetch_tle(ids[i], l1, l2) != 0) continue;
+            if (fetch_tle(ids[i], l1, l2) != 0) {
+                fail_at[i] = now;
+                if (sats[i].norad_id != ids[i]) loaded[i] = 0;
+                continue;
+            }
             memset(&sats[i], 0, sizeof(sats[i]));
             if (pic_sat_parse_tle(&sats[i], l1, l2) == 0) {
                 sats[i].norad_id = ids[i];
@@ -281,7 +291,11 @@ static int passes_work(pic_feature_t *f)
         }
         if (ok) tle_time = now;
         printf("passes: loaded %d/%d TLEs\n", ok, nids);
-        if (!ok) return 15 * 60;
+        if (!ok) {
+            int any = 0;
+            for (i = 0; i < nids; i++) any |= loaded[i];
+            if (!any) return 2 * 3600;
+        }
     }
 
     for (i = 0; i < nids; i++) {
