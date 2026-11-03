@@ -139,10 +139,27 @@ void pic_draw_text_pill(cairo_t *cr, double x, double y, const char *text,
     cairo_show_text(cr, text);
 }
 
+/*
+ * Bottom-centre notes stack upward from just above the map key in the
+ * order they are drawn each frame, with no gaps for layers that are
+ * off. pic_map_key_draw() (called once per frame after all legends)
+ * resets the stack.
+ */
+static double legend_used;   /* rows of height/72*1.75 already taken */
+
+double pic_legend_take(int height, double rows)
+{
+    double fs = height / 72.0, y;
+    y = height - fs * (3.2 + 1.75 * legend_used);
+    legend_used += rows;
+    return y;
+}
+
 void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
                           const char *text, double r, double g, double b)
 {
-    double fs = height / 72.0, y = height - fs * (3.2 + 1.75 * slot);
+    double fs = height / 72.0, y = pic_legend_take(height, 1);
+    (void)slot;   /* kept for callers; rows are now assigned in draw order */
     cairo_text_extents_t e;
 
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
@@ -306,6 +323,7 @@ void pic_map_key_draw(cairo_t *cr, int width, int height, double bottom)
     int i, n = map_key_n;
 
     map_key_n = 0;
+    legend_used = 0;
     if (n == 0) return;
     cairo_save(cr);
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,

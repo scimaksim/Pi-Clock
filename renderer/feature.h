@@ -109,13 +109,18 @@ void pic_draw_text_pill(cairo_t *cr, double x, double y, const char *text,
                         double r, double g, double b, double bg_a);
 
 /*
- * Bottom-centre status line for layer legends. Slots stack upward so
- * several layers' notes never overlap each other or the side panels:
- * 0 SPC, 1 light pollution, 2 ships, 3 aurora, 4 rain totals,
- * 5 eBird, 6 drought, 7 dark sites.
+ * Bottom-centre status line for layer legends. Lines stack upward from
+ * just above the map key in drawing order, without gaps for layers
+ * that are off. `slot` is ignored (kept for callers).
  */
 void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
                           const char *text, double r, double g, double b);
+
+/*
+ * Reserve `rows` legend rows (height/72*1.75 px each) in the same
+ * stack and return the y of the lowest row's text baseline.
+ */
+double pic_legend_take(int height, double rows);
 
 /*
  * Part of a fixed data extent worth fetching for the current view:

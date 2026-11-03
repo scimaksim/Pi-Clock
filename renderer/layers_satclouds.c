@@ -614,8 +614,13 @@ static void satclouds_legend(cairo_t *cr, int width, int height, time_t now,
     tw = e.x_advance + fs * 0.8;
     boxw = tw + bw + pad * 2;
     x0 = (width - boxw) / 2.0;
-    /* Legend slot 8, above the other bottom-centre notes */
-    y = height - fs * 90.0 / 72.0 * (3.2 + 1.75 * 8);
+    /* Next free row(s) of the bottom-centre legend stack, just above
+     * the map key and any other notes */
+    {
+        double f72 = height / 72.0;
+        double bottom = pic_legend_take(height, 1.5) + f72 * 0.45;
+        y = bottom - (bh + fs * 1.75) + fs * 0.2;
+    }
 
     cairo_new_path(cr);
     cairo_rectangle(cr, x0, y - fs * 0.2, boxw, bh + fs * 1.75);
