@@ -644,6 +644,7 @@ static const struct {
     {"ebird",          1},  /* eBird JSON                            */
     {"drought",        6},  /* USDM file (~17MB while parsing)       */
     {"darksites",      2},  /* Site list + home sky grid             */
+    {"sst",            8},  /* 1440x720 index + ARGB wash + PNG      */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -1512,6 +1513,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_basemap, 0, 1.0, black_marble);
     pic_layer_stack_add(&stack, "daylight",
                         pic_layer_render_daylight, 60, 1.0, blue_marble);
+    add_feature_layer(&stack, pic_feature_sst());
     add_feature_layer(&stack, pic_feature_satclouds());
     add_feature_layer(&stack, pic_feature_lightpollution());
     if (borders_loaded)
@@ -1816,6 +1818,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     register_feature(pic_feature_tides());
     register_feature(pic_feature_backyard());
     register_feature(pic_feature_coast());
+    register_feature(pic_feature_seasons());
+    register_feature(pic_feature_analemma());
     register_feature(pic_feature_hanotify());   /* no layer or applet */
     register_feature(pic_feature_localbase());  /* regional imagery     */
     {

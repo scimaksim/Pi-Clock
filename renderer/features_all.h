@@ -29,6 +29,9 @@ pic_feature_t *pic_feature_backyard(void);       /* Backyard panel     */
 pic_feature_t *pic_feature_twilight(void);       /* Twilight lines     */
 pic_feature_t *pic_feature_darksites(void);      /* Dark-sky sites     */
 pic_feature_t *pic_feature_overhead(void);       /* Live sats in view  */
+pic_feature_t *pic_feature_sst(void);            /* Sea-surface temp   */
+pic_feature_t *pic_feature_seasons(void);        /* Seasons panel      */
+pic_feature_t *pic_feature_analemma(void);       /* Analemma panel     */
 
 /* ── Data shared with the Home Assistant notifier ─────────────── */
 
