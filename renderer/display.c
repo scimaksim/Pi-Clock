@@ -527,7 +527,7 @@ static int get_total_ram_mb(void)
  * Registered pic_feature_t overlays (layers and/or applets). Each runs
  * its fetch thread only while its layer or applet is enabled.
  */
-static pic_feature_t *features[48];
+static pic_feature_t *features[64];
 static int nfeatures;
 
 static void register_feature(pic_feature_t *f)
@@ -646,6 +646,12 @@ static const struct {
     {"drought",        6},  /* USDM file (~17MB while parsing)       */
     {"darksites",      2},  /* Site list + home sky grid             */
     {"sst",            8},  /* 1440x720 index + ARGB wash + PNG      */
+    {"nowcast",        9},  /* PC helper: 13 frames 900x700 bytes    */
+    {"hrrr_clouds",    6},  /* PC helper: 18 frames ~714x440 bytes   */
+    {"hrrr_smoke",     6},
+    {"hrrr_gust",      6},
+    {"hrrr_frost",     1},
+    {"birds",          5},  /* PC helper: up to 13 frames 663x542    */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -1517,7 +1523,10 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_layer_stack_add(&stack, "daylight",
                         pic_layer_render_daylight, 60, 1.0, blue_marble);
     add_feature_layer(&stack, pic_feature_sst());
+    add_feature_layer(&stack, pic_feature_pch_frost());
     add_feature_layer(&stack, pic_feature_satclouds());
+    add_feature_layer(&stack, pic_feature_pch_clouds());
+    add_feature_layer(&stack, pic_feature_pch_smoke());
     add_feature_layer(&stack, pic_feature_lightpollution());
     if (borders_loaded)
         pic_layer_stack_add(&stack, "borders",
@@ -1553,6 +1562,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_precip, 60, 1.0, &wind);
     pic_layer_stack_add(&stack, "radar",
                         pic_layer_render_radar, 60, 0.8, &radar);
+    add_feature_layer(&stack, pic_feature_pch_nowcast());
     add_feature_layer(&stack, pic_feature_rainfall());
     add_feature_layer(&stack, pic_feature_spc());
     add_feature_layer(&stack, pic_feature_rivers());
@@ -1561,11 +1571,13 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_airquality, 60, 1.0, &airquality);
     add_feature_layer(&stack, pic_feature_ships());
     add_feature_layer(&stack, pic_feature_ebird());
+    add_feature_layer(&stack, pic_feature_pch_birds());
     add_feature_layer(&stack, pic_feature_darksites());
     pic_layer_stack_add(&stack, "qth",
                         pic_layer_render_qth, 0, 1.0, NULL);
     pic_layer_stack_add(&stack, "wind",
                         pic_layer_render_wind, 60, 1.0, &wind);
+    add_feature_layer(&stack, pic_feature_pch_gust());
     pic_layer_stack_add(&stack, "lightning",
                         pic_layer_render_lightning, 1, 1.0, &lightning);
 

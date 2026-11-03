@@ -7,11 +7,13 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/MW0MWZ/Pi-Clock/dashboard/internal/config"
 )
@@ -63,6 +65,9 @@ var (
 	// Stored as "Name:lat:lon,Name:lat:lon" with "_" for spaces, so the
 	// value is inert even if an old init script sources the file as
 	// shell (see normalizeSetting). Max 10 sites, 400 characters.
+	// PC helper on the LAN: http://host[:port], nothing else (the Pi
+	// fetches <url>/<product>/manifest.json from it)
+	pcHelperRe  = regexp.MustCompile(`^http://[A-Za-z0-9.\-]{1,253}(:[0-9]{1,5})?$`)
 	darkSitesRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,31}:-?[0-9]{1,2}(\.[0-9]{1,6})?:-?[0-9]{1,3}(\.[0-9]{1,6})?(,[A-Za-z0-9_.-]{1,31}:-?[0-9]{1,2}(\.[0-9]{1,6})?:-?[0-9]{1,3}(\.[0-9]{1,6})?){0,9}$`)
 )
 
@@ -71,6 +76,13 @@ var (
 // separators become ",". Everything stored in renderer.conf stays free
 // of shell metacharacters.
 func normalizeSetting(k, v string) string {
+	if k == "PC_HELPER_URL" {
+		v = strings.TrimSpace(v)
+		if v != "" && !strings.Contains(v, "://") {
+			v = "http://" + v
+		}
+		return strings.TrimRight(v, "/")
+	}
 	if k != "DARK_SITES" {
 		return v
 	}
@@ -171,6 +183,9 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"HUD_UTC":         boolSetting("1"),
 	"HUD_IP":          boolSetting("1"),
 	"BASEMAP_SEASON":  boolSetting("1"),
+
+	// PC helper (rain nowcast, HRRR maps, bird migration)
+	"PC_HELPER_URL": patternSetting("", pcHelperRe),
 
 	// Local layers
 	"LSR_HOURS":       enumSetting("24", "6", "12", "24", "48"),
@@ -276,5 +291,36 @@ func PutRendererSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		}
 		signalRenderer()
 		jsonResponse(w, http.StatusOK, map[string]string{"status": "saved"})
+	}
+}
+
+// GetPCHelperStatus relays the PC helper's /status.json (job states and
+// errors) so the dashboard can show whether the PC side is working. Only
+// the configured, validated helper address is ever contacted.
+func GetPCHelperStatus() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		kv, _ := readKV(rendererConfPath)
+		base := kv["PC_HELPER_URL"]
+		if base == "" || !pcHelperRe.MatchString(base) {
+			jsonResponse(w, http.StatusOK, map[string]any{"configured": false})
+			return
+		}
+		client := &http.Client{Timeout: 4 * time.Second}
+		resp, err := client.Get(base + "/status.json")
+		if err != nil {
+			jsonResponse(w, http.StatusOK, map[string]any{"configured": true, "reachable": false,
+				"error": "can't reach the PC helper"})
+			return
+		}
+		defer resp.Body.Close()
+		var st map[string]any
+		if resp.StatusCode != http.StatusOK ||
+			json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&st) != nil {
+			jsonResponse(w, http.StatusOK, map[string]any{"configured": true, "reachable": false,
+				"error": "unexpected reply from the PC helper"})
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]any{"configured": true, "reachable": true,
+			"status": st})
 	}
 }

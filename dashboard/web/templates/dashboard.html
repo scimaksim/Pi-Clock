@@ -170,6 +170,19 @@
             </div>
         </div>
 
+        <div class="card" id="pchelper-card">
+            <div class="card-title">PC Helper</div>
+            <p class="text-muted mb-8">A PC on your network can run the heavy jobs the Pi can&rsquo;t: the 90-minute radar rain forecast, HRRR cloud/smoke/gust/frost maps and the MistNet bird-migration analysis. Install the helper on the PC (<code>helper/install-windows.ps1</code>), enter the address it prints, then turn on the &ldquo;PC helper&rdquo; layers. If the PC is asleep those layers simply hide.</p>
+            <div class="form-group">
+                <label for="pc_helper_url">PC Helper Address</label>
+                <input type="text" id="pc_helper_url" class="form-control" data-conf="PC_HELPER_URL" maxlength="270" placeholder="http://192.168.1.50:8765">
+                <div class="hint" id="pchelper-status">&nbsp;</div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="savePCHelper()">Save</button>
+            </div>
+        </div>
+
         <!-- Layer Control -->
         <div class="card">
             <div class="card-title">Map Layers</div>

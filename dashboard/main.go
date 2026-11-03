@@ -120,6 +120,7 @@ func main() {
 		// Generic renderer settings (volcanoes, storms, aircraft, ...)
 		r.Get("/renderer-settings", api.GetRendererSettings())
 		r.Put("/renderer-settings", api.PutRendererSettings(cfg))
+		r.Get("/pchelper-status", api.GetPCHelperStatus())
 
 		// Astrospheric API key (write-only)
 		r.Get("/astrospheric-key", api.GetAstrosphericKey())

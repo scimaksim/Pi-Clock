@@ -32,6 +32,13 @@ pic_feature_t *pic_feature_overhead(void);       /* Live sats in view  */
 pic_feature_t *pic_feature_sst(void);            /* Sea-surface temp   */
 pic_feature_t *pic_feature_seasons(void);        /* Seasons panel      */
 pic_feature_t *pic_feature_analemma(void);       /* Analemma panel     */
+/* Layers computed by the PC helper (layers_pchelper.c) */
+pic_feature_t *pic_feature_pch_nowcast(void);
+pic_feature_t *pic_feature_pch_clouds(void);
+pic_feature_t *pic_feature_pch_smoke(void);
+pic_feature_t *pic_feature_pch_gust(void);
+pic_feature_t *pic_feature_pch_frost(void);
+pic_feature_t *pic_feature_pch_birds(void);
 
 /* ── Data shared with the Home Assistant notifier ─────────────── */
 

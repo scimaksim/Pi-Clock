@@ -57,7 +57,7 @@ SOURCES = main.c display.c layer.c solar.c lunar.c image.c config.c borders.c \
           layers_dsn.c applet_passes.c layers_satclouds.c layers_fires.c \
           applet_tides.c layers_planets.c layers_ships.c \
           layers_aurorawatch.c layers_lightpollution.c ha_notify.c \
-          layers_sst.c applet_seasons.c season.c \
+          layers_sst.c applet_seasons.c season.c layers_pchelper.c \
           localview.c layers_lsr.c layers_rainfall.c layers_rivers.c \
           layers_ebird.c layers_drought.c applet_coast.c applet_backyard.c \
           layers_twilight.c layers_darksites.c

@@ -1245,6 +1245,34 @@ function saveRendererSettings(cardId, label) {
     }).catch(function(e) { toast(e.message, 'error'); });
 }
 
+// ── PC helper ────────────────────────────────────────────────
+function loadPCHelperStatus() {
+    var el = document.getElementById('pchelper-status');
+    if (!el) return;
+    apiCall('GET', '/api/pchelper-status').then(function(r) {
+        if (!r.configured) { el.textContent = 'Not set up.'; return; }
+        if (!r.reachable) { el.textContent = 'Not reachable: ' + (r.error || '') + ' (is the PC on?)'; return; }
+        var jobs = (r.status && r.status.jobs) || {}, parts = [];
+        Object.keys(jobs).sort().forEach(function(k) {
+            var j = jobs[k];
+            parts.push(k + ': ' + (j.state === 'ok' ? 'OK' : (j.state || '?')) +
+                       (j.error ? ' (' + j.error + ')' : ''));
+        });
+        el.textContent = 'Connected. ' + (parts.join(' \u00b7 ') || 'starting');
+    }).catch(function() { el.textContent = ''; });
+}
+
+function savePCHelper() {
+    var card = document.getElementById('pchelper-card');
+    if (!card) return;
+    var v = String(document.getElementById('pc_helper_url').value).trim();
+    apiCall('PUT', '/api/renderer-settings', {PC_HELPER_URL: v}).then(function() {
+        toast('PC helper address saved');
+        loadRendererSettings('pchelper-card');
+        setTimeout(loadPCHelperStatus, 300);
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
 // ── Astrospheric key (write-only) ──────────────────────────
 function loadAstroKey() {
     apiCall('GET', '/api/astrospheric-key').then(function(st) {
@@ -1970,6 +1998,8 @@ document.addEventListener('DOMContentLoaded', function() {
     loadRendererSettings('view-card');
     loadEBirdKey();
     loadRendererSettings('coast-card');
+    loadRendererSettings('pchelper-card');
+    loadPCHelperStatus();
 
     setInterval(loadSystemInfo, 30000);
 });
