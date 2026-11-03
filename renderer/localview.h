@@ -53,6 +53,9 @@ cairo_pattern_t *pic_regional_pattern(cairo_surface_t *src, int width,
 /* Changes whenever new regional imagery is installed */
 unsigned pic_regional_generation(void);
 
+/* Ask for a redraw through new base imagery (bumps the generation) */
+void pic_regional_bump(void);
+
 pic_feature_t *pic_feature_localbase(void);   /* regional imagery fetch */
 pic_feature_t *pic_feature_localmap(void);    /* Local Detail layer     */
 

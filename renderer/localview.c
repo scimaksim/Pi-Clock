@@ -19,6 +19,7 @@
  */
 
 #include "localview.h"
+#include "season.h"
 #include "config.h"
 #include "fetch.h"
 #include "stb_image.h"
@@ -123,6 +124,17 @@ unsigned pic_regional_generation(void)
 {
     return __atomic_load_n(&reg_gen, __ATOMIC_ACQUIRE);
 }
+
+void pic_regional_bump(void)
+{
+    __atomic_add_fetch(&reg_gen, 1, __ATOMIC_RELEASE);
+}
+
+/* Whether reg[1] holds the current-season composite, and when it was
+ * built (it is rebuilt every few hours as new days arrive) */
+static int    reg_season;
+static time_t reg_season_at;
+#define SEASON_REFRESH (6 * 3600)
 static regional_t reg[2];        /* 0 = night, 1 = day */
 static int reg_screen_w = 1920, reg_screen_h = 1080;
 
@@ -212,7 +224,7 @@ static int localbase_work(pic_feature_t *f)
     };
     double z = pic_config.local_zoom, span_lon, span_lat, cx, cy;
     double lon0, lon1, lat0, lat1;
-    int sw, sh, w, h, i, s;
+    int sw, sh, w, h, i, s, first;
     unsigned gen = pic_config.viewport_gen;
 
     if (z <= 1.0) {
@@ -239,13 +251,22 @@ static int localbase_work(pic_feature_t *f)
     s = reg[0].img && reg[1].img && reg[0].lon0 == lon0 && reg[0].lat0 == lat0 &&
         reg[0].lon1 == lon1 && reg[0].lat1 == lat1;
     pthread_mutex_unlock(&reg_mutex);
-    if (s) goto wait;   /* already have this area */
+    /* Already have this area: refetch only the day map, and only when
+     * the season composite is due (or was switched on/off) */
+    first = 0;
+    if (s) {
+        if (pic_season_enabled()
+                ? reg_season && time(NULL) - reg_season_at < SEASON_REFRESH
+                : !reg_season)
+            goto wait;
+        first = 1;
+    }
 
     w = (int)(sw * 1.2);
     h = (int)(sh * 1.2);
     if (w > 2400) { h = h * 2400 / w; w = 2400; }
 
-    for (i = 0; i < 2 && !pic_feature_interrupted(f); i++) {
+    for (i = first; i < 2 && !pic_feature_interrupted(f); i++) {
         char url[512];
         cairo_surface_t *img = NULL;
         snprintf(url, sizeof(url), GIBS_BASE, src[i].layer, lon0, lat0,
@@ -268,12 +289,54 @@ static int localbase_work(pic_feature_t *f)
     }
     /* Make the base maps re-render with the new imagery */
     __atomic_add_fetch(&reg_gen, 1, __ATOMIC_RELEASE);
+    reg_season = 0;
+
+    /* Current-season composite over a copy of the Blue Marble just
+     * published, swapped in when done (the first build downloads a
+     * couple of weeks of tiles and takes a few minutes) */
+    if (pic_season_enabled() && !pic_feature_interrupted(f)) {
+        cairo_surface_t *copy = cairo_image_surface_create(CAIRO_FORMAT_RGB24, w, h);
+        int ok = -1;
+        if (cairo_surface_status(copy) == CAIRO_STATUS_SUCCESS) {
+            cairo_t *cr;
+            pthread_mutex_lock(&reg_mutex);
+            cr = cairo_create(copy);
+            cairo_set_source_surface(cr, reg[1].img, 0, 0);
+            cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+            cairo_paint(cr);
+            cairo_destroy(cr);
+            pthread_mutex_unlock(&reg_mutex);
+            ok = pic_season_composite(copy, lon0, lat0, lon1, lat1, f, NULL, 0);
+        }
+        if (ok == 0) {
+            pthread_mutex_lock(&reg_mutex);
+            if (reg[1].lon0 == lon0 && reg[1].lat0 == lat0 &&
+                reg[1].lon1 == lon1 && reg[1].lat1 == lat1) {
+                cairo_surface_destroy(reg[1].img);
+                reg[1].img = copy;
+                copy = NULL;
+            }
+            pthread_mutex_unlock(&reg_mutex);
+            __atomic_add_fetch(&reg_gen, 1, __ATOMIC_RELEASE);
+            reg_season = 1;
+            reg_season_at = time(NULL);
+        } else {
+            /* Try again in half an hour */
+            reg_season = 1;
+            reg_season_at = time(NULL) - SEASON_REFRESH + 1800;
+        }
+        if (copy) cairo_surface_destroy(copy);
+    }
 
 wait:
-    for (s = 0; s < 3600; s++) {
-        if (pic_feature_interrupted(f)) return 1;
-        if (pic_config.viewport_gen != gen) return 2;
-        sleep(1);
+    {
+        int was_on = pic_season_enabled();
+        for (s = 0; s < 3600; s++) {
+            if (pic_feature_interrupted(f)) return 1;
+            if (pic_config.viewport_gen != gen) return 2;
+            if (pic_season_enabled() != was_on) return 1;
+            sleep(1);
+        }
     }
     return 1;
 }

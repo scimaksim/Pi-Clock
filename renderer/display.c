@@ -58,6 +58,7 @@
 #include "feature.h"
 #include "features_all.h"
 #include "localview.h"
+#include "season.h"
 #include "airquality.h"
 #include "starlink.h"
 #include "aircraft.h"
@@ -1317,7 +1318,9 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             pic_localmap_load("/usr/share/pi-clock/localmap.dat");
     }
     pic_regional_set_world(black_marble, blue_marble);
+    pic_season_set_world(blue_marble);
     pic_view_reload(time(NULL));
+    pic_season_reload();
     pic_config_recompute_viewport();
 
     /* Start solar weather data fetcher */
@@ -1822,6 +1825,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     register_feature(pic_feature_analemma());
     register_feature(pic_feature_hanotify());   /* no layer or applet */
     register_feature(pic_feature_localbase());  /* regional imagery     */
+    register_feature(pic_feature_season());     /* current-season day map */
     {
         int fi;
         for (fi = 0; fi < nfeatures; fi++)
@@ -1978,6 +1982,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 pic_config.qth_lon    = rconf.qth_lon;
                 pic_config.rotate180  = (rconf.rotate == 180) ? 1 : 0;
                 pic_view_reload(time(NULL));
+                pic_season_reload();
                 pic_config_recompute_viewport();
                 printf("display: center_lon=%.1f map_zoom=%.0f%% "
                        "view_center=(%.2f,%.2f) span=(%.1f,%.1f)°\n",

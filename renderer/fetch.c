@@ -153,14 +153,16 @@ int pic_fetch_to_file(const char *url, const char *path, int timeout)
         _exit(127);
     }
 
-    /* Wait with timeout — prevent hung wget from blocking the thread */
+    /* Wait with timeout — prevent hung wget from blocking the thread.
+     * Polled every 50 ms so small files (map tiles) don't each cost a
+     * whole second. */
     {
         int waited = 0;
-        while (waitpid(pid, &status, WNOHANG) == 0 && waited < 30) {
-            sleep(1);
+        while (waitpid(pid, &status, WNOHANG) == 0 && waited < 600) {
+            usleep(50000);
             waited++;
         }
-        if (waited >= 30) {
+        if (waited >= 600) {
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
         }

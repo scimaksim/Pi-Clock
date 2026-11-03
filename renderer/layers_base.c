@@ -36,6 +36,7 @@
 #include "layer.h"
 #include "config.h"
 #include "localview.h"
+#include "season.h"
 
 /*
  * pic_viewport_pattern - Build the Cairo pattern + matrix used by
@@ -67,6 +68,16 @@ cairo_pattern_t *pic_viewport_pattern(cairo_surface_t *src,
      * the world map (see localview.c). */
     pattern = pic_regional_pattern(src, width, height);
     if (pattern) return pattern;
+
+    /* Daytime map: the current-season composite, when built (season.c) */
+    {
+        cairo_surface_t *alt = pic_season_world_for(src);
+        if (alt) {
+            pattern = pic_viewport_pattern(alt, width, height);
+            cairo_surface_destroy(alt);       /* the pattern holds a ref */
+            if (pattern) return pattern;
+        }
+    }
 
     src_w = cairo_image_surface_get_width(src);
     src_h = cairo_image_surface_get_height(src);
