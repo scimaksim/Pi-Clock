@@ -24,6 +24,7 @@ var layerExtraMb = {
     'wind':           4,
     'aurora':         4,
     'satellites':     2,
+    'overhead':       5,
     'lightning':      2,
     'dxspots':        1,
     'bandconditions': 1,

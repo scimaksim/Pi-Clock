@@ -28,6 +28,7 @@ pic_feature_t *pic_feature_coast(void);          /* Buoys panel        */
 pic_feature_t *pic_feature_backyard(void);       /* Backyard panel     */
 pic_feature_t *pic_feature_twilight(void);       /* Twilight lines     */
 pic_feature_t *pic_feature_darksites(void);      /* Dark-sky sites     */
+pic_feature_t *pic_feature_overhead(void);       /* Live sats in view  */
 
 /* ── Data shared with the Home Assistant notifier ─────────────── */
 

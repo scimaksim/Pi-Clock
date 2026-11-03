@@ -192,6 +192,7 @@ var layerDefs = []struct {
 	{"dxspots", "DX Cluster Spots", false, 1.0},
 	{"satellites", "Satellite Tracker", false, 1.0},
 	{"passes", "Visible Pass Tracks (ISS, Tiangong...)", false, 1.0},
+	{"overhead", "Satellites Overhead Now (live)", false, 1.0},
 	{"launches", "Rocket Launches", false, 1.0},
 	{"dsn", "Deep Space Network", false, 1.0},
 	{"planets", "Planets (overhead points)", false, 1.0},
@@ -241,7 +242,7 @@ var layerCategory = map[string]string{
 	"wxalerts": "Hazards", "spc": "Hazards", "lsr": "Hazards",
 	"storms": "Hazards", "rivers": "Hazards", "drought": "Hazards",
 	"fires": "Hazards", "earthquakes": "Hazards", "volcanoes": "Hazards",
-	"satellites": "Sky & Space", "passes": "Sky & Space", "starlink": "Sky & Space",
+	"satellites": "Sky & Space", "passes": "Sky & Space", "overhead": "Sky & Space", "starlink": "Sky & Space",
 	"launches": "Sky & Space", "dsn": "Sky & Space", "planets": "Sky & Space",
 	"aurora": "Sky & Space", "aurorawatch": "Sky & Space", "darksites": "Sky & Space",
 	"aircraft": "Traffic & Wildlife", "ships": "Traffic & Wildlife", "ebird": "Traffic & Wildlife",
@@ -290,7 +291,7 @@ func GetLayers() http.HandlerFunc {
 // auto-switches. Layers not listed work in both.
 var layerViewSuggest = map[string]string{
 	// Detailed or local data that is clutter (or invisible) at world scale
-	"localmap": "local", "twilight": "local", "passes": "local",
+	"localmap": "local", "twilight": "local", "passes": "local", "overhead": "local",
 	"lsr": "local", "rainfall": "local", "rivers": "local", "radar": "local",
 	"aircraft": "local", "ships": "local", "ebird": "local",
 	"darksites": "local", "airquality": "local", "spc": "local",

@@ -27,6 +27,7 @@
 #include "feature.h"
 #include "config.h"
 #include "solar.h"
+#include "localview.h"
 #include "fetch.h"
 #include "stb_image.h"
 #include <math.h>
@@ -105,6 +106,11 @@ typedef struct {
     cairo_surface_t *image;     /* Premultiplied ARGB cloud overlay  */
     double lon0, lon1, lat0, lat1;
     double span;                /* view_span_lon the image was made for */
+    double ccl;                 /* centre latitude it was made for      */
+    cairo_surface_t *alt;       /* the other view's image (auto-switch) */
+    double alt_box[4];          /* lon0, lon1, lat0, lat1               */
+    double alt_span, alt_ccl;
+    time_t alt_fetched;
     int    enhanced;
     int    screen_w, screen_h;
     time_t fetched;
@@ -285,7 +291,7 @@ static int blit_png(const char *path, cairo_surface_t *dst, int x0,
 static int blend_visible(const char *path, cairo_surface_t *dst, int x0,
                          int want_w, double lat0, double lat1,
                          double lon0, double lon1, double sub, time_t when,
-                         unsigned char *vhave)
+                         unsigned char *vhave, int enhanced)
 {
     int w, h, ch, x, y, dh, stride, missing = 0;
     unsigned char *px = stbi_load(path, &w, &h, &ch, 4), *d;
@@ -327,8 +333,19 @@ static int blend_visible(const char *path, cairo_surface_t *dst, int x0,
             fade = c < 55 ? 1.0 : (72 - c) / 17.0;
             if (fade <= 0) continue;
             v = s[0];
-            /* Ground reads ~40-110; cloud brighter. Soft ramp. */
-            al = (v - 100.0) / 95.0;
+            /*
+             * GIBS's visible band is gamma-stretched raw brightness, so
+             * everything is darker under a low sun (morning, winter):
+             * overcast reads ~120 at 25° elevation vs ~200+ at noon,
+             * clear ground ~55-85. Normalise by sqrt(sin elevation)
+             * before the ramp so low cloud isn't missed early and late.
+             * Checked against airport METARs (OVC/BKN vs clear).
+             */
+            {
+                double se = sin(el * M_PI / 180);
+                double vn = v / sqrt(se < 0.1 ? 0.1 : se);
+                al = (vn - 105.0) / 70.0;
+            }
             if (al < 0) al = 0;
             if (al > 1) al = 1;
             al *= 0.9 * fade;
@@ -336,6 +353,14 @@ static int blend_visible(const char *path, cairo_surface_t *dst, int x0,
             p = ((uint32_t)(al * 255) << 24) | ((uint32_t)(c * al) << 16) |
                 ((uint32_t)(c * al) << 8) | (uint32_t)(c * al);
             q = row[x0 + x];
+            /* Enhanced style: keep the IR colour on cold (storm) tops,
+             * use the visible detail everywhere else */
+            if (enhanced) {
+                int qr = (q >> 16) & 255, qg = (q >> 8) & 255, qb = q & 255;
+                int mx = qr > qg ? (qr > qb ? qr : qb) : (qg > qb ? qg : qb);
+                int mn = qr < qg ? (qr < qb ? qr : qb) : (qg < qb ? qg : qb);
+                if (mx - mn > 30) { vhave[(size_t)y * w + x] = 1; continue; }
+            }
             if (day < 1.0) {        /* blend toward IR across twilight */
                 uint32_t r = 0;
                 int sh;
@@ -353,10 +378,16 @@ static int blend_visible(const char *path, cairo_surface_t *dst, int x0,
     return missing;
 }
 
-static int satclouds_work(pic_feature_t *f)
+/*
+ * Fetch and composite the cloud image for viewport v (span lon/lat,
+ * centre lon/lat). current: v is the view on screen, so give up if it
+ * changes mid-fetch. Returns the image (box = lon0, lon1, lat0, lat1)
+ * or NULL.
+ */
+static cairo_surface_t *build_view(pic_feature_t *f, unsigned gen, int current,
+                                   const double v[4], double box[4])
 {
-    unsigned gen = pic_config.viewport_gen;
-    double span = pic_config.view_span_lon, span_lat = pic_config.view_span_lat;
+    double span = v[0], span_lat = v[1];
     double lon0, lon1, lat0, lat1;
     int sw, sh, enhanced, W, H, i, k, ok = 0;
     cairo_surface_t *img;
@@ -370,13 +401,13 @@ static int satclouds_work(pic_feature_t *f)
 
     if (span < 0.0001) span = 360.0;
     if (span_lat < 0.0001) span_lat = 180.0;
-    lon0 = pic_config.view_center_lon - span / 2;
-    lon1 = pic_config.view_center_lon + span / 2;
-    lat0 = pic_config.view_center_lat - span_lat / 2;
-    lat1 = pic_config.view_center_lat + span_lat / 2;
+    lon0 = v[2] - span / 2;
+    lon1 = v[2] + span / 2;
+    lat0 = v[3] - span_lat / 2;
+    lat1 = v[3] + span_lat / 2;
     if (lat0 < -LAT_LIMIT) lat0 = -LAT_LIMIT;
     if (lat1 > LAT_LIMIT) lat1 = LAT_LIMIT;
-    if (lat1 <= lat0) return 600;
+    if (lat1 <= lat0) return NULL;
 
     W = (int)lround(sw * (lon1 - lon0) / span);
     if (W > MAX_W) W = MAX_W;
@@ -390,7 +421,7 @@ static int satclouds_work(pic_feature_t *f)
     img = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, W, H);
     if (cairo_surface_status(img) != CAIRO_STATUS_SUCCESS) {
         cairo_surface_destroy(img);
-        return 600;
+        return NULL;
     }
     cairo_surface_flush(img);
 
@@ -423,7 +454,7 @@ static int satclouds_work(pic_feature_t *f)
             have = calloc((size_t)(x1 - x0) * H, 1);
             if (!have) continue;
             for (tries = 0; tries < 6 && !pic_feature_interrupted(f) &&
-                            pic_config.viewport_gen == gen; tries++) {
+                            (!current || pic_config.viewport_gen == gen); tries++) {
                 time_t t = time(NULL) - 80 * 60 - tries * 600;
                 struct tm tm;
                 int g;
@@ -446,8 +477,8 @@ static int satclouds_work(pic_feature_t *f)
             }
             free(have);
             /* Zoomed in: daylit areas from the 1 km visible band */
-            if (got >= 0 && !enhanced && span <= VIS_MAX_SPAN &&
-                !pic_feature_interrupted(f) && pic_config.viewport_gen == gen) {
+            if (got >= 0 && span <= VIS_MAX_SPAN &&
+                !pic_feature_interrupted(f) && (!current || pic_config.viewport_gen == gen)) {
                 int vw = x1 - x0, vh = H, v = -1, vt;
                 unsigned char *vhave = calloc((size_t)(x1 - x0) * H, 1);
                 if ((i1 - i0) / vw < VIS_DEG_PX) {
@@ -468,7 +499,7 @@ static int satclouds_work(pic_feature_t *f)
                     if (pic_fetch_to_file(url, SC_TMP, 60) == 0) {
                         int m = blend_visible(SC_TMP, img, x0, x1 - x0, lat0, lat1,
                                               i0, i1, bands[i].sub + k * 360.0,
-                                              t, vhave);
+                                              t, vhave, enhanced);
                         if (m >= 0) v = m;
                     }
                     unlink(SC_TMP);
@@ -485,35 +516,110 @@ static int satclouds_work(pic_feature_t *f)
         }
     }
     cairo_surface_mark_dirty(img);
-
-    if (pic_config.viewport_gen != gen) {
-        /* The view changed mid-fetch: this image is for the old one */
+    if ((current && pic_config.viewport_gen != gen) || !ok) {
+        /* View changed mid-fetch, or nothing came back */
+        if (!ok) printf("satclouds: fetch failed\n");
         cairo_surface_destroy(img);
-        return 1;
+        return NULL;
     }
-    if (!ok) {
-        cairo_surface_destroy(img);
-        printf("satclouds: fetch failed\n");
-        return 120;
-    }
+    box[0] = lon0; box[1] = lon1; box[2] = lat0; box[3] = lat1;
+    printf("satclouds: %dx%d, %d tiles%s\n", W, H, ok, current ? "" : " (next view)");
+    return img;
+}
 
+/* Does an image made for span `span` centred (clon, clat) suit view v? */
+static int slot_fits(double span, double clon, double clat, const double v[4])
+{
+    double dl = fabs(fmod(clon - v[2] + 540.0, 360.0) - 180.0);
+    return span > 0 && fabs(span - v[0]) < v[0] * 0.01 &&
+           dl < v[0] * 0.01 && fabs(clat - v[3]) < v[1] * 0.01;
+}
+
+/*
+ * Two images: the view on screen (sc.image) and, when Map View
+ * auto-switches, the other view (sc.alt), fetched ahead so the clouds
+ * are there the moment the map zooms. The renderer draws whichever
+ * fits the current view.
+ */
+#define SC_FRESH 540   /* reuse an image younger than 9 minutes */
+
+static int satclouds_work(pic_feature_t *f)
+{
+    unsigned gen = pic_config.viewport_gen;
+    double v[4], o[4], box[4];
+    int have_cur = 0, have_other = 0;
+    time_t now = time(NULL);
+    cairo_surface_t *img;
+
+    v[0] = pic_config.view_span_lon; v[1] = pic_config.view_span_lat;
+    v[2] = pic_config.view_center_lon; v[3] = pic_config.view_center_lat;
+    if (v[0] < 0.0001) v[0] = 360.0;
+    if (v[1] < 0.0001) v[1] = 180.0;
+
+    /* Already have a fresh image for the view on screen? (e.g. the one
+     * prefetched before the switch) Make it the main one. */
     pthread_mutex_lock(&sc.mutex);
-    {
-        cairo_surface_t *old = sc.image;
-        sc.image = img;
-        sc.lon0 = lon0; sc.lon1 = lon1; sc.lat0 = lat0; sc.lat1 = lat1;
-        sc.span = span;
-        sc.fetched = time(NULL);
-        if (old) cairo_surface_destroy(old);
+    if (sc.alt && now - sc.alt_fetched < SC_FRESH &&
+        slot_fits(sc.alt_span, (sc.alt_box[0] + sc.alt_box[1]) / 2,
+                  sc.alt_ccl, v)) {
+        cairo_surface_t *t = sc.image;
+        double tb[4] = { sc.lon0, sc.lon1, sc.lat0, sc.lat1 };
+        double ts = sc.span, tcl = sc.ccl;
+        time_t tf = sc.fetched;
+        sc.image = sc.alt;
+        sc.lon0 = sc.alt_box[0]; sc.lon1 = sc.alt_box[1];
+        sc.lat0 = sc.alt_box[2]; sc.lat1 = sc.alt_box[3];
+        sc.span = sc.alt_span; sc.ccl = sc.alt_ccl; sc.fetched = sc.alt_fetched;
+        sc.alt = t;
+        memcpy(sc.alt_box, tb, sizeof(tb));
+        sc.alt_span = ts; sc.alt_ccl = tcl; sc.alt_fetched = tf;
     }
+    have_cur = sc.image && now - sc.fetched < SC_FRESH &&
+               slot_fits(sc.span, (sc.lon0 + sc.lon1) / 2, sc.ccl, v);
     pthread_mutex_unlock(&sc.mutex);
-    printf("satclouds: %dx%d, %d tiles\n", W, H, ok);
 
-    /* Refetch sooner if the viewport moves (zoom/pan) */
+    if (!have_cur) {
+        img = build_view(f, gen, 1, v, box);
+        if (!img)
+            return pic_config.viewport_gen != gen ? 1 : 120;
+        pthread_mutex_lock(&sc.mutex);
+        {
+            cairo_surface_t *old = sc.image;
+            sc.image = img;
+            sc.lon0 = box[0]; sc.lon1 = box[1]; sc.lat0 = box[2]; sc.lat1 = box[3];
+            sc.span = v[0];
+            sc.ccl = v[3];
+            sc.fetched = time(NULL);
+            if (old) cairo_surface_destroy(old);
+        }
+        pthread_mutex_unlock(&sc.mutex);
+    }
+
+    /* Auto-switching: get the other view ready too */
+    if (pic_view_other(o) && !pic_feature_interrupted(f) &&
+        pic_config.viewport_gen == gen) {
+        pthread_mutex_lock(&sc.mutex);
+        have_other = sc.alt && time(NULL) - sc.alt_fetched < SC_FRESH &&
+                     slot_fits(sc.alt_span, (sc.alt_box[0] + sc.alt_box[1]) / 2,
+                               sc.alt_ccl, o);
+        pthread_mutex_unlock(&sc.mutex);
+        if (!have_other && (img = build_view(f, gen, 0, o, box)) != NULL) {
+            pthread_mutex_lock(&sc.mutex);
+            if (sc.alt) cairo_surface_destroy(sc.alt);
+            sc.alt = img;
+            memcpy(sc.alt_box, box, sizeof(box));
+            sc.alt_span = o[0];
+            sc.alt_ccl = o[3];
+            sc.alt_fetched = time(NULL);
+            pthread_mutex_unlock(&sc.mutex);
+        }
+    }
+
+    /* Refetch when the images age, or sooner if the viewport moves */
     {
         int s;
-        for (s = 0; s < 600; s++) {
-            if (pic_config.viewport_gen != gen) return 5;
+        for (s = 0; s < SC_FRESH + 30; s++) {
+            if (pic_config.viewport_gen != gen) return 1;
             if (pic_feature_interrupted(f)) return 1;
             sleep(1);
         }
@@ -538,27 +644,43 @@ static void satclouds_reload(pic_feature_t *f)
 void pic_layer_render_satclouds(cairo_t *cr, int width, int height,
                                 time_t now, void *ud)
 {
-    double span, ppd, world, x0, y0, y1, w_px;
+    double span, ppd, world, x0, y0, y1, w_px, v[4];
+    double l0, l1, a0, a1;
+    cairo_surface_t *img = NULL;
     int iw, ih, rep;
 
     (void)now; (void)ud;
+    v[0] = pic_config.view_span_lon; v[1] = pic_config.view_span_lat;
+    v[2] = pic_config.view_center_lon; v[3] = pic_config.view_center_lat;
+    if (v[0] < 0.0001) v[0] = 360.0;
+    if (v[1] < 0.0001) v[1] = 180.0;
     pthread_mutex_lock(&sc.mutex);
     sc.screen_w = width;
     sc.screen_h = height;
-    if (!sc.image || pic_view_image_stale(sc.span)) {
+    /* Right after a global/local switch the prefetched image (alt)
+     * is the one that fits */
+    if (sc.alt && slot_fits(sc.alt_span, (sc.alt_box[0] + sc.alt_box[1]) / 2,
+                            sc.alt_ccl, v) &&
+        !(sc.image && slot_fits(sc.span, (sc.lon0 + sc.lon1) / 2, sc.ccl, v))) {
+        img = sc.alt;
+        l0 = sc.alt_box[0]; l1 = sc.alt_box[1]; a0 = sc.alt_box[2]; a1 = sc.alt_box[3];
+    } else if (sc.image && !pic_view_image_stale(sc.span)) {
+        img = sc.image;
+        l0 = sc.lon0; l1 = sc.lon1; a0 = sc.lat0; a1 = sc.lat1;
+    }
+    if (!img) {
         pthread_mutex_unlock(&sc.mutex);
         return;
     }
-    span = pic_config.view_span_lon;
-    if (span < 0.0001) span = 360.0;
+    span = v[0];
     ppd = width / span;
     world = 360.0 * ppd;
-    w_px = (sc.lon1 - sc.lon0) * ppd;
-    x0 = pic_lon_to_x((sc.lon0 + sc.lon1) / 2.0, width) - w_px / 2.0;
-    y0 = pic_lat_to_y(sc.lat1, height);
-    y1 = pic_lat_to_y(sc.lat0, height);
-    iw = cairo_image_surface_get_width(sc.image);
-    ih = cairo_image_surface_get_height(sc.image);
+    w_px = (l1 - l0) * ppd;
+    x0 = pic_lon_to_x((l0 + l1) / 2.0, width) - w_px / 2.0;
+    y0 = pic_lat_to_y(a1, height);
+    y1 = pic_lat_to_y(a0, height);
+    iw = cairo_image_surface_get_width(img);
+    ih = cairo_image_surface_get_height(img);
 
     for (rep = -1; rep <= 1; rep++) {
         double xr = x0 + rep * world;
@@ -568,7 +690,7 @@ void pic_layer_render_satclouds(cairo_t *cr, int width, int height,
         cairo_clip(cr);
         cairo_translate(cr, xr, y0);
         cairo_scale(cr, w_px / iw, (y1 - y0) / ih);
-        cairo_set_source_surface(cr, sc.image, 0, 0);
+        cairo_set_source_surface(cr, img, 0, 0);
         cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
         cairo_paint(cr);
         cairo_restore(cr);
@@ -602,7 +724,7 @@ static void satclouds_legend(cairo_t *cr, int width, int height, time_t now,
     (void)now; (void)ud;
     pthread_mutex_lock(&sc.mutex);
     enhanced = sc.enhanced;
-    have = sc.image != NULL && !pic_view_image_stale(sc.span);
+    have = (sc.image != NULL && !pic_view_image_stale(sc.span)) || sc.alt != NULL;
     pthread_mutex_unlock(&sc.mutex);
     if (!enhanced || !have) return;
 
@@ -674,7 +796,7 @@ static pic_feature_t feature_def = {
     .name = "satclouds", .layer = pic_layer_render_satclouds,
     /* Redraw often enough that a new image (e.g. after a global/local
      * switch) shows within seconds; drawing is a single scaled paint */
-    .interval = 15, .extra_mb = 12,
+    .interval = 15, .extra_mb = 20,
     .legend = satclouds_legend,
     .reload = satclouds_reload, .work = satclouds_work, .needs_network = 1,
     .stopped = satclouds_stopped,
@@ -696,5 +818,7 @@ void pic_satclouds_free(void)
     pthread_mutex_lock(&sc.mutex);
     if (sc.image) cairo_surface_destroy(sc.image);
     sc.image = NULL;
+    if (sc.alt) cairo_surface_destroy(sc.alt);
+    sc.alt = NULL;
     pthread_mutex_unlock(&sc.mutex);
 }

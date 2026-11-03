@@ -78,8 +78,8 @@ static void ecef(double lat, double lon, double r, double v[3])
 }
 
 /* Elevation and azimuth (degrees) of a satellite from the QTH. */
-static double look_angles(const pic_sat_t *s, time_t t, double qlat,
-                          double qlon, double *az, int *sunlit)
+double pic_sat_look_angles(const pic_sat_t *s, time_t t, double qlat,
+                           double qlon, double *az, int *sunlit)
 {
     double lat, lon, alt, p[3], o[3], rel[3], d, e, n, u;
     double la = qlat * DEG_TO_RAD, lo = qlon * DEG_TO_RAD;
@@ -122,12 +122,12 @@ int pic_passes_predict(const pic_sat_t *s, const char *name, time_t t0,
     memset(&cur, 0, sizeof(cur));
     for (t = t0; t < end && n < max; t += STEP_S) {
         int lit = 0, vis;
-        double az, el = look_angles(s, t, qlat, qlon, &az, NULL);
+        double az, el = pic_sat_look_angles(s, t, qlat, qlon, &az, NULL);
 
         if (el < MIN_EL) {
             vis = 0;
         } else {
-            look_angles(s, t, qlat, qlon, NULL, &lit);
+            pic_sat_look_angles(s, t, qlat, qlon, NULL, &lit);
             vis = lit && pic_astro_sun_alt(t, qlat, qlon) < OBS_SUN_MAX;
         }
         if (vis) {

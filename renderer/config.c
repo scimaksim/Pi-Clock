@@ -127,51 +127,63 @@ double pic_wrap_threshold_px(int width)
  *   produces a normal equator-centred zoom rather than pivoting
  *   on an unintended point.
  */
-void pic_config_recompute_viewport(void)
+/*
+ * Viewport (span and centre) for a given local zoom (0 = the world
+ * view at MAP_ZOOM). Used for the view on screen and, by imagery
+ * layers, to fetch the other view of a global/local cycle ahead of
+ * the switch.
+ */
+void pic_config_viewport_for(double local_zoom, double v[4])
 {
     double f = pic_config.map_zoom;
     double z, half_lat;
-    double old[4] = { pic_config.view_span_lon, pic_config.view_span_lat,
-                      pic_config.view_center_lon, pic_config.view_center_lat };
 
     if (f < 0.0) f = 0.0;
     if (f > 1.0) f = 1.0;
 
     z = 1.0 + f * (PIC_ZOOM_MAX - 1.0);
-    if (pic_config.local_zoom > 1.0) z = pic_config.local_zoom;
+    if (local_zoom > 1.0) z = local_zoom;
 
-    pic_config.view_span_lon = 360.0 / z;
-    pic_config.view_span_lat = 180.0 / z;
+    v[0] = 360.0 / z;
+    v[1] = 180.0 / z;
 
-    pic_config.view_center_lon = pic_config.center_lon;
+    v[2] = pic_config.center_lon;
     /* Local view: centre on home in longitude too */
-    if (pic_config.local_zoom > 1.0 &&
+    if (local_zoom > 1.0 &&
         !(pic_config.qth_lat == 0.0 && pic_config.qth_lon == 0.0))
-        pic_config.view_center_lon = pic_config.qth_lon;
+        v[2] = pic_config.qth_lon;
 
     /* Aim for QTH, let the pole clamp pull us back as needed. */
     if (pic_config.qth_lat == 0.0 && pic_config.qth_lon == 0.0) {
-        pic_config.view_center_lat = 0.0;
+        v[3] = 0.0;
     } else {
-        pic_config.view_center_lat = pic_config.qth_lat;
+        v[3] = pic_config.qth_lat;
     }
 
     /* Clamp so the view never exceeds either pole.
      * Example: QTH at 52°N with zoom=1 (full world) → span 180° →
      * hi=0, lo=0, view_center_lat=0 (world view). As zoom grows,
      * hi grows with it until it >= qth_lat and the clamp releases. */
-    half_lat = pic_config.view_span_lat / 2.0;
-    if (pic_config.view_center_lat + half_lat > 90.0) {
-        pic_config.view_center_lat = 90.0 - half_lat;
-    }
-    if (pic_config.view_center_lat - half_lat < -90.0) {
-        pic_config.view_center_lat = -90.0 + half_lat;
-    }
+    half_lat = v[1] / 2.0;
+    if (v[3] + half_lat > 90.0) v[3] = 90.0 - half_lat;
+    if (v[3] - half_lat < -90.0) v[3] = -90.0 + half_lat;
+}
+
+void pic_config_recompute_viewport(void)
+{
+    double v[4];
+    double old[4] = { pic_config.view_span_lon, pic_config.view_span_lat,
+                      pic_config.view_center_lon, pic_config.view_center_lat };
+
+    pic_config_viewport_for(pic_config.local_zoom, v);
+    pic_config.view_span_lon = v[0];
+    pic_config.view_span_lat = v[1];
+    pic_config.view_center_lon = v[2];
+    pic_config.view_center_lat = v[3];
 
     /* Only a real change counts: every dashboard save lands here, and
      * a new generation makes the imagery layers fetch again. */
-    if (old[0] != pic_config.view_span_lon || old[1] != pic_config.view_span_lat ||
-        old[2] != pic_config.view_center_lon || old[3] != pic_config.view_center_lat)
+    if (old[0] != v[0] || old[1] != v[1] || old[2] != v[2] || old[3] != v[3])
         pic_config.viewport_gen++;
 }
 

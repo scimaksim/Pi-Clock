@@ -1575,6 +1575,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_layer_stack_add(&stack, "starlink",
                         pic_layer_render_starlink, 10, 1.0, &starlink);
     add_feature_layer(&stack, pic_feature_passes());
+    add_feature_layer(&stack, pic_feature_overhead());
     add_feature_layer(&stack, pic_feature_launches());
     add_feature_layer(&stack, pic_feature_dsn());
     pic_layer_stack_add(&stack, "sun",

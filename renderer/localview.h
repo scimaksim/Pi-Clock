@@ -32,6 +32,11 @@ int pic_view_update(time_t now);
 /* 1 while the local view is showing */
 int pic_view_is_local(void);
 
+/* When auto-switching: the viewport (span lon/lat, centre lon/lat) of
+ * the view not on screen, so imagery can be fetched before the switch.
+ * Returns 0 when the view is fixed. */
+int pic_view_other(double v[4]);
+
 /* Register the world base maps that regional imagery can replace. */
 void pic_regional_set_world(cairo_surface_t *night, cairo_surface_t *day);
 

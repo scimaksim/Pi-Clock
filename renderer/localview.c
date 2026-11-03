@@ -89,6 +89,13 @@ int pic_view_is_local(void)
     return showing_local;
 }
 
+int pic_view_other(double v[4])
+{
+    if (view_mode != VIEW_CYCLE) return 0;
+    pic_config_viewport_for(showing_local ? 0 : local_zoom, v);
+    return 1;
+}
+
 /* ── 2. Regional base maps ─────────────────────────────────────── */
 
 #define GIBS_BASE \

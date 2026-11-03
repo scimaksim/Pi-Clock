@@ -131,6 +131,8 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"VIEW_GLOBAL_MIN": intSetting("5", 1, 240),
 	"VIEW_LOCAL_MIN":  intSetting("5", 1, 240),
 	"LOCAL_TOWNS":     boolSetting("1"),
+	"HUD_UTC":         boolSetting("1"),
+	"HUD_IP":          boolSetting("1"),
 
 	// Local layers
 	"LSR_HOURS":       enumSetting("24", "6", "12", "24", "48"),

@@ -136,6 +136,9 @@ double pic_wrap_threshold_px(int width);
  */
 void pic_config_recompute_viewport(void);
 
+/* Span lon/lat and centre lon/lat (v[0..3]) for a local zoom (0 = world) */
+void pic_config_viewport_for(double local_zoom, double v[4]);
+
 /* Global config instance — defined in config.c, read everywhere */
 extern pic_config_t pic_config;
 
