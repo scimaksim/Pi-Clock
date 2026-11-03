@@ -135,6 +135,11 @@ int pic_fetch_to_buf_header(const char *url, const char *header, char *buf,
  */
 int pic_fetch_to_file(const char *url, const char *path, int timeout)
 {
+    return pic_fetch_to_file_rc(url, path, timeout) == 0 ? 0 : -1;
+}
+
+int pic_fetch_to_file_rc(const char *url, const char *path, int timeout)
+{
     pid_t pid;
     int status = -1;
     char timeout_str[16];
@@ -167,7 +172,7 @@ int pic_fetch_to_file(const char *url, const char *path, int timeout)
             waitpid(pid, &status, 0);
         }
     }
-    return (WIFEXITED(status) && WEXITSTATUS(status) == 0) ? 0 : -1;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
 /*

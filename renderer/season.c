@@ -58,6 +58,7 @@ static const char *sats[] = { "NOAA20", "SNPP" };
 #define NSATS 2
 
 static char cache_dir[128];
+static pthread_mutex_t build_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* ── Settings ─────────────────────────────────────────────────── */
 
@@ -116,7 +117,9 @@ static void prune_cache(const char *oldest)
         const char *u = strchr(e->d_name, '_');
         char p[400];
         /* <sat>_<YYYY-MM-DD>_... */
-        if (!u || strlen(u) < 11 || strncmp(e->d_name, "land_", 5) == 0) continue;
+        if (!u || strlen(u) < 11 || strncmp(e->d_name, "land_", 5) == 0 ||
+            u[5] != '-' || u[8] != '-')
+            continue;
         if (strncmp(u + 1, oldest, 10) >= 0) continue;
         snprintf(p, sizeof(p), "%s/%s", cache_dir, e->d_name);
         unlink(p);
@@ -125,30 +128,71 @@ static void prune_cache(const char *oldest)
 }
 
 /*
- * Path of a cached tile, downloading it if needed. Returns 0 if the
- * file is there. A day tile that GIBS doesn't have is remembered as
- * missing once the day is three or more days old (recent days may
- * still be processing).
+ * One build's download state. After a run of failed downloads the
+ * build stops downloading and finishes from the cache, so a network or
+ * GIBS outage costs a few seconds, not one timeout per tile.
  */
-static int get_tile(const char *url, const char *path, int may_mark_missing)
+typedef struct {
+    int fails;          /* consecutive network failures            */
+    int offline;        /* stopped downloading for this build      */
+} dl_t;
+
+#define DL_MAX_FAILS 6
+#define MISS_RETRY   (24 * 3600)   /* re-check tiles GIBS didn't have */
+#define DAY_FINAL    (36 * 3600)   /* a day's tiles are complete by then */
+
+/*
+ * Make sure a tile is in the cache. Returns 0 if the file is there.
+ *
+ *   fetch    - download if needed (pass 2 reads only what pass 1 had)
+ *   day_end  - for a daily tile, the end of its day (UTC); a copy saved
+ *              before the day was fully processed is fetched again once
+ *              (keeping the old one if that fails). 0 for static tiles.
+ *
+ * A tile GIBS answers "not found" for is remembered for a day, so gaps
+ * (a satellite's missing day, open-ocean land-mask tiles) aren't asked
+ * for on every build. Network failures are never remembered.
+ */
+static int get_tile(dl_t *dl, const char *url, const char *path, int fetch,
+                    time_t day_end)
 {
     char miss[300], tmp[300];
     struct stat st;
+    time_t now = time(NULL);
+    int have, rc;
 
-    if (stat(path, &st) == 0 && st.st_size > 0) return 0;
+    have = stat(path, &st) == 0 && st.st_size > 0;
+    if (have && (!day_end || st.st_mtime >= day_end + DAY_FINAL ||
+                 now < day_end + DAY_FINAL))
+        return 0;
+    if (!fetch || dl->offline) return have ? 0 : -1;
     snprintf(miss, sizeof(miss), "%s.none", path);
-    if (stat(miss, &st) == 0) return -1;
+    if (!have && stat(miss, &st) == 0) {
+        /* Recent days are still being processed: look again sooner */
+        int retry = day_end && now < day_end + DAY_FINAL ? MISS_RETRY / 4 : MISS_RETRY;
+        if (now - st.st_mtime < retry) return -1;
+        unlink(miss);
+    }
     snprintf(tmp, sizeof(tmp), "%s.part", path);
-    if (pic_fetch_to_file(url, tmp, 30) == 0 && stat(tmp, &st) == 0 && st.st_size > 100) {
+    rc = pic_fetch_to_file_rc(url, tmp, 30);
+    if (rc == 0 && stat(tmp, &st) == 0 && st.st_size > 100) {
         rename(tmp, path);
+        dl->fails = 0;
         return 0;
     }
     unlink(tmp);
-    if (may_mark_missing) {
-        FILE *f = fopen(miss, "w");
-        if (f) fclose(f);
+    if (rc == 8) {
+        /* The server answered: it just doesn't have this tile (yet) */
+        dl->fails = 0;
+        if (!have) {
+            FILE *f = fopen(miss, "w");
+            if (f) fclose(f);
+        }
+    } else if (++dl->fails >= DL_MAX_FAILS) {
+        dl->offline = 1;
+        printf("season: downloads failing, finishing from the cache\n");
     }
-    return -1;
+    return have ? 0 : -1;
 }
 
 /* ── Compositing ──────────────────────────────────────────────── */
@@ -194,7 +238,7 @@ static inline int src_y(const comp_t *c, int r, int y)
     return sy < 0 ? 0 : sy > 511 ? 511 : sy;
 }
 
-static void load_land(comp_t *c, pic_feature_t *f)
+static void load_land(comp_t *c, dl_t *dl, pic_feature_t *f)
 {
     int r, col, x, y, x0, x1, y0, y1;
     for (r = c->r0; r <= c->r1; r++)
@@ -208,7 +252,7 @@ static void load_land(comp_t *c, pic_feature_t *f)
                      GIBS_WMTS, c->level, r, col);
             snprintf(path, sizeof(path), "%s/land_%d_%d_%d.png", cache_dir, c->level, r, col);
             /* No tile = no land in it (open ocean) */
-            if (get_tile(url, path, 1) != 0) continue;
+            if (get_tile(dl, url, path, 1, 0) != 0) continue;
             px = stbi_load(path, &w, &h, &ch, 4);
             if (!px || w != 512 || h != 512) {
                 if (px) stbi_image_free(px);
@@ -271,7 +315,9 @@ int pic_season_composite(cairo_surface_t *dst, double lon0, double lat0,
                          char *newest, int newest_len)
 {
     comp_t c;
+    dl_t dl = { 0, 0 };
     char days[SEASON_DAYS][16];
+    time_t day_end[SEASON_DAYS];
     time_t now = time(NULL);
     int d, s, pass, r, col, x, y, stride, tiles = 0, used = 0;
     size_t n;
@@ -280,6 +326,12 @@ int pic_season_composite(cairo_surface_t *dst, double lon0, double lat0,
     int ok = -1;
 
     if (!dst || cairo_image_surface_get_format(dst) != CAIRO_FORMAT_RGB24) return -1;
+    /* One build at a time (the world and local maps would otherwise
+     * double the peak RAM); waiting stays interruptible */
+    while (pthread_mutex_trylock(&build_mutex) != 0) {
+        if (f && pic_feature_interrupted(f)) return -1;
+        sleep(1);
+    }
     pick_cache_dir();
     memset(&c, 0, sizeof(c));
     c.w = cairo_image_surface_get_width(dst);
@@ -320,10 +372,12 @@ int pic_season_composite(cairo_surface_t *dst, double lon0, double lat0,
         struct tm tm;
         gmtime_r(&t, &tm);
         strftime(days[d], sizeof(days[d]), "%Y-%m-%d", &tm);
+        tm.tm_hour = tm.tm_min = tm.tm_sec = 0;
+        day_end[d] = timegm(&tm) + 86400;
     }
     prune_cache(days[SEASON_DAYS - 1]);
 
-    load_land(&c, f);
+    load_land(&c, &dl, f);
     if (f && pic_feature_interrupted(f)) goto out;
 
     for (pass = 1; pass <= 2; pass++)
@@ -340,7 +394,7 @@ int pic_season_composite(cairo_surface_t *dst, double lon0, double lat0,
                                  GIBS_WMTS, sats[s], SR_LAYER, days[d], c.level, r, col);
                         snprintf(path, sizeof(path), "%s/%s_%s_%d_%d_%d.jpg",
                                  cache_dir, sats[s], days[d], c.level, r, col);
-                        if (get_tile(url, path, d >= 2) != 0) continue;
+                        if (get_tile(&dl, url, path, pass == 1, day_end[d]) != 0) continue;
                         px = stbi_load(path, &w, &h, &ch, 3);
                         if (!px || w != 512 || h != 512) {
                             if (px) stbi_image_free(px);
@@ -430,6 +484,7 @@ int pic_season_composite(cairo_surface_t *dst, double lon0, double lat0,
 
 out:
     free(c.m1); free(c.m2); free(c.cnt); free(c.land); free(c.rgb);
+    pthread_mutex_unlock(&build_mutex);
     return ok;
 }
 

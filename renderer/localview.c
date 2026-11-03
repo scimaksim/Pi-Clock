@@ -306,7 +306,9 @@ static int localbase_work(pic_feature_t *f)
             cairo_paint(cr);
             cairo_destroy(cr);
             pthread_mutex_unlock(&reg_mutex);
-            ok = pic_season_composite(copy, lon0, lat0, lon1, lat1, f, NULL, 0);
+            char newest[16] = "";
+            ok = pic_season_composite(copy, lon0, lat0, lon1, lat1, f,
+                                      newest, sizeof(newest));
         }
         if (ok == 0) {
             pthread_mutex_lock(&reg_mutex);

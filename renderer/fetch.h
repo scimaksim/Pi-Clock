@@ -40,6 +40,11 @@ int pic_fetch_to_buf_header(const char *url, const char *header, char *buf,
  */
 int pic_fetch_to_file(const char *url, const char *path, int timeout);
 
+/* As pic_fetch_to_file, returning wget's exit status: 0 = success,
+ * 8 = the server answered with an error (e.g. 404), 4 = network
+ * failure, -1 = killed or not run. */
+int pic_fetch_to_file_rc(const char *url, const char *path, int timeout);
+
 /*
  * pic_fetch_post_json - POST a JSON body (via a private temp file, so
  * secrets in it never appear on a command line) and read the response

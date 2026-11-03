@@ -13,7 +13,7 @@
  * turned back into a temperature through that palette (exact RGB
  * match) and recoloured here. The analysis appears with about a day's
  * delay, and GIBS now and then serves a day with a block missing, so
- * the last three days are fetched (as four quadrants each) and merged
+ * the last three days are fetched (as eight pieces each) and merged
  * newest-first. Refreshed every six hours; the data changes daily.
  *
  * SPDX-License-Identifier: GPL-2.0-only
@@ -122,17 +122,19 @@ void pic_sst_colour(double f, double *r, double *g, double *b)
     *b = st[i - 1].b + (st[i].b - st[i - 1].b) * t;
 }
 
-/* Fetch one quadrant for one day into idx (where still empty).
+/* Fetch one 90° piece for one day into idx (where still empty).
  * Returns the number of pixels filled, or -1 on failure. */
 static int fetch_quad(const char *day, int q, unsigned char *idx)
 {
-    int lon0 = (q & 1) ? 0 : -180, lat1 = (q & 2) ? 0 : 90;
-    int qw = SST_W / 2, qh = SST_H / 2, w, h, ch, x, y, n = 0;
-    int ox = (q & 1) ? qw : 0, oy = (q & 2) ? qh : 0;
+    /* Eight 90x90° pieces: small requests stay well inside the
+     * download time limit even when GIBS renders them from scratch */
+    int lon0 = -180 + 90 * (q % 4), lat1 = q < 4 ? 90 : 0;
+    int qw = SST_W / 4, qh = SST_H / 2, w, h, ch, x, y, n = 0;
+    int ox = qw * (q % 4), oy = q < 4 ? 0 : qh;
     char url[512];
     unsigned char *px;
 
-    snprintf(url, sizeof(url), SST_URL, lon0, lat1 - 90, lon0 + 180, lat1,
+    snprintf(url, sizeof(url), SST_URL, lon0, lat1 - 90, lon0 + 90, lat1,
              qw, qh, day);
     if (pic_fetch_to_file(url, SST_TMP, 90) != 0) {
         unlink(SST_TMP);
@@ -205,7 +207,7 @@ static int sst_work(pic_feature_t *f)
     }
     for (d = 0; d < 3; d++) {
         int got = 0;
-        for (q = 0; q < 4; q++) {
+        for (q = 0; q < 8; q++) {
             int n;
             if (pic_feature_interrupted(f)) { free(idx); return 1; }
             n = fetch_quad(days[d], q, idx);
