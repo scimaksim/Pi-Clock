@@ -26,6 +26,7 @@
  */
 
 #include "applet.h"
+#include "sky_icons.h"
 #include "feature.h"
 #include "astro.h"
 #include "config.h"
@@ -81,32 +82,9 @@ static void set_rgb(cairo_t *cr, unsigned rgb, double a)
 static void draw_moon_disc(cairo_t *cr, double cx, double cy, double r,
                            double illum, int waxing)
 {
-    /* Dark disc, then the lit part: a half-disc plus/minus an
-     * elliptical terminator of half-width |1 - 2*illum| * r. */
-    double k = 1.0 - 2.0 * illum;   /* +1 new ... -1 full */
-    double side = waxing ? 1.0 : -1.0;
-
-    cairo_new_path(cr);
-    cairo_arc(cr, cx, cy, r, 0, 2 * PI);
-    cairo_set_source_rgba(cr, 0.25, 0.25, 0.3, 1);
-    cairo_fill(cr);
-
-    cairo_save(cr);
-    cairo_translate(cr, cx, cy);
-    cairo_scale(cr, side, 1);
-    cairo_new_path(cr);
-    cairo_arc(cr, 0, 0, r, -PI / 2, PI / 2);            /* lit limb */
-    cairo_save(cr);
-    cairo_scale(cr, fabs(k) < 1e-3 ? 1e-3 : fabs(k), 1);
-    /* Terminator back from bottom to top: through the right side for
-     * a crescent (k > 0), through the left side for a gibbous moon. */
-    if (k > 0) cairo_arc_negative(cr, 0, 0, r, PI / 2, -PI / 2);
-    else       cairo_arc(cr, 0, 0, r, PI / 2, 3 * PI / 2);
-    cairo_restore(cr);
-    cairo_close_path(cr);
-    cairo_set_source_rgba(cr, 0.95, 0.93, 0.85, 1);
-    cairo_fill(cr);
-    cairo_restore(cr);
+    /* Evening sky from the northern hemisphere: a waxing moon is lit on
+     * the right, a waning one on the left */
+    pic_draw_moon(cr, cx, cy, r, illum, waxing ? 0 : PI);
 }
 
 /* Find the forecast hour covering time t (within 30 min), or NULL. */

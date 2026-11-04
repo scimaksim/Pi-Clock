@@ -22,6 +22,8 @@
 
 #define _GNU_SOURCE  /* timegm */
 #include "feature.h"
+#include "sky_icons.h"
+#include "solar.h"
 #include "astro.h"
 #include "config.h"
 #include <math.h>
@@ -111,6 +113,46 @@ void pic_planet_radec(int p, time_t t, double *ra, double *dec)
     *ra = atan2(y, x) * R2D;
     if (*ra < 0) *ra += 360;
     *dec = atan2(z, sqrt(x * x + y * y)) * R2D;
+}
+
+/* Illuminated fraction (Venus, Mars) from the sun-planet-earth angle */
+double pic_planet_phase(int p, time_t t)
+{
+    double T = (jd_of(t) - 2451545.0) / 36525.0, pv[3], ev[3], g[3], rp, rg, c;
+    helio(p, T, pv);
+    helio(EARTH, T, ev);
+    g[0] = ev[0] - pv[0]; g[1] = ev[1] - pv[1]; g[2] = ev[2] - pv[2];     /* planet -> earth */
+    rp = sqrt(pv[0] * pv[0] + pv[1] * pv[1] + pv[2] * pv[2]);
+    rg = sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
+    if (rp < 1e-9 || rg < 1e-9) return 1;
+    /* angle at the planet between the sun (-pv) and the earth (g) */
+    c = (-pv[0] * g[0] - pv[1] * g[1] - pv[2] * g[2]) / (rp * rg);
+    return (1 + c) / 2;
+}
+
+/* Geocentric ecliptic longitude / latitude (deg) */
+void pic_planet_ecliptic(int p, time_t t, double *lon, double *lat)
+{
+    double T = (jd_of(t) - 2451545.0) / 36525.0, pv[3], ev[3], x, y, z;
+    helio(p, T, pv);
+    helio(EARTH, T, ev);
+    x = pv[0] - ev[0]; y = pv[1] - ev[1]; z = pv[2] - ev[2];
+    *lon = atan2(y, x) * R2D;
+    if (*lon < 0) *lon += 360;
+    *lat = atan2(z, sqrt(x * x + y * y)) * R2D;
+}
+
+/* Everything the drawings need for planet p now */
+static void planet_look(int p, time_t t, double *phase, double *tilt)
+{
+    double lo, la;
+    *phase = 1;
+    *tilt = 0;
+    if (p == VENUS || p == MARS || p == MERCURY) *phase = pic_planet_phase(p, t);
+    if (p == SATURN) {
+        pic_planet_ecliptic(p, t, &lo, &la);
+        *tilt = pic_saturn_ring_tilt(lo, la);
+    }
 }
 
 static double gmst_deg(time_t t)
@@ -276,14 +318,20 @@ void pic_layer_render_planets(cairo_t *cr, int width, int height,
         cairo_arc(cr, x, y, r * 3, 0, 2 * M_PI);
         cairo_fill(cr);
         cairo_pattern_destroy(p);
-        cairo_set_source_rgba(cr, naked[i].r, naked[i].g, naked[i].b, 1);
-        cairo_arc(cr, x, y, r, 0, 2 * M_PI);
-        cairo_fill_preserve(cr);
-        cairo_set_source_rgba(cr, 0, 0, 0, 0.7);
-        cairo_set_line_width(cr, 1);
-        cairo_stroke(cr);
+        {
+            /* The planet as it looks, lit limb toward the sun's sub-point */
+            pic_solar_position_t sun = pic_solar_position(now);
+            double slon = -sun.gha * R2D, slat = sun.declination * R2D, sx, sy, ang = 0;
+            double phase, tilt, pr = r * (naked[i].idx == JUPITER ? 2.6 : naked[i].idx == SATURN ? 2.0 : 1.8);
+            if (slon < -180.0) slon += 360.0;
+            sx = pic_lon_to_x(slon, width);
+            sy = pic_lat_to_y(slat, height);
+            if (fabs(sx - x) < width / 2.0) ang = atan2(sy - y, sx - x);
+            planet_look(naked[i].idx, now, &phase, &tilt);
+            pic_draw_planet(cr, naked[i].idx, x, y, pr, ang, phase, tilt, now);
+        }
         if (labels)
-            pic_draw_text_pill(cr, x + r * 2, y + fs * 0.35, naked[i].name,
+            pic_draw_text_pill(cr, x + r * 4.6, y + fs * 0.35, naked[i].name,
                                naked[i].r, naked[i].g, naked[i].b, 0.5);
     }
 }
@@ -322,21 +370,34 @@ double pic_applet_render_planets(cairo_t *cr, double width, time_t now,
         if (!w->visible) continue;
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                                CAIRO_FONT_WEIGHT_BOLD);
+        {
+            double phase, tilt, pr = fs * (naked[i].idx == SATURN ? 0.30 : naked[i].idx == JUPITER ? 0.46 : 0.40);
+            planet_look(naked[i].idx, now, &phase, &tilt);
+            pic_draw_planet(cr, naked[i].idx, fs * 0.6, y + fs * 0.62, pr,
+                            M_PI, phase, tilt, now);
+        }
         cairo_set_source_rgba(cr, naked[i].r, naked[i].g, naked[i].b, 0.95);
-        cairo_move_to(cr, 0, y + fs);
+        cairo_move_to(cr, fs * 1.35, y + fs);
         cairo_show_text(cr, naked[i].name);
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                                CAIRO_FONT_WEIGHT_NORMAL);
         if (w->from <= now) snprintf(a, sizeof(a), "now");
         else pic_fmt_hm(a, sizeof(a), w->from);
         pic_fmt_hm(b, sizeof(b), w->to);
+        {   /* "12:53 AM–6:13 AM" -> "12:53–6:13 AM" */
+            size_t la = strlen(a), lb = strlen(b);
+            if (la > 3 && lb > 3 && !strcmp(a + la - 3, b + lb - 3) &&
+                (!strcmp(b + lb - 3, " AM") || !strcmp(b + lb - 3, " PM")))
+                a[la - 3] = '\0';
+        }
         snprintf(line, sizeof(line), "%s\xe2\x80\x93%s", a, b);
         snprintf(right, sizeof(right), "%d\xc2\xb0 %s", (int)(w->peak_alt + 0.5),
                  compass8(w->peak_az));
-        cairo_set_source_rgba(cr, 0.85, 0.85, 0.9, 0.9);
-        cairo_move_to(cr, fs * 4.0, y + fs);
-        cairo_show_text(cr, line);
         cairo_text_extents(cr, right, &e);
+        pic_fit_text(cr, line, width - fs * 5.1 - e.x_advance - fs * 0.3);
+        cairo_set_source_rgba(cr, 0.85, 0.85, 0.9, 0.9);
+        cairo_move_to(cr, fs * 5.1, y + fs);
+        cairo_show_text(cr, line);
         cairo_set_source_rgba(cr, 0.65, 0.7, 0.78, 0.9);
         cairo_move_to(cr, width - e.x_advance, y + fs);
         cairo_show_text(cr, right);
