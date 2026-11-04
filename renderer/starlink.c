@@ -302,6 +302,17 @@ static void *sl_thread_func(void *arg)
              * asking CelesTrak again (it survives until reboot) */
             int cached = next_fetch == 0 && stat(SL_CACHE, &st) == 0 &&
                          st.st_size > 1000 && now - st.st_mtime < FETCH_INTERVAL;
+            struct stat fs;
+            /* A failure is remembered across renderer restarts, so a
+             * restart doesn't ask again inside the retry window:
+             * CelesTrak blocks addresses that ask too often */
+            if (!cached && next_fetch == 0 && stat(SL_CACHE ".fail", &fs) == 0 &&
+                now >= fs.st_mtime && now - fs.st_mtime < RETRY_INTERVAL) {
+                next_fetch = fs.st_mtime + RETRY_INTERVAL;
+                printf("starlink: CelesTrak failed recently, next try in %ld min\n",
+                       (long)(next_fetch - now) / 60);
+                continue;
+            }
             /* Slow TLS on single-core Pis: allow a generous timeout.
              * Download beside the cache so a failure keeps the old copy. */
             if (cached || (pic_fetch_to_file(SL_URL, SL_CACHE ".new", 60) == 0 &&
@@ -323,11 +334,33 @@ static void *sl_thread_func(void *arg)
                     printf("starlink: %d recent train(s)%s\n", n,
                            cached ? " (cached TLEs)" : "");
                     next_fetch = (cached ? st.st_mtime : now) + FETCH_INTERVAL;
+                    unlink(SL_CACHE ".fail");
                 }
             } else {
+                FILE *ff = fopen(SL_CACHE ".fail", "w");
+                char *text;
+                if (ff) fclose(ff);
                 unlink(SL_CACHE ".new");
                 printf("starlink: CelesTrak fetch failed, retry in 2 h\n");
                 next_fetch = now + RETRY_INTERVAL;
+                /* Meanwhile use an older copy (up to 2 days) if there is
+                 * one and nothing is loaded yet */
+                if (cfg_data->ntrains == 0 && stat(SL_CACHE, &st) == 0 &&
+                    st.st_size > 1000 && now - st.st_mtime < 2 * 86400 &&
+                    (text = read_file(SL_CACHE)) != NULL) {
+                    pthread_mutex_lock(&cfg_data->mutex);
+                    age = cfg_data->max_age_days;
+                    pthread_mutex_unlock(&cfg_data->mutex);
+                    n = pic_sl_build_trains(text, temp, SL_MAX_TRAINS, now, age);
+                    free(text);
+                    pthread_mutex_lock(&cfg_data->mutex);
+                    memcpy(cfg_data->trains, temp, (size_t)n * sizeof(temp[0]));
+                    cfg_data->ntrains = n;
+                    cfg_data->fetched = st.st_mtime;
+                    pthread_mutex_unlock(&cfg_data->mutex);
+                    printf("starlink: using %ld h old TLEs: %d train(s)\n",
+                           (long)(now - st.st_mtime) / 3600, n);
+                }
             }
         }
 
