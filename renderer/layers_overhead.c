@@ -7,10 +7,12 @@
  * be reached, and AMSAT's list, moved live on the map. Meant for the local view, where it shows what is passing
  * over the region at this moment:
  *
- *   yellow  sunlit and above 10° from home while home is dark
+ * Names and trails are coloured by state (cool colours, to stand out
+ * from the warm city lights of the night map):
+ *   aqua    sunlit and above 10° from home while home is dark
  *           (look up: you can see it)
- *   white   sunlit
- *   grey    in Earth's shadow
+ *   blue    sunlit
+ *   violet  in Earth's shadow
  *
  * Each satellite has a short trail showing where it came from in the
  * last minute. Names are shown for the ones above home's horizon
@@ -34,6 +36,7 @@
 #include "config.h"
 #include "fetch.h"
 #include <ctype.h>
+#include <time.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -109,10 +112,13 @@ static int load_tles(const char *path, ov_sat_t *list, int n, int max)
 {
     FILE *fp = fopen(path, "r");
     char line[160], name[160] = "", l1[160] = "";
+    double now_jd = time(NULL) / 86400.0 + 2440587.5;
     int i;
 
     if (!fp) return n;
     while (n < max && fgets(line, sizeof(line), fp)) {
+        ov_sat_t *e = &list[n];
+        double age;
         line[strcspn(line, "\r\n")] = '\0';
         if (line[0] == '1' && line[1] == ' ' && strlen(line) >= 69) {
             snprintf(l1, sizeof(l1), "%s", line);
@@ -124,18 +130,49 @@ static int load_tles(const char *path, ov_sat_t *list, int n, int max)
             continue;
         }
         if (!l1[0]) continue;
-        memset(&list[n], 0, sizeof(list[n]));
-        if (pic_sat_parse_tle(&list[n].sat, l1, line) != 0) { l1[0] = '\0'; continue; }
-        list[n].sat.norad_id = atoi(l1 + 2);
+        memset(e, 0, sizeof(*e));
+        if (pic_sat_parse_tle(&e->sat, l1, line) != 0) { l1[0] = '\0'; continue; }
+        e->sat.norad_id = atoi(l1 + 2);
+        tidy_name(name[0] ? name : "Satellite", e->label, sizeof(e->label));
+        /* Not yet identified pieces of a rideshare launch are catalogued
+         * as "OBJECT A", "OBJECT B"...: add the launch's COSPAR ID
+         * (from line 1) so they can be looked up and told apart */
+        if (!strncmp(e->label, "Object ", 7) && strlen(e->label) <= 10 &&
+            isdigit((unsigned char)l1[9]) && isdigit((unsigned char)l1[11])) {
+            char piece[4] = "";
+            int k;
+            for (k = 0; k < 3 && isalpha((unsigned char)l1[14 + k]); k++)
+                piece[k] = l1[14 + k];
+            piece[k] = '\0';
+            /* "Object 2022-167E" */
+            snprintf(e->label, sizeof(e->label), "Object %s%.2s-%.3s%s",
+                     l1[9] >= '5' ? "19" : "20", l1 + 9, l1 + 11, piece);
+        }
+        snprintf(e->sat.name, sizeof(e->sat.name), "%s", e->label);
         l1[0] = '\0';
-        if (list[n].sat.mean_motion < 11.0) continue;      /* not LEO */
-        for (i = 0; i < n; i++)
-            if (list[i].sat.norad_id == list[n].sat.norad_id) break;
-        if (i < n) continue;
-        tidy_name(name[0] ? name : "Satellite", list[n].label, sizeof(list[n].label));
-        snprintf(list[n].sat.name, sizeof(list[n].sat.name), "%s", list[n].label);
-        n++;
         name[0] = '\0';
+        if (e->sat.mean_motion < 11.0) continue;      /* not LEO */
+        /* Stale elements: a low-orbit TLE is far off after a few weeks,
+         * and lists keep ones for objects that have since re-entered
+         * (a decaying object, > 16 rev/day, is gone within days) */
+        age = now_jd - e->sat.epoch_jd;
+        if (age > 21.0 || (e->sat.mean_motion > 16.0 && age > 3.0)) continue;
+        for (i = 0; i < n; i++)
+            if (list[i].sat.norad_id == e->sat.norad_id) break;
+        if (i < n) {
+            /* Same object from another list: keep the newer elements */
+            if (e->sat.epoch_jd > list[i].sat.epoch_jd) {
+                char keep[24];
+                snprintf(keep, sizeof(keep), "%s", list[i].label);
+                list[i] = *e;
+                if (strncmp(keep, "Object ", 7) != 0) {   /* keep a real name */
+                    snprintf(list[i].label, sizeof(list[i].label), "%s", keep);
+                    snprintf(list[i].sat.name, sizeof(list[i].sat.name), "%s", keep);
+                }
+            }
+            continue;
+        }
+        n++;
     }
     fclose(fp);
     return n;
@@ -350,7 +387,7 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
         for (pass = 0; pass < 3; pass++)
             for (j = 0; j < nv; j++) {
                 const pic_sat_t *st = &ov.sats[vis[j].i].sat;
-                double x, y, r, g, b, a, el = vis[j].el;
+                double x, y, r, g, b, a, lr, lg, lb, la, el = vis[j].el;
                 int lit = vis[j].lit, up, k, known;
 
                 up = el > 10;
@@ -359,6 +396,7 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                 if (lit && up && home_dark) { r = 1.0; g = 0.85; b = 0.25; a = 1.0; }
                 else if (lit)               { r = 0.95; g = 0.95; b = 0.97; a = 0.9; }
                 else                        { r = 0.55; g = 0.58; b = 0.65; a = 0.7; }
+                la = pic_sat_label_rgb(r, g, b, &lr, &lg, &lb);
                 /* 2: landmark (ISS, Tiangong, Hubble), drawn large and
                  * always labelled; 1: everyone else as a realistic icon
                  * when zoomed in (dots when the view is wider than 60 deg) */
@@ -378,8 +416,12 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                         cairo_new_path(cr);
                         cairo_move_to(cr, px, py);
                         cairo_line_to(cr, x2, y2);
-                        cairo_set_source_rgba(cr, r, g, b, a * (0.55 - 0.15 * k));
-                        cairo_set_line_width(cr, s * (1.4 - 0.3 * k));
+                        /* dark halo, then the trail in the name colour */
+                        cairo_set_source_rgba(cr, 0, 0, 0, 0.45 * (1.0 - 0.25 * k));
+                        cairo_set_line_width(cr, s * (2.4 - 0.4 * k));
+                        cairo_stroke_preserve(cr);
+                        cairo_set_source_rgba(cr, lr, lg, lb, la * (0.9 - 0.2 * k));
+                        cairo_set_line_width(cr, s * (1.3 - 0.25 * k));
                         cairo_stroke(cr);
                         px = x2; py = y2;
                     }
@@ -421,7 +463,7 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                     if (!sprites && lit && up && home_dark) {   /* ring: look up now */
                         cairo_new_path(cr);
                         cairo_arc(cr, x, y, s * (known == 2 ? 9 : known ? 6.5 : 4.2), 0, 2 * M_PI);
-                        cairo_set_source_rgba(cr, r, g, b, 0.8);
+                        cairo_set_source_rgba(cr, lr, lg, lb, 0.9);
                         cairo_set_line_width(cr, s * 0.6);
                         cairo_stroke(cr);
                     }
@@ -454,10 +496,7 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                     cairo_set_source_rgba(cr, 0, 0, 0, 0.85);
                     cairo_set_line_width(cr, fs * 0.32);
                     cairo_stroke_preserve(cr);
-                    if ((r + g + b) / 3.0 < 0.7)      /* shadow: readable blue-grey */
-                        cairo_set_source_rgba(cr, 0.74, 0.8, 0.93, up ? 1.0 : 0.9);
-                    else
-                        cairo_set_source_rgba(cr, r, g, b, up ? 1.0 : 0.9);
+                    cairo_set_source_rgba(cr, lr, lg, lb, up ? la : la * 0.9);
                     cairo_fill(cr);
                 }
             }
@@ -484,12 +523,12 @@ static void overhead_note(cairo_t *cr, int width, int height, time_t now,
     if (!total) return;
     if (v)
         snprintf(text, sizeof(text),
-                 "Overhead now: %d satellite%s in view \xc2\xb7 %d visible from home (yellow)",
+                 "Overhead now: %d satellite%s in view \xc2\xb7 %d visible from home (aqua)",
                  n, n == 1 ? "" : "s", v);
     else
         snprintf(text, sizeof(text), "Overhead now: %d satellite%s in view",
                  n, n == 1 ? "" : "s");
-    pic_draw_legend_line(cr, width, height, 0, text, 0.95, 0.9, 0.6);
+    pic_draw_legend_line(cr, width, height, 0, text, 0.45, 0.95, 0.9);
 }
 
 static pic_feature_t feature_def = {

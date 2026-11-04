@@ -119,16 +119,20 @@ void pic_sprites_draw(cairo_t *cr, double tf, int width, int height)
     cairo_set_font_size(cr, fs);
     for (i = 0; i < sp_n; i++) {
         const pic_sprite_t *p = &sp[i];
-        double x, y, x0, y0;
+        double x, y, x0, y0, lr, lg, lb, la;
         pos(p, f, width, height, &x, &y, &x0, &y0);
         if (x < -60 || y < -60 || x > width + 60 || y > height + 60) continue;
         /* lead-in: joins the trail (drawn once a second from t0) */
+        la = pic_sat_label_rgb(p->r, p->g, p->b, &lr, &lg, &lb);
         if (x != x0 || y != y0) {
             cairo_new_path(cr);
             cairo_move_to(cr, x0, y0);
             cairo_line_to(cr, x, y);
-            cairo_set_source_rgba(cr, p->r, p->g, p->b, p->a * 0.4);
-            cairo_set_line_width(cr, s * 1.1);
+            cairo_set_source_rgba(cr, 0, 0, 0, 0.45);
+            cairo_set_line_width(cr, s * 2.4);
+            cairo_stroke_preserve(cr);
+            cairo_set_source_rgba(cr, lr, lg, lb, la * 0.9);
+            cairo_set_line_width(cr, s * 1.3);
             cairo_stroke(cr);
         }
         if (p->known) {
@@ -149,7 +153,7 @@ void pic_sprites_draw(cairo_t *cr, double tf, int width, int height)
         if (p->ring) {
             cairo_new_path(cr);
             cairo_arc(cr, x, y, s * (p->known == 2 ? 9 : p->known ? 6.5 : 4.2), 0, 2 * M_PI);
-            cairo_set_source_rgba(cr, p->r, p->g, p->b, 0.8);
+            cairo_set_source_rgba(cr, lr, lg, lb, 0.9);
             cairo_set_line_width(cr, s * 0.6);
             cairo_stroke(cr);
         }
@@ -161,11 +165,7 @@ void pic_sprites_draw(cairo_t *cr, double tf, int width, int height)
             cairo_set_source_rgba(cr, 0, 0, 0, 0.85);
             cairo_set_line_width(cr, fs * 0.32);
             cairo_stroke_preserve(cr);
-            /* in Earth's shadow: light blue-grey, still readable at night */
-            if ((p->r + p->g + p->b) / 3.0 < 0.7)
-                cairo_set_source_rgba(cr, 0.74, 0.8, 0.93, p->up ? 1.0 : 0.9);
-            else
-                cairo_set_source_rgba(cr, p->r, p->g, p->b, p->up ? 1.0 : 0.9);
+            cairo_set_source_rgba(cr, lr, lg, lb, p->up ? la : la * 0.9);
             cairo_fill(cr);
         }
     }

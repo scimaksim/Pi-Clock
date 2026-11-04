@@ -218,7 +218,7 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
             cairo_save(cr);
             cairo_translate(cr, x, y);
             cairo_scale(cr, 1.6, 1.0);
-            pic_draw_rocket_icon(cr, L->rocket, 0, 0, s * 3.4,
+            pic_draw_launch_icon(cr, L->rocket, L->mission, 0, 0, s * 4.0,
                                  L->net <= now + 3600);
             cairo_restore(cr);
         }
@@ -284,8 +284,11 @@ double pic_applet_render_launches(cairo_t *cr, double width, time_t now,
         snprintf(line, sizeof(line), "%s%s  %s", near ? "\xe2\x98\x85 " : "",
                  when, L->rocket);
         pic_fit_text(cr, line, width - fs * 3.4);
-        pic_draw_rocket_icon(cr, L->rocket, fs * 0.45, y + line_h * 1.75,
-                             line_h * 1.75, 0);
+        cairo_save(cr);                  /* widened like the map icon */
+        cairo_translate(cr, fs * 0.45, y + line_h * 1.75);
+        cairo_scale(cr, 1.7, 1.0);
+        pic_draw_launch_icon(cr, L->rocket, L->mission, 0, 0, line_h * 1.75, 0);
+        cairo_restore(cr);
         if (near) cairo_set_source_rgba(cr, 1.0, 0.85, 0.4, 0.95);
         else      cairo_set_source_rgba(cr, 0.9, 0.9, 0.92, 0.95);
         cairo_move_to(cr, fs * 1.2, y + fs);

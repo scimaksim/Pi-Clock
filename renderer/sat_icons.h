@@ -53,4 +53,18 @@ void pic_draw_sat_icon(cairo_t *cr, const char *name, double x, double y,
 int pic_draw_rocket_icon(cairo_t *cr, const char *name, double x, double y,
                          double H, int lit);
 
+/*
+ * Same, with the mission name too: picks Dragon on top of a Falcon 9
+ * for crew and cargo flights, and the escape tower on crewed Soyuz.
+ */
+int pic_draw_launch_icon(cairo_t *cr, const char *rocket, const char *mission,
+                         double x, double y, double H, int lit);
+
+/*
+ * Name / trail colour for a marker state (see sat_icons.c); returns
+ * the alpha.
+ */
+double pic_sat_label_rgb(double r, double g, double b,
+                         double *lr, double *lg, double *lb);
+
 #endif /* PIC_SAT_ICONS_H */
