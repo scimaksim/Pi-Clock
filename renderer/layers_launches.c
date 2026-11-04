@@ -28,8 +28,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define LL2_URL "https://ll.thespacedevs.com/2.3.0/launches/upcoming/?limit=20&hide_recent_previous=true"
+#define LL2_PREV_URL "https://ll.thespacedevs.com/2.3.0/launches/previous/?limit=40"
+#define INTDES_URL "https://celestrak.org/NORAD/elements/gp.php?INTDES=%s&FORMAT=tle"
+#define LEARN_PATH "/data/cache/pi-clock-launch-inclinations.txt"
+#define LEARN_DONE_PATH "/data/cache/pi-clock-launch-learned.txt"
 #define LL2_MAX_RESPONSE (1024 * 1024)
 #define MAX_LAUNCHES 20
 #define NEAR_KM 1100.0
@@ -121,8 +126,143 @@ int pic_launches_parse(const char *js, size_t len, launch_t *out, int max)
     return count;
 }
 
+/* ── Learning real inclinations from past launches ────────────────
+ * Once a day: the last 40 launches; for each one from a nearby pad
+ * that has a COSPAR designator (LL2 adds it a few days after launch)
+ * and hasn't been learned yet, the orbits of its objects are looked up
+ * (CelesTrak by designator, cached on disk; else the satellite lists
+ * already on the Pi) and the median inclination recorded for the
+ * launch's family. The visibility predictor then flies that family in
+ * the direction it really went. */
+
+static int designator_done(const char *des)
+{
+    FILE *f = fopen(LEARN_DONE_PATH, "r");
+    char line[64];
+    int found = 0;
+    if (!f) return 0;
+    while (!found && fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        found = !strcmp(line, des);
+    }
+    fclose(f);
+    return found;
+}
+
+static void designator_mark(const char *des)
+{
+    FILE *f = fopen(LEARN_DONE_PATH, "a");
+    if (f) { fprintf(f, "%s\n", des); fclose(f); }
+}
+
+static int cmp_double(const void *a, const void *b)
+{
+    double x = *(const double *)a, y = *(const double *)b;
+    return x < y ? -1 : x > y;
+}
+
+/* Median inclination of the objects of launch des ("2026-237") from a
+ * TLE file; objects counted in *n. Designator in line 1 is "26237A". */
+static double file_inclination(const char *path, const char *des, int *n)
+{
+    FILE *f = fopen(path, "r");
+    char key[8], l1[200], l2[200];
+    double inc[64];
+    int k = 0;
+    *n = 0;
+    if (!f || strlen(des) < 8) { if (f) fclose(f); return -1; }
+    snprintf(key, sizeof(key), "%.2s%.3s", des + 2, des + 5);
+    while (fgets(l1, sizeof(l1), f)) {
+        if (l1[0] != '1' || l1[1] != ' ' || strncmp(l1 + 9, key, 5)) continue;
+        if (!fgets(l2, sizeof(l2), f) || l2[0] != '2') break;
+        if (k < 64) inc[k++] = atof(l2 + 8);
+    }
+    fclose(f);
+    if (!k) return -1;
+    qsort(inc, (size_t)k, sizeof(inc[0]), cmp_double);
+    *n = k;
+    return inc[k / 2];
+}
+
+static double launch_inclination(const char *des, int *n)
+{
+    static const char *lists[] = { "/tmp/pi-clock-last30.tle", "/tmp/pi-clock-cache/visual.tle",
+                                   "/tmp/pi-clock-cache/satnogs.tle", "/tmp/pi-clock-cache/amsat.tle", NULL };
+    char path[128], url[200];
+    double inc;
+    int i;
+    /* CelesTrak by designator: a one-off request per launch, kept */
+    snprintf(path, sizeof(path), "/tmp/pi-clock-cache/intdes-%s.tle", des);
+    if (access(path, R_OK) != 0) {
+        snprintf(url, sizeof(url), INTDES_URL, des);
+        if (pic_fetch_to_file(url, path, 30) != 0) unlink(path);
+    }
+    inc = file_inclination(path, des, n);
+    if (*n) return inc;
+    for (i = 0; lists[i]; i++) {
+        inc = file_inclination(lists[i], des, n);
+        if (*n) return inc;
+    }
+    return -1;
+}
+
+static void learn_from_past(void)
+{
+    char *buf = malloc(LL2_MAX_RESPONSE);
+    pic_json_t j;
+    int res, n, i, learned = 0;
+    time_t now = time(NULL);
+
+    if (!buf) return;
+    n = pic_fetch_to_buf(LL2_PREV_URL, buf, LL2_MAX_RESPONSE - 1);
+    if (n <= 0 || pic_json_parse(&j, buf, (size_t)n) < 0) { free(buf); return; }
+    res = pic_json_get(&j, 0, "results");
+    n = res >= 0 ? pic_json_size(&j, res) : 0;
+    for (i = 0; i < n; i++) {
+        int r = pic_json_at(&j, res, i), pad = pic_json_get(&j, r, "pad"), objects = 0;
+        char des[16], net[32], rocket[40], mission[64], family[64];
+        double lat, lon, inc;
+        time_t t;
+        pic_json_str(&j, pic_json_get(&j, r, "launch_designator"), des, sizeof(des));
+        if (strlen(des) < 8) continue;
+        pic_json_str(&j, pic_json_get(&j, r, "net"), net, sizeof(net));
+        t = pic_nws_parse_time(net);
+        if (!t || now - t > 120 * 86400 || now - t < 3 * 86400) continue;
+        lat = pic_json_num(&j, pic_json_get(&j, pad, "latitude"), 999);
+        lon = pic_json_num(&j, pic_json_get(&j, pad, "longitude"), 999);
+        if (pic_dist_km(pic_config.qth_lat, pic_config.qth_lon, lat, lon) > NEAR_KM) continue;
+        if (designator_done(des)) continue;
+        pic_json_str(&j, pic_json_path(&j, r, "rocket.configuration.name"), rocket, sizeof(rocket));
+        pic_json_str(&j, pic_json_path(&j, r, "mission.name"), mission, sizeof(mission));
+        inc = launch_inclination(des, &objects);
+        if (objects > 0) {
+            pic_launchvis_family(rocket, mission, family, sizeof(family));
+            pic_launchvis_learn(family, inc, objects);
+            printf("launches: learned %s flies %.1f deg (%s, %d objects)\n", family, inc, des, objects);
+            learned++;
+        }
+        /* Done either way: objects not yet catalogued won't appear later
+         * in these lists for a launch this old */
+        if (objects > 0 || now - t > 30 * 86400) designator_mark(des);
+    }
+    pic_json_free(&j);
+    free(buf);
+    if (learned) pic_launchvis_save(LEARN_PATH);
+}
+
 static int launches_work(pic_feature_t *f)
 {
+    static time_t last_learn;
+    static int loaded;
+    if (!loaded) {
+        int k = pic_launchvis_load(LEARN_PATH);
+        if (k) printf("launches: %d launch families with learned inclinations\n", k);
+        loaded = 1;
+    }
+    if (time(NULL) - last_learn > 86400) {
+        last_learn = time(NULL);
+        learn_from_past();
+    }
     static launch_t tmp[MAX_LAUNCHES];
     char *buf = malloc(LL2_MAX_RESPONSE);
     int n, count;

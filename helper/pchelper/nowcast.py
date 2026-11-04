@@ -1,14 +1,15 @@
 """Rain nowcast: MRMS radar extrapolated 0-90 minutes ahead.
 
 Every 5 minutes: the latest MRMS composite reflectivity (CONUS, 1 km,
-every 2 min, NOAA on AWS) and the ones 10, 20 and 30 minutes before,
-cropped to the area around home. Motion comes from dense optical flow
+every 2 min, NOAA on AWS) and the last hour before it (every 10 min
+for the older half, every 5 min for the last 30), cropped to the area
+around home, so the Pi can play the past hour like a phone radar app. Motion comes from dense optical flow
 (OpenCV Farneback) between consecutive frames, smoothed; the newest
 frame is then advected along it (semi-Lagrangian, as in pysteps'
 extrapolation nowcast) in 10-minute steps to +90 min.
 
-Product "nowcast": the 4 observed frames then 9 forecast frames, and a
-note on rain at home: when it arrives or eases.
+Product "nowcast": the 10 observed frames then 9 forecast frames, and
+a note on rain at home: when it arrives or eases.
 """
 
 import datetime as dt
@@ -31,6 +32,7 @@ LAT0, LON0, STEP = 54.995, -129.995, 0.01   # MRMS cell centres, row 0 north
 HALF_LAT, HALF_LON = 3.5, 4.5               # area around home
 RAIN_DBZ = 20.0                             # light rain at the ground
 LEADS = list(range(10, 100, 10))            # minutes
+OBS = [60, 50, 40, 30, 25, 20, 15, 10, 5, 0]  # minutes before the newest
 
 PAL = Palette([
     (15, "#04e9e7", 150), (20, "#019ff4", 170), (25, "#0300f4", 180),
@@ -82,7 +84,7 @@ def _load(cfg, key):
     crop[crop < -900] = np.nan          # outside radar coverage
     crop[crop < 0] = 0                  # no echo
     _cache[key] = (_key_time(key), crop)
-    for k in sorted(_cache, key=lambda k: _cache[k][0])[:-8]:
+    for k in sorted(_cache, key=lambda k: _cache[k][0])[:-16]:
         del _cache[k]
     return crop
 
@@ -122,24 +124,28 @@ def run(cfg, t_ref=None, publish_out=True):
     newest = max(keys, key=_key_time)
     t0 = _key_time(newest)
     obs = []
-    for m in (30, 20, 10, 0):
+    for m in OBS:
         k = _pick(keys, t0 - m * 60)
         if k is None:
-            raise RuntimeError(f"no MRMS file near t-{m} min")
+            if m <= 20:
+                raise RuntimeError(f"no MRMS file near t-{m} min")
+            continue                        # an older gap just shortens the loop
         crop = _load(cfg, k)
         if crop is None:
             raise RuntimeError(f"MRMS file vanished: {k}")
         obs.append((_key_time(k), crop))
+    cur_i = len(obs) - 1
+    by_t = {round((t0 - t) / 60): c for t, c in obs}
 
     # Motion: average of the last two 10-minute flows, smoothed hard
     # (storm-scale motion, not every wobble)
-    f1 = _flow(obs[1][1], obs[2][1])
-    f2 = _flow(obs[2][1], obs[3][1])
+    f1 = _flow(by_t[20], by_t[10])
+    f2 = _flow(by_t[10], by_t[0])
     flow = (f1 + 2 * f2) / 3
     for c in range(2):
         flow[..., c] = ndimage.gaussian_filter(flow[..., c], 12)
 
-    cur = np.nan_to_num(obs[3][1], nan=0.0)
+    cur = np.nan_to_num(obs[cur_i][1], nan=0.0)
     h, w = cur.shape
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
     fc = []
@@ -150,7 +156,7 @@ def run(cfg, t_ref=None, publish_out=True):
         fc.append((t0 + lead * 60, f.astype(np.float32)))
 
     # Rain at home
-    now_dbz = _home_max(obs[3][1], cfg)
+    now_dbz = _home_max(obs[cur_i][1], cfg)
     lead_dbz = [_home_max(f, cfg) for _, f in fc]
     note = ""
     if now_dbz >= RAIN_DBZ:
@@ -168,7 +174,7 @@ def run(cfg, t_ref=None, publish_out=True):
             hr = int(round((LAT0 - cfg["home_lat"]) / STEP)) - r0
             hc = int(round((cfg["home_lon"] - LON0) / STEP)) - c0
             k = 90
-            win = obs[3][1][max(0, hr - k):hr + k, max(0, hc - k):hc + k]
+            win = obs[cur_i][1][max(0, hr - k):hr + k, max(0, hc - k):hc + k]
             if np.nanmax(np.nan_to_num(win)) >= RAIN_DBZ:
                 note = "Rain nearby, not reaching home in the next 90 min"
 
@@ -179,7 +185,7 @@ def run(cfg, t_ref=None, publish_out=True):
     publish(cfg, "nowcast", frames, PAL, bbox, note=note, note_rgb=[0.6, 0.85, 1.0],
             legend=PAL.legend("Radar dBZ (observed, then forecast)",
                               [20, 30, 40, 50, 60, 70]),
-            label="relative", now_index=3, frame_ms=650, hold_ms=2500,
+            label="relative", now_index=cur_i, frame_ms=650, hold_ms=2500,
             expires_s=1200, extra={"t0": int(t0)})
     log.info("nowcast t0=%s home now %.0f dBZ, leads %s", time.strftime(
         "%H:%MZ", time.gmtime(t0)), now_dbz, [round(x) for x in lead_dbz])

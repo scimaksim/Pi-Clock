@@ -647,7 +647,7 @@ static const struct {
     {"drought",        6},  /* USDM file (~17MB while parsing)       */
     {"darksites",      2},  /* Site list + home sky grid             */
     {"sst",            8},  /* 1440x720 index + ARGB wash + PNG      */
-    {"nowcast",        9},  /* PC helper: 13 frames 900x700 bytes    */
+    {"nowcast",       13},  /* PC helper: up to 19 frames 900x700 bytes */
     {"hrrr_clouds",    6},  /* PC helper: 18 frames ~714x440 bytes   */
     {"hrrr_smoke",     6},
     {"hrrr_gust",      6},

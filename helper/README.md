@@ -5,7 +5,7 @@ serves the results to the clock:
 
 | Layer on the clock | Job | Data | Refresh |
 |---|---|---|---|
-| Rain Arriving | `nowcast` | MRMS radar composite (NOAA, 1 km, 2-min) extrapolated 90 min ahead with optical flow | 5 min |
+| Rain Arriving | `nowcast` | MRMS radar composite (NOAA, 1 km, 2-min): the past hour animated, then extrapolated 90 min ahead with optical flow | 5 min |
 | Cloud / Smoke / Wind Gust Forecast, Frost Tonight | `hrrr` | NOAA HRRR 3 km model, next 18 h (only the 4 needed fields, via byte ranges: ~60 MB per run) | 3 h |
 | Bird Migration Tonight | `birds` | KRAX NEXRAD Level II + MistNet (Lin et al. 2019) rain/bird segmentation, vol2bird-style density and VAD profile | each scan at night |
 

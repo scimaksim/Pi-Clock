@@ -225,7 +225,7 @@ var layerDefs = []struct {
 	{"airquality", "Air Quality (AQI)", false, 1.0},
 	{"satclouds", "Satellite Clouds (GOES/Himawari)", false, 1.0},
 	{"sst", "Sea Surface Temperature (Gulf Stream)", false, 1.0},
-	{"nowcast", "Rain Arriving: radar 90-min forecast (PC helper)", false, 1.0},
+	{"nowcast", "Rain Arriving: animated radar, past hour + 90-min forecast (PC helper)", false, 1.0},
 	{"hrrr_clouds", "Cloud Forecast, next 18 h (HRRR, PC helper)", false, 1.0},
 	{"hrrr_smoke", "Smoke Forecast (HRRR, PC helper)", false, 1.0},
 	{"hrrr_gust", "Wind Gust Forecast (HRRR, PC helper)", false, 1.0},

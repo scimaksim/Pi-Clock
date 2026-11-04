@@ -32,6 +32,8 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <stdio.h>
 
 #define R_EARTH 6371.0
 #define D2R (M_PI / 180.0)
@@ -65,11 +67,119 @@ const char *pic_launchvis_compass(double az)
     return p[(int)((az + 11.25) / 22.5) % 16];
 }
 
+/* ── Learned inclinations ─────────────────────────────────────── */
+
+#define FAM_MAX 64
+static struct { char family[48]; double inc; int n; } fam[FAM_MAX];
+static int nfam;
+
+void pic_launchvis_family(const char *rocket, const char *mission, char *out, size_t n)
+{
+    char m[64], r[24];
+    size_t i, k = 0, len;
+    /* Rocket: first word(s) up to a digit run, e.g. "Falcon 9 Block 5"
+     * -> "Falcon 9", "Vulcan VC4S" -> "Vulcan", "Atlas V 551" -> "Atlas V" */
+    for (i = 0; rocket && rocket[i] && k < sizeof(r) - 1; i++) {
+        if (!strncmp(rocket + i, " Block", 6) || !strncmp(rocket + i, " VC", 3) ||
+            (rocket[i] == ' ' && isdigit((unsigned char)rocket[i + 1]) && i > 0 &&
+             isdigit((unsigned char)rocket[i - 1])))
+            break;
+        r[k++] = rocket[i];
+    }
+    r[k] = '\0';
+    /* Mission: drop " (…)" and a trailing "-NN" / " NN" / "-NN-NN" */
+    snprintf(m, sizeof(m), "%s", mission ? mission : "");
+    if (strchr(m, '(')) *strchr(m, '(') = '\0';
+    len = strlen(m);
+    while (len > 0 && (m[len - 1] == ' ')) m[--len] = '\0';
+    for (;;) {
+        size_t l = len;
+        while (l > 0 && isdigit((unsigned char)m[l - 1])) l--;
+        if (l == len || l == 0 || (m[l - 1] != '-' && m[l - 1] != ' ')) break;
+        len = l - 1;
+        m[len] = '\0';
+    }
+    /* Starlink: keep the shell number ("Starlink Group 10") */
+    if (!strncasecmp(mission ? mission : "", "Starlink Group ", 15)) {
+        snprintf(m, sizeof(m), "Starlink Group %d", atoi(mission + 15));
+    }
+    snprintf(out, n, "%s|%s", r, m);
+}
+
+int pic_launchvis_learned(const char *family, double *inclination)
+{
+    int i;
+    for (i = 0; i < nfam; i++)
+        if (!strcmp(fam[i].family, family) && fam[i].n > 0) {
+            *inclination = fam[i].inc;
+            return 1;
+        }
+    return 0;
+}
+
+void pic_launchvis_learn(const char *family, double inclination, int objects)
+{
+    int i;
+    if (inclination < 0 || inclination > 180 || objects <= 0) return;
+    for (i = 0; i < nfam; i++)
+        if (!strcmp(fam[i].family, family)) break;
+    if (i == nfam) {
+        if (nfam == FAM_MAX) return;
+        memset(&fam[nfam], 0, sizeof(fam[nfam]));
+        snprintf(fam[nfam].family, sizeof(fam[nfam].family), "%s", family);
+        nfam++;
+    }
+    /* Running mean weighted by objects, so a big Starlink batch counts
+     * more than one stray piece */
+    fam[i].inc = (fam[i].inc * fam[i].n + inclination * objects) / (fam[i].n + objects);
+    fam[i].n += objects;
+    if (fam[i].n > 1000) fam[i].n = 1000;
+}
+
+int pic_launchvis_load(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    char line[128];
+    if (!f) return 0;
+    nfam = 0;
+    while (nfam < FAM_MAX && fgets(line, sizeof(line), f)) {
+        char *tab = strchr(line, '\t');
+        if (!tab) continue;
+        *tab = '\0';
+        if (sscanf(tab + 1, "%lf %d", &fam[nfam].inc, &fam[nfam].n) != 2) continue;
+        snprintf(fam[nfam].family, sizeof(fam[nfam].family), "%s", line);
+        nfam++;
+    }
+    fclose(f);
+    return nfam;
+}
+
+int pic_launchvis_save(const char *path)
+{
+    char tmp[300];
+    FILE *f;
+    int i;
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    f = fopen(tmp, "w");
+    if (!f) return -1;
+    for (i = 0; i < nfam; i++) fprintf(f, "%s\t%.3f %d\n", fam[i].family, fam[i].inc, fam[i].n);
+    fclose(f);
+    return rename(tmp, path);
+}
+
 /* Target inclination (degrees), or -1 (due east) / -2 (polar, south) */
 static double target_inclination(const char *orbit, const char *mission, const char *rocket)
 {
     const char *g;
-    (void)rocket;
+    char family[64];
+    double learned;
+    pic_launchvis_family(rocket, mission, family, sizeof(family));
+    if (pic_launchvis_learned(family, &learned)) {
+        /* A geostationary transfer or polar orbit: the launch direction,
+         * not the inclination, is what the heuristics encode */
+        if (learned > 85) return -2;
+        return learned;
+    }
     if (has(mission, "crew") || has(mission, "crs-") || has(mission, "spx-") ||
         has(mission, "cygnus") || has(mission, "axiom") || has(mission, "ax-") ||
         has(mission, "dragon") || has(mission, "starliner") || has(mission, "dream chaser") ||

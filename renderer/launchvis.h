@@ -56,4 +56,17 @@ int pic_launchvis_predict(double lat, double lon, const char *orbit,
 /* "SSE" etc. */
 const char *pic_launchvis_compass(double az);
 
+/*
+ * Learning from past launches: the family a launch belongs to
+ * ("Falcon 9|Starlink Group 10", "Falcon 9|Crew", "Vulcan|USSF"), and a
+ * table of inclinations actually flown by each family, kept in a file.
+ * pic_launchvis_predict() uses a learned inclination in place of the
+ * built-in guess for that family.
+ */
+void   pic_launchvis_family(const char *rocket, const char *mission, char *out, size_t n);
+void   pic_launchvis_learn(const char *family, double inclination, int objects);
+int    pic_launchvis_learned(const char *family, double *inclination);
+int    pic_launchvis_load(const char *path);
+int    pic_launchvis_save(const char *path);
+
 #endif /* PIC_LAUNCHVIS_H */
