@@ -54,6 +54,7 @@ typedef struct {
     unsigned char *frame[PCH_MAXF];
     time_t   ftime[PCH_MAXF];
     int      animate, hold_s, label, now_index;
+    int      any_content;             /* some frame has coloured pixels */
     char     note[256];
     double   note_rgb[3];
     char     title[96];
@@ -227,11 +228,20 @@ static int pch_work(pic_feature_t *f)
         return 60;
     }
 
+    /* Nothing coloured anywhere (e.g. no frost tonight): the legend then
+     * shows only the note, not an empty colour bar */
+    nm.any_content = 0;
+    for (i = 0; i < nm.nf && !nm.any_content; i++) {
+        size_t q, npx = (size_t)nm.w * nm.h;
+        for (q = 0; q < npx; q++)
+            if (fr[i][q]) { nm.any_content = 1; break; }
+    }
     pthread_mutex_lock(&d->mutex);
     for (i = 0; i < PCH_MAXF; i++) {
         free(d->frame[i]);
         d->frame[i] = i < nm.nf ? fr[i] : NULL;
     }
+    d->any_content = nm.any_content;
     d->generated = nm.generated;
     d->expires = nm.expires;
     d->w = nm.w;
@@ -476,7 +486,7 @@ static void pch_legend(cairo_t *cr, int width, int height, time_t now, void *ud)
             strncat(when, hm, sizeof(when) - strlen(when) - 1);
         }
     }
-    has_bar = d->title[0] && d->npal > 1 && d->nf > 0;
+    has_bar = d->title[0] && d->npal > 1 && d->nf > 0 && d->any_content;
     memcpy(title, d->title, sizeof(title));
 
     /* Note first (it stacks below the bar) */
