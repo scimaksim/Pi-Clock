@@ -46,8 +46,11 @@ RE = 6371200.0 * 4 / 3                    # effective earth radius, m
 MAP_STEP = 0.005                          # output map, degrees
 MAP_KM = 150.0
 
-PAL = Palette([(5, "#3fa7c9", 35), (20, "#58c98a", 140), (50, "#d9d84a", 180),
-               (100, "#f2a33a", 200), (200, "#ea5a35", 215), (500, "#c9369a", 230)],
+# Lavender -> violet -> pink -> white: a family no other layer uses
+# (radar and enhanced cloud tops run cyan-green-yellow-red), so a bird
+# "bloom" can't be mistaken for cloud or rain
+PAL = Palette([(5, "#7468b8", 45), (20, "#8f78d8", 130), (50, "#b27fe6", 175),
+               (100, "#d98be0", 200), (200, "#f6aee6", 220), (500, "#ffffff", 235)],
               vmin_show=5, log=True)
 
 _model = None
@@ -327,7 +330,10 @@ def run(cfg):
                               [5, 20, 50, 100, 200, 500]),
             label="clock", frame_ms=900, hold_ms=2500, expires_s=1800,
             extra={"vid": round(vid, 1), "mtr": round(mtr, 1),
-                   "heading": heading, "speed_ms": speed})
+                   "heading": heading, "speed_ms": speed,
+                   # the clock draws drifting chevrons where density >= 10/km3
+                   "arrows": ({"dir": round(heading, 1), "min": int(PAL.index([10])[0])}
+                              if heading is not None and mtr >= 20 else None)})
     log.info("birds %s: vid %.0f/km2 mtr %.0f/km/h heading %s speed %s", key.rsplit("/", 1)[1],
              vid, mtr, heading and round(heading), speed and round(speed, 1))
     return 180

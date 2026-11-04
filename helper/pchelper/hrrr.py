@@ -19,6 +19,7 @@ import time
 
 import eccodes
 import numpy as np
+from scipy import ndimage
 from scipy.spatial import cKDTree
 
 from .common import Palette, get, publish, sun_altitude
@@ -27,8 +28,8 @@ log = logging.getLogger("pchelper.hrrr")
 
 BASE = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com"
 HOURS = range(1, 19)
-STEP = 0.05                    # output grid, degrees
-HALF_LON, HALF_LAT = 18.0, 11.0
+STEP = 0.03                    # output grid, degrees (~HRRR's 3 km)
+HALF_LON, HALF_LAT = 12.0, 7.0  # around home: covers the local views
 FIELDS = {
     "clouds": "TCDC:entire atmosphere",
     "smoke": "MASSDEN:8 m above ground",
@@ -44,8 +45,9 @@ PAL_SMOKE = Palette([(4, "#b8a888", 60), (12, "#e8d44a", 120), (35, "#f29a2e", 1
 PAL_GUST = Palette([(20, "#7fd3e6", 70), (25, "#59c46b", 130), (35, "#f1d54a", 170),
                     (45, "#f08a2e", 200), (55, "#de3b2f", 220), (70, "#b02cc0", 235)],
                    vmin_show=20)
-PAL_FROST = Palette([(20, "#6b2fb3", 220), (28, "#4b5fe0", 200), (32, "#5aa7f0", 180),
-                     (36, "#a9dcf5", 90)], vmin_show=-40)
+# Icy blues (birds own the violet/pink family)
+PAL_FROST = Palette([(20, "#1f5fb8", 220), (28, "#3f9be0", 200), (32, "#7fd0f5", 180),
+                     (36, "#cdeefc", 90)], vmin_show=-40)
 
 _map = {}
 
@@ -177,7 +179,12 @@ def run(cfg):
             flat = np.where(valid, idx_map, 0)
         for k in FIELDS:
             img = d[k].ravel()[flat].astype(np.float32)
-            img[~valid] = np.nan
+            # Soften the 3 km cells (no staircase edges when zoomed in);
+            # smoothing is normalised so the model edge doesn't darken
+            w = ndimage.gaussian_filter(valid.astype(np.float32), 1.2)
+            v = ndimage.gaussian_filter(np.where(valid, img, 0).astype(np.float32), 1.2)
+            with np.errstate(all="ignore"):
+                img = np.where(valid & (w > 0.3), v / w, np.nan).astype(np.float32)
             imgs[k].append(img)
         times.append(int(run_t.timestamp()) + fh * 3600)
 

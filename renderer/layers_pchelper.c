@@ -60,6 +60,8 @@ typedef struct {
     double   lv0, lv1;                /* legend value range */
     int      log_scale, nticks;
     double   ticks[10];
+    double   arrow_dir;               /* heading, degrees; <0 = none */
+    int      arrow_min;               /* palette index threshold     */
     /* State */
     int      state;                   /* 0 ok, 1 no URL, 2 offline */
     cairo_surface_t *surf;
@@ -137,6 +139,12 @@ static int parse_manifest(const char *js, size_t len, pch_t *out, char files[][4
         if (out->nticks > 10) out->nticks = 10;
         for (i = 0; i < out->nticks; i++)
             out->ticks[i] = pic_json_num(&j, pic_json_at(&j, tk, i), 0);
+    }
+    out->arrow_dir = -1;
+    p = pic_json_get(&j, 0, "arrows");
+    if (p >= 0 && pic_json_is_object(&j, p)) {
+        out->arrow_dir = fmod(pic_json_num(&j, pic_json_get(&j, p, "dir"), -1) + 360.0, 360.0);
+        out->arrow_min = (int)pic_json_num(&j, pic_json_get(&j, p, "min"), 1);
     }
     pic_json_free(&j);
     return out->w > 0 && out->h > 0 && out->w * out->h <= 4000000 ? 0 : -1;
@@ -246,6 +254,8 @@ static int pch_work(pic_feature_t *f)
     d->log_scale = nm.log_scale;
     d->nticks = nm.nticks;
     memcpy(d->ticks, nm.ticks, sizeof(d->ticks));
+    d->arrow_dir = nm.arrow_dir;
+    d->arrow_min = nm.arrow_min;
     d->last_ok = now;
     d->state = 0;
     d->surf_frame = -1;
@@ -273,6 +283,54 @@ static int current_frame(const pch_t *d, time_t now)
 static int usable(const pch_t *d, time_t now)
 {
     return d->state == 0 && d->nf > 0 && now < d->expires + 15 * 60;
+}
+
+/*
+ * Chevrons over the frame where it is at least arrow_min, pointing along
+ * arrow_dir (compass degrees) and drifting that way a quarter of the grid
+ * each second: what moves on the map reads as moving (bird migration).
+ */
+static void draw_arrows(cairo_t *cr, const pch_t *d, int k, double x0, double y0,
+                        double x1, double y1, int width, int height, time_t now)
+{
+    double sp = height / 15.0, a = d->arrow_dir * M_PI / 180.0;
+    double ux = sin(a), uy = -cos(a), L = height / 120.0;
+    double shift = (double)(now % 4) / 4.0 * sp, gx, gy;
+    double ox = fmod(ux * shift, sp), oy = fmod(uy * shift, sp);
+    const unsigned char *fr = d->frame[k];
+
+    cairo_save(cr);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    for (gy = floor(y0 / sp) * sp + oy; gy < y1; gy += sp) {
+        for (gx = floor(x0 / sp) * sp + ox + ((int)floor(gy / sp) & 1) * sp / 2; gx < x1; gx += sp) {
+            int fx, fy, pass;
+            if (gx < x0 || gy < y0 || gx < 0 || gy < 0 || gx > width || gy > height) continue;
+            fx = (int)((gx - x0) / (x1 - x0) * d->w);
+            fy = (int)((gy - y0) / (y1 - y0) * d->h);
+            if (fx < 0 || fy < 0 || fx >= d->w || fy >= d->h) continue;
+            if (fr[(size_t)fy * d->w + fx] < d->arrow_min) continue;
+            for (pass = 0; pass < 2; pass++) {
+                /* chevron: tip ahead, two arms back at +-35 deg */
+                double tx = gx + ux * L, ty = gy + uy * L, c = cos(0.61), s = sin(0.61);
+                double bx1 = -ux * c + uy * s, by1 = -uy * c - ux * s;
+                double bx2 = -ux * c - uy * s, by2 = -uy * c + ux * s;
+                cairo_new_path(cr);
+                cairo_move_to(cr, tx + bx1 * L * 1.4, ty + by1 * L * 1.4);
+                cairo_line_to(cr, tx, ty);
+                cairo_line_to(cr, tx + bx2 * L * 1.4, ty + by2 * L * 1.4);
+                if (pass == 0) {
+                    cairo_set_source_rgba(cr, 0.1, 0.05, 0.2, 0.55);
+                    cairo_set_line_width(cr, height / 540.0 * 2.6);
+                } else {
+                    cairo_set_source_rgba(cr, 1, 1, 1, 0.9);
+                    cairo_set_line_width(cr, height / 540.0 * 1.2);
+                }
+                cairo_stroke(cr);
+            }
+        }
+    }
+    cairo_restore(cr);
 }
 
 static void pch_render(cairo_t *cr, int width, int height, time_t now, void *ud)
@@ -332,6 +390,8 @@ static void pch_render(cairo_t *cr, int width, int height, time_t now, void *ud)
         cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
         cairo_paint(cr);
         cairo_restore(cr);
+        if (d->arrow_dir >= 0)
+            draw_arrows(cr, d, k, x0, y0, x1, y1, width, height, now);
     }
     pthread_mutex_unlock(&d->mutex);
 }
