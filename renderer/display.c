@@ -1753,6 +1753,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     add_feature_layer(&stack, pic_feature_passes());
     add_feature_layer(&stack, pic_feature_overhead());
     add_feature_layer(&stack, pic_feature_launches());
+    add_feature_layer(&stack, pic_feature_events());   /* legend-only strip */
     add_feature_layer(&stack, pic_feature_dsn());
     pic_layer_stack_add(&stack, "sun",
                         pic_layer_render_sun, 60, 1.0, NULL);
@@ -1986,9 +1987,15 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     register_feature(pic_feature_coast());
     register_feature(pic_feature_seasons());
     register_feature(pic_feature_analemma());
-    add_feature_layer(&stack, pic_feature_events());
     register_feature(pic_feature_hanotify());   /* no layer or applet */
     register_feature(pic_feature_health());     /* vital-signs log */
+    /* Legends of features added after the first pass above */
+    {
+        int fi;
+        for (fi = 0; fi < nfeatures; fi++)
+            if (features[fi]->layer && features[fi]->legend)
+                pic_layer_set_legend(&stack, features[fi]->name, features[fi]->legend);
+    }
     register_feature(pic_feature_localbase());  /* regional imagery     */
     register_feature(pic_feature_season());     /* current-season day map */
     {
