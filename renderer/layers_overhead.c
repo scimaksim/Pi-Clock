@@ -12,7 +12,7 @@
  *   aqua    sunlit and above 10° from home while home is dark
  *           (look up: you can see it)
  *   blue    sunlit
- *   violet  in Earth's shadow
+ *   rose    in Earth's shadow (trail dashed)
  *
  * Each satellite has a short trail showing where it came from in the
  * last minute. Names are shown for the ones above home's horizon
@@ -355,6 +355,7 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
             i = full ? j : cand[j];
             if (i >= ov.n) continue;
             pic_sat_position_at(&ov.sats[i].sat, now, &lat, &lon, &alt);
+            if (alt < 0) continue;              /* decayed since its TLE */
             dlon = fmod(lon - clon + 540.0, 360.0) - 180.0;
             if (full) {
                 /* 0.55 of the span plus ~1 deg (10 s of travel) */
@@ -416,13 +417,19 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                         cairo_new_path(cr);
                         cairo_move_to(cr, px, py);
                         cairo_line_to(cr, x2, y2);
-                        /* dark halo, then the trail in the name colour */
+                        /* dark halo, then the trail in the name colour;
+                         * dashed while in Earth's shadow */
+                        if (!lit) {
+                            double dash[2] = { s * 3.0, s * 2.2 };
+                            cairo_set_dash(cr, dash, 2, 0);
+                        }
                         cairo_set_source_rgba(cr, 0, 0, 0, 0.45 * (1.0 - 0.25 * k));
                         cairo_set_line_width(cr, s * (2.4 - 0.4 * k));
                         cairo_stroke_preserve(cr);
                         cairo_set_source_rgba(cr, lr, lg, lb, la * (0.9 - 0.2 * k));
                         cairo_set_line_width(cr, s * (1.3 - 0.25 * k));
                         cairo_stroke(cr);
+                        cairo_set_dash(cr, NULL, 0, 0);
                         px = x2; py = y2;
                     }
                     if (sprites) {

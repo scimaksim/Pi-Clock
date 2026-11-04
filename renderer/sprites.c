@@ -128,12 +128,17 @@ void pic_sprites_draw(cairo_t *cr, double tf, int width, int height)
             cairo_new_path(cr);
             cairo_move_to(cr, x0, y0);
             cairo_line_to(cr, x, y);
+            if ((p->r + p->g + p->b) / 3.0 < 0.7) {     /* in shadow: dashed */
+                double dash[2] = { s * 3.0, s * 2.2 };
+                cairo_set_dash(cr, dash, 2, 0);
+            }
             cairo_set_source_rgba(cr, 0, 0, 0, 0.45);
             cairo_set_line_width(cr, s * 2.4);
             cairo_stroke_preserve(cr);
             cairo_set_source_rgba(cr, lr, lg, lb, la * 0.9);
             cairo_set_line_width(cr, s * 1.3);
             cairo_stroke(cr);
+            cairo_set_dash(cr, NULL, 0, 0);
         }
         if (p->known) {
             double x1 = pic_lon_to_x(p->lon1, width), y1 = pic_lat_to_y(p->lat1, height);

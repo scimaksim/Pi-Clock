@@ -25,6 +25,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 typedef struct { double r, g, b; } col_t;
 
@@ -368,6 +369,10 @@ typedef struct {
     int     atlas5m;       /* Atlas V 5xx: 5 m fairing              */
     int     starliner;
     char    lm[8];         /* Long March model, e.g. "3B"           */
+    /* generic vehicles */
+    double  gd, gfd;       /* core and fairing diameter              */
+    double  blen, bd;      /* strap-on length and diameter           */
+    int     bcone, gdark, gsteel;
 } veh_t;
 
 static void falcon_core(rk_t *k, double cx, int side_booster)
@@ -702,18 +707,29 @@ static void draw_lm(rk_t *k, const veh_t *v)
     boosters(k, &b, 0, 1);
 }
 
-/* Anything else: a white two-stage rocket; dark ones for carbon
- * vehicles (Firefly Alpha); fins so it still reads as a rocket */
-static void draw_generic(rk_t *k, int dark)
+/* Anything else: a two-stage rocket of the given size, with strap-ons
+ * for the vehicles that have them (LVM-3, PSLV, GSLV, Gravity-1...),
+ * dark for carbon vehicles (Firefly Alpha), steel for Zhuque-3 */
+static void draw_generic(rk_t *k, const veh_t *v)
 {
-    col_t c = dark ? CARBON : WHITE;
-    if (k->lit) flame(k, 0, 0, 2.2, 14, 0);
-    bells(k, 0, 0, 1.0, 1.7, 1.2, 1, 0);
-    fins(k, 0, 1.0, 6.0, 2.5, 1.2, 0.0, 0.3, dark ? DKGREY : (col_t){ 0.8, 0.28, 0.22 });
-    seg(k, 0, 1.0, 19.0, 2.5, 2.5, c, 0);
-    seg(k, 0, 19.0, 20.0, 2.5, 2.5, dark ? DKGREY : BLACK, 0);
-    seg(k, 0, 20.0, 25.0, 2.5, 2.5, c, 0);
-    fairing(k, 25.0, 2.5, 2.8, 3.5, 3.5, c);
+    double L = v->L, d = v->gd > 0 ? v->gd : L / 13.0;
+    col_t c = v->gdark ? CARBON : (v->gsteel ? STEEL : WHITE);
+    boost_t b = { v->nsrb, v->blen, v->bd, v->bd * 0.9, L * 0.02, d / 2, d / 2, OFFWHT,
+                  v->bcone ? B_CONE : B_OGIVE };
+    double y1 = L * 0.03, s1 = L * 0.55, is = L * 0.02, s2 = L * 0.16;
+    if (k->lit) flame(k, 0, 0, d * 0.9, L * 0.35, 0);
+    boosters(k, &b, 0, 0);
+    bells(k, 0, 0, y1, d * 0.6, d * 0.4, 1, 0);
+    if (!v->nsrb && !v->gsteel)                       /* small base fins */
+        fins(k, 0, y1, y1 + L * 0.08, d, d * 0.35, 0.0, 0.35, DKGREY);
+    seg(k, 0, y1, y1 + s1, d, d, c, v->gsteel);
+    if (v->gsteel) gridfins(k, 0, y1 + s1 - L * 0.05, L * 0.03, d, d * 0.3, DKGREY);
+    seg(k, 0, y1 + s1, y1 + s1 + is, d, d, v->gdark ? DKGREY : BLACK, 0);
+    seg(k, 0, y1 + s1 + is, y1 + s1 + is + s2, d, d, c, v->gsteel);
+    fairing(k, y1 + s1 + is + s2, d, v->gfd > d ? v->gfd : d,
+            L - (y1 + s1 + is + s2) - L * 0.1 - (v->gfd > d ? (v->gfd - d) * 0.6 : 0),
+            L * 0.1, v->gsteel ? STEEL : (v->gdark ? CARBON : WHITE));
+    boosters(k, &b, 0, 1);
 }
 
 static void pick(veh_t *v, const char *rk, const char *ms)
@@ -731,7 +747,8 @@ static void pick(veh_t *v, const char *rk, const char *ms)
     else if (has(rk, "vulcan")) {
         v->kind = V_VULCAN;
         p = after(rk, "vc");
-        v->nsrb = p && isdigit((unsigned char)p[0]) ? p[0] - '0' : 2;
+        /* plain "Vulcan": most flights so far use four solids */
+        v->nsrb = p && isdigit((unsigned char)p[0]) ? p[0] - '0' : 4;
         v->longfair = p && p[0] && toupper((unsigned char)p[1]) == 'L';
         v->L = v->longfair ? 67.4 : 61.6;
     } else if (has(rk, "atlas")) {
@@ -776,11 +793,26 @@ static void pick(veh_t *v, const char *rk, const char *ms)
                  !strcmp(v->lm, "8") || !strcmp(v->lm, "8A")) v->L = 52.5;
         else if (!strcmp(v->lm, "12")) v->L = 59.5;
         else v->L = 42.5;
+    } else if (has(rk, "lvm") || has(rk, "gslv mk iii")) {
+        v->L = 43.5; v->gd = 4.0; v->gfd = 5.0;
+        v->nsrb = 2; v->blen = 25; v->bd = 3.2;
+    } else if (has(rk, "gslv")) {
+        v->L = 51; v->gd = 2.8; v->gfd = 3.4;
+        v->nsrb = 4; v->blen = 19.7; v->bd = 2.1; v->bcone = 1;
+    } else if (has(rk, "pslv")) {
+        v->L = 44; v->gd = 2.8; v->gfd = 3.2;
+        v->nsrb = has(rk, "-ca") ? 0 : 6; v->blen = 13.5; v->bd = 1.0;
+    } else if (has(rk, "gravity-1")) {
+        v->L = 30; v->gd = 2.65; v->gfd = 3.35;
+        v->nsrb = 4; v->blen = 20; v->bd = 2.65;
+    } else if (has(rk, "zhuque-3")) {
+        v->L = 66; v->gd = 4.5; v->gsteel = 1;
     } else if (has(rk, "alpha") || has(rk, "firefly")) {
-        v->kind = V_DARK;
+        v->kind = V_DARK; v->gdark = 1; v->gd = 1.82; v->gfd = 2.0; v->L = 29.75;
     }
     /* Dragon on top of a Falcon 9: crew and cargo flights to orbit */
-    if (v->kind == V_F9 && ms && !has(ms, "cygnus") && !has(ms, "ng-") &&
+    if (v->kind == V_F9 && ms && !has(ms, "cygnus") && !has(ms, " ng-") &&
+        strncasecmp(ms, "ng-", 3) != 0 &&
         (has(ms, "crew") || has(ms, "crs-") || has(ms, "spx-") || has(ms, "ax-") ||
          has(ms, "dragon") || has(ms, "vast") || has(ms, "fram") || has(ms, "polaris"))) {
         v->dragon = has(ms, "crs-") || has(ms, "spx-") || has(ms, "cargo") ? 1 : 2;
@@ -796,6 +828,9 @@ int pic_draw_launch_icon(cairo_t *cr, const char *rocket, const char *mission,
     double size, scale, Hpx;
 
     pick(&v, rocket, mission);
+    /* A zero or bad size would leave cairo with a degenerate matrix
+     * and stop everything drawn after it */
+    if (!(H > 0.5) || !isfinite(x) || !isfinite(y)) return v.kind != V_GENERIC;
     /* Same height for all, nudged by real size (Electron ~85%,
      * Starship ~110% of a Falcon 9) */
     size = 0.8 + 0.2 * v.L / 70.0;
@@ -828,8 +863,7 @@ int pic_draw_launch_icon(cairo_t *cr, const char *rocket, const char *mission,
     case V_ARIANE6:  draw_ariane6(&k, &v); break;
     case V_H3:       draw_h3(&k, &v); break;
     case V_LM:       draw_lm(&k, &v); break;
-    case V_DARK:     draw_generic(&k, 1); break;
-    default:         draw_generic(&k, 0); break;
+    default:         draw_generic(&k, &v); break;
     }
     cairo_restore(cr);
     cairo_new_path(cr);

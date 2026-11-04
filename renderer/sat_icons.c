@@ -372,7 +372,7 @@ void pic_draw_sat_icon(cairo_t *cr, const char *name, double x, double y,
 /*
  * Colour for a satellite's name and trail from its marker state (the
  * r/g/b the overhead layer picks: gold = visible from home now, white =
- * sunlit, grey = in Earth's shadow). Cool colours stand out from the
+ * sunlit, grey = in Earth's shadow). Aqua and blue stand out from the
  * warm city lights of the night map and the tan land of the day map.
  * Returns the alpha.
  */
@@ -387,6 +387,9 @@ double pic_sat_label_rgb(double r, double g, double b,
         *lr = 0.52; *lg = 0.80; *lb = 1.00;
         return 0.95;
     }
-    *lr = 0.74; *lg = 0.68; *lb = 1.00;  /* in Earth's shadow */
-    return 0.85;
+    /* In Earth's shadow: muted rose, which stays distinct from both
+     * blues (and from city lights) with red-green or blue-yellow
+     * colour blindness; trails are dashed as well */
+    *lr = 0.86; *lg = 0.52; *lb = 0.66;
+    return 0.9;
 }

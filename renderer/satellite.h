@@ -42,6 +42,15 @@ typedef struct {
     double bstar;             /* B* drag term                        */
     int    tle_loaded;        /* Non-zero if TLE data is valid       */
 
+    /* SGP4 (near-Earth) constants from the elements, set when the
+     * TLE is parsed (satellite.c); sg_ok = 0 for high orbits, which
+     * use a simpler secular model instead */
+    int    sg_ok, sg_isimp;
+    double sg_no, sg_ao, sg_con41, sg_x1mth2, sg_x7thm1, sg_cc1, sg_cc4, sg_cc5,
+           sg_d2, sg_d3, sg_d4, sg_delmo, sg_eta, sg_sinmao, sg_mdot,
+           sg_argpdot, sg_nodedot, sg_omgcof, sg_xmcof, sg_nodecf, sg_t2cof,
+           sg_t3cof, sg_t4cof, sg_t5cof, sg_xlcof, sg_aycof;
+
     /* Current computed position */
     double lat;               /* Sub-satellite latitude (degrees)    */
     double lon;               /* Sub-satellite longitude (degrees)   */

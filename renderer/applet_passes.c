@@ -77,6 +77,18 @@ static void ecef(double lat, double lon, double r, double v[3])
     v[2] = r * sin(la);
 }
 
+/* WGS-84 geodetic lat/lon (deg) and height (km) → Earth-fixed km,
+ * matching the geodetic positions pic_sat_position_at() returns */
+static void ecef_geo(double lat, double lon, double h, double v[3])
+{
+    const double a = 6378.137, f = 1.0 / 298.257223563, e2 = f * (2.0 - f);
+    double la = lat * DEG_TO_RAD, lo = lon * DEG_TO_RAD;
+    double N = a / sqrt(1.0 - e2 * sin(la) * sin(la));
+    v[0] = (N + h) * cos(la) * cos(lo);
+    v[1] = (N + h) * cos(la) * sin(lo);
+    v[2] = (N * (1.0 - e2) + h) * sin(la);
+}
+
 /* Elevation and azimuth (degrees) of a satellite from the QTH. */
 double pic_sat_look_angles(const pic_sat_t *s, time_t t, double qlat,
                            double qlon, double *az, int *sunlit)
@@ -86,8 +98,8 @@ double pic_sat_look_angles(const pic_sat_t *s, time_t t, double qlat,
     int i;
 
     pic_sat_position_at(s, t, &lat, &lon, &alt);
-    ecef(lat, lon, EARTH_R + alt, p);
-    ecef(qlat, qlon, EARTH_R, o);
+    ecef_geo(lat, lon, alt, p);
+    ecef_geo(qlat, qlon, 0.0, o);
     for (i = 0; i < 3; i++) rel[i] = p[i] - o[i];
     d = sqrt(rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2]);
 
@@ -382,15 +394,15 @@ double pic_applet_render_passes(cairo_t *cr, double width, time_t now,
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                                CAIRO_FONT_WEIGHT_BOLD);
         cairo_set_font_size(cr, fs);
-        /* Live passes green; high (bright) passes gold */
-        if (live)                 cairo_set_source_rgba(cr, 0.5, 1.0, 0.6, 1.0);
+        /* Live passes aqua (as on the map); high (bright) passes gold */
+        if (live)                 cairo_set_source_rgba(cr, 0.3, 1.0, 0.92, 1.0);
         else if (p->max_el >= 40) cairo_set_source_rgba(cr, 1.0, 0.9, 0.5, 0.95);
         else                      cairo_set_source_rgba(cr, 0.9, 0.9, 0.92, 0.9);
         pic_draw_sat_icon(cr, p->sat, fs * 0.8, y + fs * 0.62, fs * 1.6,
                           0, 0.9, 0.9, 0.6);
-        cairo_set_source_rgba(cr, live ? 0.5 : p->max_el >= 40 ? 1.0 : 0.9,
+        cairo_set_source_rgba(cr, live ? 0.3 : p->max_el >= 40 ? 1.0 : 0.9,
                               live ? 1.0 : p->max_el >= 40 ? 0.9 : 0.9,
-                              live ? 0.6 : p->max_el >= 40 ? 0.5 : 0.92, 1.0);
+                              live ? 0.92 : p->max_el >= 40 ? 0.5 : 0.92, 1.0);
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                                CAIRO_FONT_WEIGHT_BOLD);
         cairo_set_font_size(cr, fs);
@@ -481,10 +493,16 @@ void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
             lx = px; ly = py;
             px = x; py = y; pxp = x;
         }
-        if (live) cairo_set_source_rgba(cr, 0.5, 1.0, 0.6, 0.95);
-        else      cairo_set_source_rgba(cr, 1.0, 0.95, 0.6, 0.85);
-        cairo_set_line_width(cr, lw * 2);
+        /* Same colours as the overhead layer's "visible from home"
+         * (aqua), with a dark halo so the track stays readable over
+         * city lights; upcoming passes a softer sky blue-aqua */
         cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0.5);
+        cairo_set_line_width(cr, lw * 3.6);
+        cairo_stroke_preserve(cr);
+        if (live) cairo_set_source_rgba(cr, 0.30, 1.0, 0.92, 0.95);
+        else      cairo_set_source_rgba(cr, 0.55, 0.88, 1.0, 0.9);
+        cairo_set_line_width(cr, lw * 2);
         cairo_stroke(cr);
 
         /* Arrowhead at the end */
@@ -517,7 +535,7 @@ void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
         }
         if (x0 > -50 && x0 < width + 50 && y0 > -20 && y0 < height + 20)
             pic_draw_text_pill(cr, x0 + fs * 1.8, y0 - fs * 1.2, lab,
-                               live ? 0.6 : 1.0, live ? 1.0 : 0.95, live ? 0.7 : 0.7, 0.55);
+                               live ? 0.30 : 0.62, live ? 1.0 : 0.9, live ? 0.92 : 1.0, 0.55);
     }
     pthread_mutex_unlock(&ps.mutex);
 }

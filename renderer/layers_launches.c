@@ -161,12 +161,44 @@ static int is_near(const launch_t *L)
                        L->lat, L->lon) < NEAR_KM;
 }
 
+/* Text of one launch's map label */
+static void launch_label(const launch_t *L, time_t now, char *label, size_t n)
+{
+    char when[24];
+    if (L->net <= now) snprintf(when, sizeof(when), "launching");
+    else pic_fmt_until(when, sizeof(when), now, L->net);
+    if (!L->precise && L->net > now + 86400) {
+        char d[16];
+        pic_fmt_when(d, sizeof(d), now, L->net);
+        snprintf(when, sizeof(when), "NET %s", d);
+    }
+    snprintf(label, n, "%s \xc2\xb7 %s", L->rocket, when);
+}
+
+/* Does r overlap any of rs[0..n) other than rs[skip]? */
+static int rect_hits(const double r[4], double (*rs)[4], int n, int skip)
+{
+    int i;
+    for (i = 0; i < n; i++)
+        if (i != skip && !(r[2] < rs[i][0] || r[0] > rs[i][2] || r[3] < rs[i][1] || r[1] > rs[i][3]))
+            return 1;
+    return 0;
+}
+
+/*
+ * Launches within LAUNCH_DAYS: one rocket per launch site (the soonest
+ * launch there), labelled with up to two launches and "+N more". Label
+ * blocks go right of the rocket, or left / below when that would hit
+ * another label or rocket or run off screen; with no room, only the
+ * rocket is drawn.
+ */
 void pic_layer_render_launches(cairo_t *cr, int width, int height,
                                time_t now, void *ud)
 {
-    double s = height / 70.0, fs = height / 80.0;
-    double placed_x[MAX_LAUNCHES], placed_y[MAX_LAUNCHES];
-    int i, k, nplaced = 0;
+    double s = height / 70.0, fs = height / 80.0, H = s * 4.0;
+    struct { double x, y; int first, n, idx[MAX_LAUNCHES]; } site[MAX_LAUNCHES];
+    double rects[MAX_LAUNCHES * 2][4];
+    int nsite = 0, nrect = 0, i, k;
 
     (void)ud;
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
@@ -174,67 +206,88 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
     cairo_set_font_size(cr, fs);
 
     pthread_mutex_lock(&ll.mutex);
+    /* Group the launches by site */
     for (i = 0; i < ll.count; i++) {
         const launch_t *L = &ll.items[i];
-        double x, y, lift = 0;
-        int near, stacked = 0;
-        char when[24], label[96];
-
+        double x, y;
         if (L->net < now - 3 * 3600 || L->net > now + (time_t)ll.days * 86400)
             continue;
         x = pic_lon_to_x(L->lon, width);
         y = pic_lat_to_y(L->lat, height);
-        if (x < -s * 4 || x > width + s * 4) continue;
-
-        /* Several launches from one site: only the soonest gets a
-         * marker; later ones are listed under it. */
-        for (k = 0; k < nplaced; k++)
-            if (fabs(placed_x[k] - x) < s * 1.5 && fabs(placed_y[k] - y) < s * 1.5)
-                stacked++;
-        if (stacked >= 2) continue;
-        if (nplaced < MAX_LAUNCHES) {
-            placed_x[nplaced] = x;
-            placed_y[nplaced++] = y;
+        if (x < -s * 4 || x > width + s * 4 || y < -H || y > height + H) continue;
+        for (k = 0; k < nsite; k++)
+            if (fabs(site[k].x - x) < s * 1.5 && fabs(site[k].y - y) < s * 1.5) break;
+        if (k == nsite) {
+            site[k].x = x; site[k].y = y; site[k].first = i; site[k].n = 0;
+            nsite++;
         }
-        lift = stacked * fs * 1.5;
-        near = is_near(L);
+        site[k].idx[site[k].n++] = i;
+    }
 
-        if (!stacked) {
-            if (near) {
-                cairo_pattern_t *p;
-                cairo_new_path(cr);
-                p = cairo_pattern_create_radial(x, y, 0, x, y, s * 3);
-                cairo_pattern_add_color_stop_rgba(p, 0, 1.0, 0.85, 0.3, 0.6);
-                cairo_pattern_add_color_stop_rgba(p, 1, 1.0, 0.85, 0.3, 0.0);
-                cairo_set_source(cr, p);
-                cairo_arc(cr, x, y, s * 3, 0, 2 * M_PI);
-                cairo_fill(cr);
-                cairo_pattern_destroy(p);
+    /* Rockets first; their outlines are obstacles for the labels */
+    for (k = 0; k < nsite; k++) {
+        const launch_t *L = &ll.items[site[k].first];
+        double x = site[k].x, y = site[k].y;
+        if (is_near(L)) {
+            cairo_pattern_t *p;
+            cairo_new_path(cr);
+            p = cairo_pattern_create_radial(x, y, 0, x, y, s * 3);
+            cairo_pattern_add_color_stop_rgba(p, 0, 1.0, 0.85, 0.3, 0.6);
+            cairo_pattern_add_color_stop_rgba(p, 1, 1.0, 0.85, 0.3, 0.0);
+            cairo_set_source(cr, p);
+            cairo_arc(cr, x, y, s * 3, 0, 2 * M_PI);
+            cairo_fill(cr);
+            cairo_pattern_destroy(p);
+        }
+        /* Real rockets are very slender; widen a little so the shape
+         * still reads at map size. Lit when launching within the hour */
+        cairo_save(cr);
+        cairo_translate(cr, x, y);
+        cairo_scale(cr, 1.6, 1.0);
+        pic_draw_launch_icon(cr, L->rocket, L->mission, 0, 0, H, L->net <= now + 3600);
+        cairo_restore(cr);
+        rects[nrect][0] = x - s * 0.8; rects[nrect][1] = y - H * 1.12;
+        rects[nrect][2] = x + s * 0.8; rects[nrect][3] = y + s * 0.3;
+        nrect++;
+    }
+
+    if (ll.labels) {
+        cairo_font_extents_t fe;
+        cairo_font_extents(cr, &fe);
+        for (k = 0; k < nsite; k++) {
+            char lines[3][96];
+            int nl = 0, j, pos, near = is_near(&ll.items[site[k].first]);
+            double w = 0, lh = fs * 1.5, x = site[k].x, y = site[k].y, bx = 0, by = 0, r[4];
+
+            for (j = 0; j < site[k].n && nl < 2; j++)
+                launch_label(&ll.items[site[k].idx[j]], now, lines[nl++], sizeof(lines[0]));
+            if (site[k].n > 2)
+                snprintf(lines[nl++], sizeof(lines[0]), "+%d more", site[k].n - 2);
+            for (j = 0; j < nl; j++) {
+                cairo_text_extents_t e;
+                cairo_text_extents(cr, lines[j], &e);
+                if (e.x_advance > w) w = e.x_advance;
             }
-            /* Silhouette of the actual vehicle (Falcon 9, Starship,
-             * Electron...), lit when it's launching within the hour */
-            /* Real rockets are very slender; widen a little so the
-             * shape still reads at map size */
-            cairo_save(cr);
-            cairo_translate(cr, x, y);
-            cairo_scale(cr, 1.6, 1.0);
-            pic_draw_launch_icon(cr, L->rocket, L->mission, 0, 0, s * 4.0,
-                                 L->net <= now + 3600);
-            cairo_restore(cr);
+            /* Candidate spots: right, left, below-right */
+            for (pos = 0; pos < 3; pos++) {
+                if (pos == 0)      { bx = x + s * 0.9;          by = y - s * 0.4; }
+                else if (pos == 1) { bx = x - s * 0.9 - w;      by = y - s * 0.4; }
+                else               { bx = x + s * 0.9;          by = y + fs * 1.6; }
+                r[0] = bx - fs * 0.4; r[1] = by - fe.ascent - fs * 0.3;
+                r[2] = bx + w + fs * 0.4; r[3] = by + lh * (nl - 1) + fe.descent + fs * 0.3;
+                if (r[0] < 0 || r[2] > width || r[1] < 0 || r[3] > height) continue;
+                if (!rect_hits(r, rects, nrect, k)) break;   /* rect k: own rocket */
+            }
+            if (pos == 3) continue;                 /* no room: rocket only */
+            memcpy(rects[nrect++], r, sizeof(r));
+            for (j = 0; j < nl; j++) {
+                int more = j == nl - 1 && site[k].n > 2;
+                pic_draw_text_pill(cr, bx, by + lh * j, lines[j],
+                                   more ? 0.75 : near ? 1.0 : 0.95,
+                                   more ? 0.78 : near ? 0.88 : 0.95,
+                                   more ? 0.82 : near ? 0.5 : 0.95, 0.6);
+            }
         }
-
-        if (!ll.labels) continue;
-        if (L->net <= now) snprintf(when, sizeof(when), "launching");
-        else pic_fmt_until(when, sizeof(when), now, L->net);
-        if (!L->precise && L->net > now + 86400) {
-            char d[16];
-            pic_fmt_when(d, sizeof(d), now, L->net);
-            snprintf(when, sizeof(when), "NET %s", d);
-        }
-        snprintf(label, sizeof(label), "%s \xc2\xb7 %s", L->rocket, when);
-        pic_draw_text_pill(cr, x + s * 0.9, y - s * 0.4 + lift, label,
-                           near ? 1.0 : 0.95, near ? 0.88 : 0.95,
-                           near ? 0.5 : 0.95, 0.6);
     }
     pthread_mutex_unlock(&ll.mutex);
 }
