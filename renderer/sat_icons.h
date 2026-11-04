@@ -20,7 +20,13 @@ typedef enum {
     PIC_SAT_EARTHOBS,      /* weather / Earth observation */
     PIC_SAT_CUBESAT,
     PIC_SAT_ROCKET_BODY,
+    PIC_SAT_SAR,           /* radar imagers: flat antenna panel      */
+    PIC_SAT_BLUEBIRD,      /* AST SpaceMobile: huge square array     */
 } pic_sat_kind_t;
+
+/* Real length and diameter in metres of a spent stage named like
+ * "SL-16 R/B" or "CZ-4B R/B"; 0 when the stage type is unknown */
+int pic_rocket_body_dims(const char *name, double *len_m, double *dia_m);
 
 /* Which silhouette a satellite name maps to (case-insensitive) */
 pic_sat_kind_t pic_sat_kind(const char *name);

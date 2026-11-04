@@ -2,8 +2,10 @@
  * sat_icons.c - Small vector silhouettes for well-known spacecraft
  *
  * pic_draw_sat_icon() draws a recognisable outline for the ISS, the
- * Tiangong station and the Hubble Space Telescope, and a generic
- * box-and-panels satellite for anything else. Shapes are simplified
+ * Tiangong station and the Hubble Space Telescope, shapes for the
+ * common families (Starlink, OneWeb, Iridium, weather/EO buses, radar
+ * imagers, BlueBird, CubeSats), spent stages to their real proportions,
+ * and a generic box-and-panels satellite for anything else. Shapes are simplified
  * so they still read at 15-30 px; a dark edge keeps them visible on
  * both day and night map tiles.
  *
@@ -26,15 +28,20 @@ static int name_is(const char *name, const char *want)
     return !isalnum((unsigned char)name[n]);
 }
 
+/* A word in name starting with want. A leading '=' asks for the whole
+ * word ("=global" matches "GLOBAL-21" but not "GLOBALSTAR M087") */
 static int has_word(const char *name, const char *want)
 {
-    size_t n = strlen(want), i, j;
+    size_t n, i, j;
+    int whole = want[0] == '=';
+    if (whole) want++;
+    n = strlen(want);
     if (!name) return 0;
     for (i = 0; name[i]; i++) {
         if (i > 0 && isalnum((unsigned char)name[i - 1])) continue;
         for (j = 0; j < n && name[i + j]; j++)
             if (tolower((unsigned char)name[i + j]) != want[j]) break;
-        if (j == n) return 1;
+        if (j == n && (!whole || !isalnum((unsigned char)name[i + n]))) return 1;
     }
     return 0;
 }
@@ -42,23 +49,49 @@ static int has_word(const char *name, const char *want)
 pic_sat_kind_t pic_sat_kind(const char *name)
 {
     static const char *wx[] = { "noaa", "metop", "meteor", "fengyun", "fy-", "jpss",
-                                "suomi", "npp", "aqua", "terra", "landsat", "sentinel",
+                                "=suomi", "npp", "=aqua", "=terra", "landsat", "sentinel",
                                 "gosat", "dmsp", "gcom", "ziyuan", "cbers", "resurs",
-                                "kanopus", "worldview", "pleiades", "spot", NULL };
+                                "kanopus", "worldview", "pleiades", "=spot", "jilin",
+                                "gaofen", "cartosat", "haiyang", "=hj", "=zy", "zy-1",
+                                "yunhai", "zhuhai", "=grus", "=global", "alsat", "=dmc",
+                                "deimos", "=proba", "=tiros", "skysat", "kompsat",
+                                "superview", "=beijing", "ningxia", "vrss", "rcm-", NULL };
     static const char *cube[] = { "tianqi", "lemur", "flock", "dove", "spire", "cubesat",
                                   "fossasat", "xw-", "cas-", "lilacsat", "funcube",
-                                  "jy1sat", "cute", "qmr", "ky", "geoscan", NULL };
+                                  "jy1sat", "cute", "qmr", "ky", "geoscan", "kineis",
+                                  "connecta", "=cuby", "aprizesat", "s-net", "netsat",
+                                  "lizziesat", "skykraft", "=lyra", "aac-ais-sat", "=uwe",
+                                  "unisat", "aerocube", "tyvak", "=ghost", "=firefly",
+                                  "ermis", "sateliot", "tomorrow-s", "wildfire",
+                                  "=centauri", "=corvus", "saudisat", "=tiger", "zheda",
+                                  "ten-koh", "iride-ms", "=otter", "lemur-2", "=bro",
+                                  "skybee-a", "=hermes", "ionosfera-m", NULL };
+    static const char *sar[] = { "iceye", "=capella", "=strix", "saocom", "skymed",
+                                 "cosmo-skymed", "=umbra", "terrasar", "=tandem", "radarsat",
+                                 "novasar", "=paz", "kompsat-5", "qps-sar", "hongtu",
+                                 "piesat", "alos", "sentinel-1", "xsar", "neusar",
+                                 "risat", "eos-04", "nisar", "biomass", NULL };
     int i;
     if (name_is(name, "iss") || name_is(name, "zarya"))
         return PIC_SAT_ISS;
     if (name_is(name, "tiangong") || name_is(name, "css") ||
         name_is(name, "tianhe"))
         return PIC_SAT_TIANGONG;
-    if (name_is(name, "hubble") || name_is(name, "hst"))
+    if (name_is(name, "hubble") || name_is(name, "hst")) {
+        /* the telescope, not Hubble Network's numbered smallsats */
+        const char *p = name + 3;
+        while (isalpha((unsigned char)*p)) p++;
+        while (*p == ' ') p++;
+        if (isdigit((unsigned char)*p)) return PIC_SAT_CUBESAT;
         return PIC_SAT_HUBBLE;
+    }
     if (has_word(name, "r/b") || has_word(name, "rocket") || has_word(name, "akm") ||
         has_word(name, "sl-") || has_word(name, "cz-"))
         return PIC_SAT_ROCKET_BODY;
+    if (has_word(name, "spacemobile") || has_word(name, "bluebird") ||
+        has_word(name, "bluewalker"))
+        return PIC_SAT_BLUEBIRD;
+    for (i = 0; sar[i]; i++) if (has_word(name, sar[i])) return PIC_SAT_SAR;
     if (has_word(name, "starlink")) return PIC_SAT_STARLINK;
     if (has_word(name, "oneweb")) return PIC_SAT_ONEWEB;
     if (has_word(name, "iridium")) return PIC_SAT_IRIDIUM;
@@ -79,7 +112,7 @@ double pic_sat_icon_angle(const char *name, double dx, double dy)
     double a;
     if (dx == 0 && dy == 0) return 0;
     a = atan2(dy, dx);
-    if (k == PIC_SAT_HUBBLE || k == PIC_SAT_ROCKET_BODY) return a;
+    if (k == PIC_SAT_HUBBLE || k == PIC_SAT_ROCKET_BODY || k == PIC_SAT_SAR) return a;
     return a + M_PI / 2;
 }
 
@@ -308,21 +341,200 @@ static void draw_cubesat(cairo_t *cr, double s, double e)
     box(cr, -0.45 * s, -0.45 * s, 0.9 * s, 0.9 * s, C_FOIL, e * 0.7);
 }
 
-/* Spent upper stage: a cylinder with an engine bell, axis along x */
-static void draw_rocket_body(cairo_t *cr, double s, double e)
+/*
+ * Spent stages, by type: length and diameter in metres (nozzle
+ * included), how much of the length is engine bell, the bell's exit
+ * diameter as a share of the stage diameter, and whether the stage is
+ * bare metal / foil (Centaur, Agena, Breeze) rather than painted white.
+ */
+typedef struct {
+    const char *name;
+    double len, dia, noz, exitr;
+    int silver;
+} pic_stage_t;
+
+static const pic_stage_t STAGES[] = {
+    { "=sl-16", 11.5, 3.9, 0.15, 0.55, 0 },   /* Zenit-2 second stage       */
+    { "=sl-14", 2.7, 2.7, 0.30, 0.40, 0 },    /* Tsyklon-3 S5M third stage  */
+    { "=sl-8", 6.5, 2.4, 0.20, 0.45, 0 },     /* Kosmos-3M second stage     */
+    { "=sl-3", 3.1, 2.6, 0.30, 0.35, 0 },     /* Vostok Blok E              */
+    { "=sl-4", 6.7, 2.66, 0.20, 0.45, 0 },    /* Soyuz Blok I               */
+    { "=sl-6", 3.3, 2.6, 0.30, 0.40, 0 },     /* Molniya Blok L             */
+    { "=sl-12", 6.3, 3.7, 0.15, 0.40, 0 },    /* Proton Blok DM             */
+    { "=sl-19", 2.6, 2.5, 0.25, 0.40, 1 },    /* Rokot Breeze-KM            */
+    { "breeze-km", 2.6, 2.5, 0.25, 0.40, 1 },
+    { "breeze-m", 2.6, 4.0, 0.25, 0.30, 1 },
+    { "fregat", 1.5, 3.35, 0.35, 0.25, 1 },
+    { "=cz-2c", 7.5, 3.35, 0.20, 0.50, 0 },
+    { "=cz-2d", 10.9, 3.35, 0.18, 0.50, 0 },
+    { "=cz-3b", 12.4, 3.0, 0.15, 0.45, 0 },
+    { "=cz-4b", 4.9, 2.9, 0.25, 0.45, 0 },
+    { "=cz-4c", 4.9, 2.9, 0.25, 0.45, 0 },
+    { "=cz-6", 3.0, 2.25, 0.30, 0.40, 0 },
+    { "=cz-6a", 7.0, 3.35, 0.20, 0.45, 0 },
+    { "=cz-8a", 12.0, 3.0, 0.15, 0.45, 0 },
+    { "=cz-11", 1.8, 2.0, 0.30, 0.40, 0 },
+    { "=h-2a", 9.2, 4.0, 0.25, 0.50, 0 },
+    { "=h3", 11.0, 5.2, 0.22, 0.45, 0 },
+    { "ariane 5", 4.7, 5.4, 0.40, 0.40, 0 },   /* ESC-A                      */
+    { "ariane 6", 11.6, 5.4, 0.25, 0.40, 0 },  /* ULPM                       */
+    { "=ariane", 11.05, 2.6, 0.20, 0.45, 0 },  /* Ariane 1-4 H10 third stage */
+    { "=delta 2", 6.0, 2.4, 0.30, 0.55, 0 },
+    { "=delta 1", 6.0, 1.5, 0.30, 0.55, 0 },
+    { "=delta 4", 12.0, 4.0, 0.30, 0.55, 0 },
+    { "=atlas", 12.7, 3.05, 0.15, 0.40, 1 },   /* Centaur                    */
+    { "=titan", 9.0, 4.3, 0.15, 0.40, 1 },     /* Centaur T                  */
+    { "=agena", 7.1, 1.5, 0.20, 0.55, 1 },
+    { "=thor", 7.1, 1.5, 0.20, 0.55, 1 },      /* "THOR Agena D R/B"         */
+    { "=pegasus", 1.3, 0.97, 0.35, 0.60, 0 },
+    { "=gslv", 8.7, 2.8, 0.20, 0.45, 0 },
+    { "=pslv", 3.0, 2.8, 0.30, 0.45, 0 },
+    { "=falcon", 12.6, 3.66, 0.30, 0.90, 0 },  /* MVac's huge bell           */
+    { "=electron", 2.4, 1.2, 0.30, 0.50, 0 },
+    { NULL, 0, 0, 0, 0, 0 }
+};
+
+static const pic_stage_t *stage_of(const char *name)
 {
+    int i;
+    for (i = 0; STAGES[i].name; i++)
+        if (has_word(name, STAGES[i].name)) return &STAGES[i];
+    return NULL;
+}
+
+int pic_rocket_body_dims(const char *name, double *len_m, double *dia_m)
+{
+    const pic_stage_t *st = stage_of(name);
+    if (!st) return 0;
+    if (len_m) *len_m = st->len;
+    if (dia_m) *dia_m = st->dia;
+    return 1;
+}
+
+/* Spent upper stage, axis along x, front (dome) to -x, bell to +x,
+ * drawn to the stage's real proportions within about 6.6 x 3.9 units */
+static void draw_rocket_body(cairo_t *cr, const char *name, double s, double e)
+{
+    static const pic_stage_t dflt = { "", 6.0, 2.5, 0.22, 0.45, 0 };
+    const pic_stage_t *st = stage_of(name);
+    double k, L, D, nl, bl, x0, rr, ex;
+    double cr_, cg, cb;
+    cairo_pattern_t *pat;
+
+    if (!st) st = &dflt;
+    k = fmin(6.6 / st->len, 3.9 / st->dia);
+    L = st->len * k * s;
+    D = st->dia * k * s;
+    nl = L * st->noz;                 /* bell length */
+    bl = L - nl;                      /* tank length */
+    x0 = -L / 2;
+    rr = fmin(D * 0.3, bl * 0.3);     /* forward dome rounding */
+    ex = D * st->exitr / 2;           /* bell exit half-width */
+    if (st->silver) { cr_ = 0.78; cg = 0.79; cb = 0.82; }
+    else            { cr_ = 0.9;  cg = 0.9;  cb = 0.91; }
+
+    /* engine bell */
     cairo_new_path(cr);
-    cairo_move_to(cr, 2.3 * s, -0.45 * s);
-    cairo_line_to(cr, 3.4 * s, -0.8 * s);
-    cairo_line_to(cr, 3.4 * s, 0.8 * s);
-    cairo_line_to(cr, 2.3 * s, 0.45 * s);
+    cairo_move_to(cr, x0 + bl - e, -D * 0.12);
+    cairo_curve_to(cr, x0 + bl + nl * 0.5, -D * 0.14, x0 + L - nl * 0.2, -ex, x0 + L, -ex);
+    cairo_line_to(cr, x0 + L, ex);
+    cairo_curve_to(cr, x0 + L - nl * 0.2, ex, x0 + bl + nl * 0.5, D * 0.14, x0 + bl - e, D * 0.12);
     cairo_close_path(cr);
-    cairo_set_source_rgba(cr, 0.35, 0.33, 0.32, 0.95);
+    pat = cairo_pattern_create_linear(0, -ex, 0, ex);
+    cairo_pattern_add_color_stop_rgba(pat, 0, 0.22, 0.21, 0.21, 0.97);
+    cairo_pattern_add_color_stop_rgba(pat, 0.35, 0.5, 0.47, 0.45, 0.97);
+    cairo_pattern_add_color_stop_rgba(pat, 1, 0.2, 0.19, 0.19, 0.97);
+    cairo_set_source(cr, pat);
     cairo_fill_preserve(cr);
+    cairo_pattern_destroy(pat);
     cairo_set_source_rgba(cr, EDGE_R, EDGE_G, EDGE_B, 0.8);
     cairo_set_line_width(cr, e);
     cairo_stroke(cr);
-    cyl(cr, -3.2 * s, -0.75 * s, 5.5 * s, 1.5 * s, 0.88, 0.89, 0.9, e);
+
+    /* tank: rounded forward dome, flat aft skirt */
+    cairo_new_path(cr);
+    cairo_move_to(cr, x0 + bl, -D / 2);
+    cairo_line_to(cr, x0 + rr, -D / 2);
+    cairo_curve_to(cr, x0 + rr * 0.3, -D / 2, x0, -D / 2 + rr * 0.7, x0, -D / 2 + rr);
+    cairo_line_to(cr, x0, D / 2 - rr);
+    cairo_curve_to(cr, x0, D / 2 - rr * 0.7, x0 + rr * 0.3, D / 2, x0 + rr, D / 2);
+    cairo_line_to(cr, x0 + bl, D / 2);
+    cairo_close_path(cr);
+    pat = cairo_pattern_create_linear(0, -D / 2, 0, D / 2);
+    cairo_pattern_add_color_stop_rgba(pat, 0.0, cr_ * 0.68, cg * 0.68, cb * 0.68, 0.97);
+    cairo_pattern_add_color_stop_rgba(pat, 0.33, fmin(1, cr_ * 1.1), fmin(1, cg * 1.1), fmin(1, cb * 1.1), 0.97);
+    cairo_pattern_add_color_stop_rgba(pat, 1.0, cr_ * 0.58, cg * 0.58, cb * 0.58, 0.97);
+    cairo_set_source(cr, pat);
+    cairo_fill_preserve(cr);
+    cairo_pattern_destroy(pat);
+    cairo_set_source_rgba(cr, EDGE_R, EDGE_G, EDGE_B, 0.8);
+    cairo_set_line_width(cr, e);
+    cairo_stroke(cr);
+
+    /* tank seam (intertank / skirt ring) when there is room for it */
+    if (bl > 2.5 * s) {
+        double sx[2] = { x0 + bl * 0.55, x0 + bl - 0.25 * s };
+        int i;
+        cairo_set_source_rgba(cr, EDGE_R, EDGE_G, EDGE_B, 0.35);
+        cairo_set_line_width(cr, e * 0.7);
+        for (i = 0; i < 2; i++) {
+            cairo_move_to(cr, sx[i], -D / 2);
+            cairo_line_to(cr, sx[i], D / 2);
+        }
+        cairo_stroke(cr);
+    }
+}
+
+/*
+ * Radar imaging satellite (ICEYE, Umbra, Strix, SAOCOM, COSMO-SkyMed):
+ * a long, flat phased-array antenna dominating a small bus, with one
+ * small array. Capella is the exception: a big round mesh reflector.
+ */
+static void draw_sar(cairo_t *cr, const char *name, double s, double e)
+{
+    if (has_word(name, "=capella") || has_word(name, "=umbra")) {
+        cairo_pattern_t *pat;
+        array(cr, -3.9 * s, -0.55 * s, 1.6 * s, 1.1 * s, C_BLUE, 2, 3, e);
+        strut(cr, -2.3 * s, 0, -1.0 * s, 0, e);
+        cairo_new_path(cr);
+        cairo_arc(cr, 1.0 * s, 0, 2.7 * s, 0, 2 * M_PI);
+        pat = cairo_pattern_create_radial(0.4 * s, -0.6 * s, 0.2 * s, 1.0 * s, 0, 2.7 * s);
+        cairo_pattern_add_color_stop_rgba(pat, 0, 0.93, 0.86, 0.62, 0.9);
+        cairo_pattern_add_color_stop_rgba(pat, 1, 0.66, 0.56, 0.32, 0.9);
+        cairo_set_source(cr, pat);
+        cairo_fill_preserve(cr);
+        cairo_pattern_destroy(pat);
+        cairo_set_source_rgba(cr, EDGE_R, EDGE_G, EDGE_B, 0.8);
+        cairo_set_line_width(cr, e);
+        cairo_stroke(cr);
+        {   /* mesh ribs */
+            int i;
+            cairo_set_source_rgba(cr, EDGE_R, EDGE_G, EDGE_B, 0.3);
+            cairo_set_line_width(cr, e * 0.5);
+            for (i = 0; i < 8; i++) {
+                double a = i * M_PI / 4;
+                cairo_move_to(cr, 1.0 * s, 0);
+                cairo_line_to(cr, 1.0 * s + 2.7 * s * cos(a), 2.7 * s * sin(a));
+            }
+            cairo_stroke(cr);
+        }
+        box(cr, 0.45 * s, -0.55 * s, 1.1 * s, 1.1 * s, C_FOIL, e);
+        return;
+    }
+    array(cr, -4.0 * s, -0.8 * s, 8.0 * s, 1.6 * s, 0.6, 0.6, 0.6, 2, 12, e);
+    box(cr, -0.75 * s, -1.6 * s, 1.5 * s, 0.85 * s, C_FOIL, e);          /* bus  */
+    array(cr, -0.7 * s, -2.7 * s, 1.4 * s, 1.1 * s, C_BLUE, 2, 2, e);   /* cells */
+}
+
+/*
+ * AST SpaceMobile BlueWalker / BlueBird: a flat phased array of
+ * hexagonal-ish tiles, 64-220 m^2, larger than anything else in LEO
+ * except the ISS, with the small bus at its centre.
+ */
+static void draw_bluebird(cairo_t *cr, double s, double e)
+{
+    array(cr, -3.0 * s, -3.0 * s, 6.0 * s, 6.0 * s, C_DARK, 8, 8, e);
+    box(cr, -0.55 * s, -0.55 * s, 1.1 * s, 1.1 * s, C_FOIL, e);
 }
 
 static void draw_generic(cairo_t *cr, double s, double e)
@@ -359,7 +571,9 @@ void pic_draw_sat_icon(cairo_t *cr, const char *name, double x, double y,
     case PIC_SAT_IRIDIUM:     draw_iridium(cr, s, e); break;
     case PIC_SAT_EARTHOBS:    draw_earthobs(cr, s, e); break;
     case PIC_SAT_CUBESAT:     draw_cubesat(cr, s * 1.2, e); break;
-    case PIC_SAT_ROCKET_BODY: draw_rocket_body(cr, s, e); break;
+    case PIC_SAT_ROCKET_BODY: draw_rocket_body(cr, name, s, e); break;
+    case PIC_SAT_SAR:         draw_sar(cr, name, s, e); break;
+    case PIC_SAT_BLUEBIRD:    draw_bluebird(cr, s, e); break;
     default:                  draw_generic(cr, s, e); break;
     }
     if (dim < 1.0) {
