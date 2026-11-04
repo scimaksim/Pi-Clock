@@ -165,12 +165,8 @@ void pic_layer_render_ebird(cairo_t *cr, int width, int height, time_t now,
 
     (void)now; (void)ud;
     pthread_mutex_lock(&eb.mutex);
-    if (eb.status == 1 || eb.status == 2) {
+    if (eb.status == 1 || eb.status == 2) {      /* note: ebird_note() */
         pthread_mutex_unlock(&eb.mutex);
-        pic_draw_legend_line(cr, width, height, 5,
-                             eb.status == 1 ? "Rare birds: add an eBird API key in the dashboard"
-                                            : "Rare birds: eBird rejected the API key",
-                             1.0, 0.8, 0.5);
         return;
     }
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
@@ -207,8 +203,26 @@ void pic_layer_render_ebird(cairo_t *cr, int width, int height, time_t now,
     pthread_mutex_unlock(&eb.mutex);
 }
 
+/* Key missing / rejected: a note in the bottom legend stack. Drawn as
+ * a legend (each frame, in stack order) rather than inside the cached
+ * layer, so it can't land on top of another legend. */
+static void ebird_note(cairo_t *cr, int width, int height, time_t now, void *ud)
+{
+    int st;
+    (void)now; (void)ud;
+    pthread_mutex_lock(&eb.mutex);
+    st = eb.status;
+    pthread_mutex_unlock(&eb.mutex);
+    if (st == 1 || st == 2)
+        pic_draw_legend_line(cr, width, height, 5,
+                             st == 1 ? "Rare birds: add an eBird API key in the dashboard"
+                                     : "Rare birds: eBird rejected the API key",
+                             1.0, 0.8, 0.5);
+}
+
 static pic_feature_t def = {
     .name = "ebird", .layer = pic_layer_render_ebird, .interval = 60,
+    .legend = ebird_note,
     .extra_mb = 1, .reload = ebird_reload, .work = ebird_work,
     .needs_network = 1,
 };

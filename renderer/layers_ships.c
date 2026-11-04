@@ -275,15 +275,7 @@ void pic_layer_render_ships(cairo_t *cr, int width, int height,
     cairo_set_font_size(cr, fs);
     pthread_mutex_lock(&sh.mutex);
     labels = sh.labels && zoom >= 2.5;
-    if (sh.status == 1 || sh.status == 2) {
-        pic_draw_legend_line(cr, width, height, 2,
-                             sh.status == 1 ? "Ships: add an aisstream.io key in the dashboard"
-                                            : "Ships: can't reach aisstream.io",
-                             1.0, 0.8, 0.5);
-        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
-                               CAIRO_FONT_WEIGHT_NORMAL);
-        cairo_set_font_size(cr, fs);
-    }
+    /* key / connection status: ships_note() */
     for (i = 0; i < sh.n; i++) {
         const ship_t *v = &sh.ships[i];
         double x = pic_lon_to_x(v->lon, width), y = pic_lat_to_y(v->lat, height);
@@ -319,8 +311,25 @@ void pic_layer_render_ships(cairo_t *cr, int width, int height,
     pthread_mutex_unlock(&sh.mutex);
 }
 
+/* Key missing / no connection: a note in the bottom legend stack
+ * (drawn as a legend so it can't overlap the others) */
+static void ships_note(cairo_t *cr, int width, int height, time_t now, void *ud)
+{
+    int st;
+    (void)now; (void)ud;
+    pthread_mutex_lock(&sh.mutex);
+    st = sh.status;
+    pthread_mutex_unlock(&sh.mutex);
+    if (st == 1 || st == 2)
+        pic_draw_legend_line(cr, width, height, 2,
+                             st == 1 ? "Ships: add an aisstream.io key in the dashboard"
+                                     : "Ships: can't reach aisstream.io",
+                             1.0, 0.8, 0.5);
+}
+
 static pic_feature_t feature_def = {
     .name = "ships", .layer = pic_layer_render_ships, .interval = 10,
+    .legend = ships_note,
     .extra_mb = 2, .reload = ships_reload, .work = ships_work,
     .needs_network = 1, .stopped = ships_stopped,
     .interrupt = ships_interrupt,

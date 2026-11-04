@@ -15,6 +15,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
+#include "feature.h"
 #include "layer.h"
 #include "display.h"
 #include "config.h"
@@ -275,15 +276,10 @@ void pic_layer_render_dxspots_legend(cairo_t *cr, int width, int height,
             double ly, cx;
 
             {
-                double ref_bottom;
+                /* A slot in the shared bottom legend stack, so it
+                 * doesn't sit on the map key or other legends */
                 double bg_h = legend_fs * 1.2 + bg_pad * 2;
-                double gap = height / 160.0;
-
-                if (pic_ticker_bar_top > 0) {
-                    ref_bottom = pic_ticker_bar_top - gap;
-                } else {
-                    ref_bottom = height - height / 80.0;
-                }
+                double ref_bottom = pic_legend_take(height, 1.3) + height / 72.0 * 0.45;
 
                 ly = ref_bottom - bg_h + bg_pad + dot_r;
             }
