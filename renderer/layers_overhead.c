@@ -66,7 +66,8 @@ static struct {
     ov_sat_t *sats;
     int       n;
     int       in_view, visible;   /* from the last render, for the note */
-} ov = { PTHREAD_MUTEX_INITIALIZER, NULL, 0, 0, 0 };
+    unsigned  gen;                /* bumped when the list is replaced  */
+} ov = { PTHREAD_MUTEX_INITIALIZER, NULL, 0, 0, 0, 0 };
 
 /* "STARLINK-1234" -> "Starlink-1234", "ISS (ZARYA)" -> "ISS";
  * short all-caps runs (NOAA, SL-16, R/B) stay as they are */
@@ -255,6 +256,7 @@ static int overhead_work(pic_feature_t *f)
     free(ov.sats);
     ov.sats = list;
     ov.n = n;
+    ov.gen++;
     pthread_mutex_unlock(&ov.mutex);
     printf("overhead: %d low-orbit satellites (%d/3 sources)\n", n, got);
     /* Recheck hourly: refresh() only downloads once a copy is a day
@@ -289,14 +291,37 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
     cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
 
     pthread_mutex_lock(&ov.mutex);
-    /* One SGP4 step per satellite per frame; keep the ones in view */
+    /*
+     * Redrawn every second for smooth motion. Propagating all ~1,700
+     * satellites each second would be wasteful on a Pi, so every 10 s
+     * (or when the view or the list changes) all are checked and those
+     * near the view (a margin wider than 10 s of LEO travel) become the
+     * candidates; in between only the candidates are propagated.
+     */
     {
         static struct { int i; double lat, lon, el; int lit; } vis[OV_MAX];
-        int nv = 0, j;
-        for (i = 0; i < ov.n; i++) {
-            double lat, lon, alt, dlon;
+        static int cand[OV_MAX], ncand = -1;
+        static time_t cand_t;
+        static double cand_key[3];
+        static unsigned cand_gen;
+        int nv = 0, j, full, nnew = 0, cnt;
+        double key[3] = { clon, clat, span };
+        full = ncand < 0 || now - cand_t >= 10 || now < cand_t || cand_gen != ov.gen ||
+               memcmp(key, cand_key, sizeof(key)) != 0;
+        cnt = full ? ov.n : ncand;
+        for (j = 0; j < cnt; j++) {
+            double lat, lon, alt, dlon, mlon, mlat;
+            i = full ? j : cand[j];
+            if (i >= ov.n) continue;
             pic_sat_position_at(&ov.sats[i].sat, now, &lat, &lon, &alt);
             dlon = fmod(lon - clon + 540.0, 360.0) - 180.0;
+            if (full) {
+                /* 0.55 of the span plus ~1 deg (10 s of travel) */
+                mlon = span * 0.55 + 1.0 / fmax(0.2, cos(lat * M_PI / 180));
+                mlat = span_lat * 0.55 + 1.0;
+                if (fabs(dlon) <= mlon && fabs(lat - clat) <= mlat)
+                    cand[nnew++] = i;
+            }
             if (fabs(dlon) > span * 0.55 || fabs(lat - clat) > span_lat * 0.55)
                 continue;
             vis[nv].i = i; vis[nv].lat = lat; vis[nv].lon = lon;
@@ -304,6 +329,12 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
             vis[nv].el = pic_sat_look_angles(&ov.sats[i].sat, now, qlat, qlon,
                                              NULL, &vis[nv].lit);
             nv++;
+        }
+        if (full) {
+            ncand = nnew;
+            cand_t = now;
+            memcpy(cand_key, key, sizeof(key));
+            cand_gen = ov.gen;
         }
         /* Pass 0: marks and trails; 1: labels of sats above home's
          * horizon (and named ones); 2: other labels where they fit */
@@ -416,7 +447,7 @@ static void overhead_note(cairo_t *cr, int width, int height, time_t now,
 static pic_feature_t feature_def = {
     .name = "overhead", .layer = pic_layer_render_overhead,
     .legend = overhead_note,
-    .interval = 5, .extra_mb = 1,
+    .interval = 1, .extra_mb = 1,
     .work = overhead_work, .needs_network = 1,
 };
 

@@ -46,7 +46,7 @@ RE = 6371200.0 * 4 / 3                    # effective earth radius, m
 MAP_STEP = 0.005                          # output map, degrees
 MAP_KM = 150.0
 
-PAL = Palette([(5, "#3fa7c9", 110), (20, "#58c98a", 150), (50, "#d9d84a", 180),
+PAL = Palette([(5, "#3fa7c9", 35), (20, "#58c98a", 140), (50, "#d9d84a", 180),
                (100, "#f2a33a", 200), (200, "#ea5a35", 215), (500, "#c9369a", 230)],
               vmin_show=5, log=True)
 
@@ -225,12 +225,12 @@ def _map(chans, weather, lat0, lon0):
     dbz = chans[0]
     eta = DBZ_FACTOR * 10 ** (np.nan_to_num(dbz, nan=-30) / 10)
     # Measured gates outside weather count (zero where no bird echo);
-    # a 1 km Gaussian (normalised by coverage) turns the 500 m speckle
+    # a 1.5 km Gaussian (normalised by coverage) turns the 500 m speckle
     # into the familiar smooth "bloom" around the radar
     measured = ~np.isnan(dbz) & ~weather
     val = np.where(measured & (eta <= ETA_MAX), eta / SIGMA_BIRD, 0.0)
-    wsm = ndimage.gaussian_filter(measured.astype(np.float32), 2)
-    vsm = ndimage.gaussian_filter((val * measured).astype(np.float32), 2)
+    wsm = ndimage.gaussian_filter(measured.astype(np.float32), 3)
+    vsm = ndimage.gaussian_filter((val * measured).astype(np.float32), 3)
     with np.errstate(all="ignore"):
         grid = np.where(wsm > 0.25, vsm / wsm, np.nan)
     sel = ok & (dist >= 5000) & (dist <= MAP_KM * 1000)

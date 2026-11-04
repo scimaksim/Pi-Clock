@@ -146,7 +146,7 @@ static int pch_work(pic_feature_t *f)
 {
     pch_t *d = (pch_t *)f->data;
     char base[160] = "", url[320], tmp[96];
-    static char man[PCH_MAN_MAX];
+    char *man;                       /* per call: the product threads run at once */
     char files[PCH_MAXF][48];
     pch_t nm;
     int n, i, ok = 1;
@@ -164,19 +164,24 @@ static int pch_work(pic_feature_t *f)
     }
 
     snprintf(url, sizeof(url), "%s/%s/manifest.json", base, d->product);
-    n = pic_fetch_to_buf(url, man, sizeof(man) - 1);
+    man = malloc(PCH_MAN_MAX);
+    if (!man) return 60;
+    n = pic_fetch_to_buf(url, man, PCH_MAN_MAX - 1);
     pthread_mutex_lock(&d->mutex);
     d->last_try = now;
     if (n <= 0) {
         if (now - d->last_ok > PCH_OFFLINE_S) d->state = 2;
         pthread_mutex_unlock(&d->mutex);
+        free(man);
         return 60;
     }
     pthread_mutex_unlock(&d->mutex);
     man[n] = 0;
 
     memset(&nm, 0, sizeof(nm));
-    if (parse_manifest(man, (size_t)n, &nm, files) != 0) {
+    i = parse_manifest(man, (size_t)n, &nm, files);
+    free(man);
+    if (i != 0 || strcmp(d->product, "") == 0) {
         printf("%s: bad manifest from helper\n", d->product);
         return 120;
     }
