@@ -67,4 +67,11 @@ int pic_draw_launch_icon(cairo_t *cr, const char *rocket, const char *mission,
 double pic_sat_label_rgb(double r, double g, double b,
                          double *lr, double *lg, double *lb);
 
+/*
+ * Crew badge (person pictogram + number) h px tall with its left edge
+ * at x, centred on y. Nothing drawn for aboard < 0. Returns its width.
+ */
+double pic_draw_crew_badge(cairo_t *cr, double x, double y, double h, int aboard,
+                           double r, double g, double b);
+
 #endif /* PIC_SAT_ICONS_H */

@@ -34,6 +34,10 @@ pic_feature_t *pic_feature_seasons(void);        /* Seasons panel      */
 pic_feature_t *pic_feature_analemma(void);       /* Analemma panel     */
 pic_feature_t *pic_feature_events(void);         /* Coming-up strip    */
 pic_feature_t *pic_feature_health(void);         /* Vital-signs log    */
+pic_feature_t *pic_feature_crew(void);           /* People in space    */
+/* People aboard "ISS" / "Tiangong" (crew.c); -1 unknown */
+int pic_crew_aboard(const char *station);
+int pic_crew_parse(const char *js, size_t len);
 /* Layers computed by the PC helper (layers_pchelper.c) */
 pic_feature_t *pic_feature_pch_nowcast(void);
 pic_feature_t *pic_feature_pch_clouds(void);

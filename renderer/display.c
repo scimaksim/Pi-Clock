@@ -1989,6 +1989,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     register_feature(pic_feature_analemma());
     register_feature(pic_feature_hanotify());   /* no layer or applet */
     register_feature(pic_feature_health());     /* vital-signs log */
+    register_feature(pic_feature_crew());       /* people aboard the stations */
     /* Legends of features added after the first pass above */
     {
         int fi;

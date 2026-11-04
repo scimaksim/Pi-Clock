@@ -7,6 +7,7 @@
 #include "sprites.h"
 #include "config.h"
 #include "sat_icons.h"
+#include "features_all.h"
 #include <math.h>
 #include <pthread.h>
 #include <string.h>
@@ -146,6 +147,11 @@ void pic_sprites_draw(cairo_t *cr, double tf, int width, int height)
                          pic_sat_icon_angle(p->icon, x1 - x0, y1 - y0) : 0;
             pic_draw_sat_icon(cr, p->icon, x, y, s * (p->known == 2 ? 14 : 10), ang,
                               p->r, p->g, p->b);
+            if (p->known == 2) {
+                int aboard = pic_sat_kind(p->icon) == PIC_SAT_ISS ? pic_crew_aboard("ISS") :
+                             pic_sat_kind(p->icon) == PIC_SAT_TIANGONG ? pic_crew_aboard("Tiangong") : -1;
+                pic_draw_crew_badge(cr, x + s * 7.5, y + s * 6.0, s * 5.0, aboard, lr, lg, lb);
+            }
         } else {
             cairo_new_path(cr);
             cairo_arc(cr, x, y, s * (p->up ? 2.2 : 1.6), 0, 2 * M_PI);

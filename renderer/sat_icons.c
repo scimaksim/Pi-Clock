@@ -13,6 +13,7 @@
 #include "sat_icons.h"
 #include <ctype.h>
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 static int name_is(const char *name, const char *want)
@@ -392,4 +393,50 @@ double pic_sat_label_rgb(double r, double g, double b,
      * colour blindness; trails are dashed as well */
     *lr = 0.86; *lg = 0.52; *lb = 0.66;
     return 0.9;
+}
+
+/*
+ * Crew badge beside a station icon: a small person pictogram and the
+ * number aboard, in a dark pill. (x, y) is the badge's left-centre;
+ * h its height in px. Returns the badge width.
+ */
+double pic_draw_crew_badge(cairo_t *cr, double x, double y, double h, int aboard,
+                           double r, double g, double b)
+{
+    char num[8];
+    cairo_text_extents_t e;
+    double ph = h * 0.72, hr = ph * 0.17, pad = h * 0.22, w, px, py = y;
+
+    if (aboard < 0) return 0;
+    snprintf(num, sizeof(num), "%d", aboard);
+    cairo_save(cr);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, h * 0.78);
+    cairo_text_extents(cr, num, &e);
+    w = pad + ph * 0.55 + pad * 0.6 + e.x_advance + pad;
+    /* pill */
+    cairo_new_path(cr);
+    cairo_arc(cr, x + h / 2, y, h / 2, M_PI / 2, 3 * M_PI / 2);
+    cairo_arc(cr, x + w - h / 2, y, h / 2, -M_PI / 2, M_PI / 2);
+    cairo_close_path(cr);
+    cairo_set_source_rgba(cr, 0, 0, 0.03, 0.72);
+    cairo_fill(cr);
+    /* person: head, shoulders/body */
+    px = x + pad + ph * 0.27;
+    cairo_set_source_rgba(cr, r, g, b, 0.97);
+    cairo_new_path(cr);
+    cairo_arc(cr, px, py - ph * 0.30, hr, 0, 2 * M_PI);
+    cairo_fill(cr);
+    cairo_new_path(cr);
+    cairo_move_to(cr, px - ph * 0.26, py + ph * 0.38);
+    cairo_curve_to(cr, px - ph * 0.26, py - ph * 0.02, px - ph * 0.14, py - ph * 0.10, px, py - ph * 0.10);
+    cairo_curve_to(cr, px + ph * 0.14, py - ph * 0.10, px + ph * 0.26, py - ph * 0.02, px + ph * 0.26, py + ph * 0.38);
+    cairo_close_path(cr);
+    cairo_fill(cr);
+    /* number */
+    cairo_move_to(cr, x + pad + ph * 0.55 + pad * 0.6, py + e.height / 2 - (e.height + e.y_bearing));
+    cairo_show_text(cr, num);
+    cairo_restore(cr);
+    cairo_new_path(cr);
+    return w;
 }

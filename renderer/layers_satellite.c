@@ -13,6 +13,7 @@
  */
 
 #include "layer.h"
+#include "features_all.h"
 #include "config.h"
 #include "satellite.h"
 #include "sat_icons.h"
@@ -155,6 +156,15 @@ void pic_layer_render_satellite(cairo_t *cr, int width, int height,
          * generic body-and-panels satellite tinted with its colour */
         pic_draw_sat_icon(cr, sat->name[0] ? sat->name : sat->config_key,
                           x, y, dot_r * 8.0, 0.35, cr_r, cr_g, cr_b);
+        /* People aboard the stations */
+        {
+            const char *nm = sat->name[0] ? sat->name : sat->config_key;
+            int aboard = pic_sat_kind(nm) == PIC_SAT_ISS ? pic_crew_aboard("ISS") :
+                         pic_sat_kind(nm) == PIC_SAT_TIANGONG ? pic_crew_aboard("Tiangong") : -1;
+            if (aboard >= 0)
+                pic_draw_crew_badge(cr, x + dot_r * 4.6, y - dot_r * 3.6, dot_r * 3.2, aboard,
+                                    cr_r, cr_g, cr_b);
+        }
 
         /* Name + altitude label */
         {

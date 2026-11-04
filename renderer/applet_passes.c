@@ -400,6 +400,12 @@ double pic_applet_render_passes(cairo_t *cr, double width, time_t now,
         else                      cairo_set_source_rgba(cr, 0.9, 0.9, 0.92, 0.9);
         pic_draw_sat_icon(cr, p->sat, fs * 0.8, y + fs * 0.62, fs * 1.6,
                           0, 0.9, 0.9, 0.6);
+        {   /* people aboard, under the icon */
+            int aboard = pic_sat_kind(p->sat) == PIC_SAT_ISS ? pic_crew_aboard("ISS") :
+                         pic_sat_kind(p->sat) == PIC_SAT_TIANGONG ? pic_crew_aboard("Tiangong") : -1;
+            if (aboard >= 0)
+                pic_draw_crew_badge(cr, fs * 0.15, y + fs * 1.55, fs * 0.6, aboard, 0.85, 0.88, 0.95);
+        }
         cairo_set_source_rgba(cr, live ? 0.3 : p->max_el >= 40 ? 1.0 : 0.9,
                               live ? 1.0 : p->max_el >= 40 ? 0.9 : 0.9,
                               live ? 0.92 : p->max_el >= 40 ? 0.5 : 0.92, 1.0);

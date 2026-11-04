@@ -458,6 +458,11 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                                                      pic_lat_to_y(la1, height) - y);
                         pic_draw_sat_icon(cr, st->name, x, y, s * (known == 2 ? 14 : 10), ang,
                                           r, g, b);
+                        if (known == 2) {
+                            int aboard = pic_sat_kind(st->name) == PIC_SAT_ISS ? pic_crew_aboard("ISS") :
+                                         pic_sat_kind(st->name) == PIC_SAT_TIANGONG ? pic_crew_aboard("Tiangong") : -1;
+                            pic_draw_crew_badge(cr, x + s * 7.5, y + s * 6.0, s * 5.0, aboard, lr, lg, lb);
+                        }
                     } else {
                         cairo_new_path(cr);
                         cairo_arc(cr, x, y, s * (up ? 2.2 : 1.6), 0, 2 * M_PI);
