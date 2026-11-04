@@ -59,6 +59,7 @@
 #include "features_all.h"
 #include "localview.h"
 #include "season.h"
+#include "sprites.h"
 #include "airquality.h"
 #include "starlink.h"
 #include "aircraft.h"
@@ -1036,6 +1037,149 @@ static void *ticker_render_func(void *arg)
     return NULL;
 }
 
+/* ── Smooth sprites (overhead satellites) ──────────────────────────
+ *
+ * The main loop composites the map once a second. In sprite mode it
+ * keeps the map ("under": all layers) and what sits on top of it
+ * ("over": panels, legends, clock) apart, and hands copies of both to
+ * this thread, which ~30 times a second rebuilds only the patches
+ * around moving sprites (under + sprites + over) and writes them to
+ * the framebuffer. fb_lock serialises its writes with the main blit.
+ */
+static pthread_mutex_t fb_lock = PTHREAD_MUTEX_INITIALIZER;
+
+typedef struct {
+    unsigned char *fb_mem;
+    int fb_stride, width, height, drm_fd;
+    pic_ticker_t *ticker;
+    volatile sig_atomic_t *quit;
+    /* guarded by fb_lock */
+    cairo_surface_t *under, *over;   /* thread's copies; NULL = off   */
+    int prev[PIC_SPRITES_MAX][4], nprev;
+} sprite_args_t;
+
+static sprite_args_t sargs;
+
+static int rect_merge(int r[][4], int n)
+{
+    int i, j, merged = 1;
+    while (merged) {
+        merged = 0;
+        for (i = 0; i < n && !merged; i++)
+            for (j = i + 1; j < n; j++) {
+                if (r[i][0] > r[j][2] + 8 || r[j][0] > r[i][2] + 8 ||
+                    r[i][1] > r[j][3] + 8 || r[j][1] > r[i][3] + 8)
+                    continue;
+                if (r[j][0] < r[i][0]) r[i][0] = r[j][0];
+                if (r[j][1] < r[i][1]) r[i][1] = r[j][1];
+                if (r[j][2] > r[i][2]) r[i][2] = r[j][2];
+                if (r[j][3] > r[i][3]) r[i][3] = r[j][3];
+                memcpy(r[j], r[n - 1], sizeof(r[0]));
+                n--;
+                merged = 1;
+                break;
+            }
+    }
+    return n;
+}
+
+static void *sprite_thread_func(void *arg)
+{
+    sprite_args_t *a = (sprite_args_t *)arg;
+    static int cur[PIC_SPRITES_MAX][4], dirty[2 * PIC_SPRITES_MAX][4];
+    unsigned char *scratch = NULL;
+    size_t scratch_size = 0;
+
+    while (!*a->quit) {
+        struct timespec ts;
+        double tf;
+        int n, nd, i, ty0 = 0;
+
+        if (a->drm_fd >= 0) {
+            drmVBlank vbl;
+            memset(&vbl, 0, sizeof(vbl));
+            vbl.request.type = DRM_VBLANK_RELATIVE;
+            vbl.request.sequence = 2;               /* 30 fps at 60 Hz */
+            if (drmWaitVBlank(a->drm_fd, &vbl) != 0) {
+                struct timespec d = { 0, 33000000 };
+                nanosleep(&d, NULL);
+            }
+        } else {
+            struct timespec d = { 0, 33000000 };
+            nanosleep(&d, NULL);
+        }
+        if (!vt_is_active()) continue;
+
+        pthread_mutex_lock(&a->ticker->mutex);
+        ty0 = (int)a->ticker->bar_top;
+        pthread_mutex_unlock(&a->ticker->mutex);
+
+        pthread_mutex_lock(&fb_lock);
+        if (!a->under || !a->over) {
+            a->nprev = 0;
+            pthread_mutex_unlock(&fb_lock);
+            continue;
+        }
+        clock_gettime(CLOCK_REALTIME, &ts);
+        tf = ts.tv_sec + ts.tv_nsec / 1e9;
+        n = pic_sprites_rects(tf, a->width, a->height, cur, PIC_SPRITES_MAX);
+        if (n == 0 && a->nprev == 0) {
+            pthread_mutex_unlock(&fb_lock);
+            continue;
+        }
+        memcpy(dirty, a->prev, sizeof(int) * 4 * a->nprev);
+        memcpy(dirty[a->nprev], cur, sizeof(int) * 4 * n);
+        nd = rect_merge(dirty, a->nprev + n);
+
+        for (i = 0; i < nd; i++) {
+            int x0 = dirty[i][0], y0 = dirty[i][1], x1 = dirty[i][2], y1 = dirty[i][3];
+            int w, h, stride, y;
+            cairo_surface_t *patch;
+            cairo_t *cr;
+            if (ty0 > 0 && y1 > ty0) y1 = ty0;        /* the ticker owns its bar */
+            if (x0 < 0) x0 = 0;
+            if (y0 < 0) y0 = 0;
+            if (x1 > a->width) x1 = a->width;
+            if (y1 > a->height) y1 = a->height;
+            w = x1 - x0;
+            h = y1 - y0;
+            if (w <= 0 || h <= 0) continue;
+            stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, w);
+            if ((size_t)stride * h > scratch_size) {
+                free(scratch);
+                scratch_size = (size_t)stride * h;
+                scratch = malloc(scratch_size);
+                if (!scratch) { scratch_size = 0; break; }
+            }
+            patch = cairo_image_surface_create_for_data(scratch, CAIRO_FORMAT_ARGB32,
+                                                        w, h, stride);
+            cr = cairo_create(patch);
+            cairo_translate(cr, -x0, -y0);
+            cairo_rectangle(cr, x0, y0, w, h);
+            cairo_clip(cr);
+            cairo_set_source_surface(cr, a->under, 0, 0);
+            cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+            cairo_paint(cr);
+            cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+            pic_sprites_draw(cr, tf, a->width, a->height);
+            cairo_set_source_surface(cr, a->over, 0, 0);
+            cairo_paint(cr);
+            cairo_destroy(cr);
+            cairo_surface_flush(patch);
+            for (y = 0; y < h; y++)
+                fb_put_run(a->fb_mem, a->fb_stride, a->width, a->height,
+                           scratch + (size_t)y * stride, x0, y0 + y, w,
+                           pic_config.rotate180);
+            cairo_surface_destroy(patch);
+        }
+        memcpy(a->prev, cur, sizeof(int) * 4 * n);
+        a->nprev = n;
+        pthread_mutex_unlock(&fb_lock);
+    }
+    free(scratch);
+    return NULL;
+}
+
 /*
  * pic_display_run_framebuffer - Direct Linux framebuffer render loop.
  *
@@ -1063,6 +1207,13 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     cairo_surface_t *frame_surface = NULL;
     cairo_surface_t *base_surface = NULL;   /* Cached composite of all layers except HUD */
     int base_valid = 0;                     /* Non-zero when base cache is usable */
+    /* Smooth sprites (see sprite_thread_func) */
+    cairo_surface_t *applet_surface = NULL, *overlay_surface = NULL;
+    cairo_surface_t *sp_under = NULL, *sp_over = NULL;
+    int sprite_mode = 0, sprites_failed = 0, base_rebuilt = 0;
+    double frame_tf = 0;
+    pthread_t sprite_thread;
+    int sprite_thread_started = 0;
     cairo_surface_t *black_marble = NULL;
     cairo_surface_t *blue_marble = NULL;
     pic_borders_t borders;
@@ -1956,6 +2107,18 @@ static int pic_display_run_framebuffer(const char *maps_dir,
         fprintf(stderr, "display: ticker thread failed to start\n");
     }
 
+    sargs.fb_mem = fb_mem;
+    sargs.fb_stride = fb_stride;
+    sargs.width = width;
+    sargs.height = height;
+    sargs.drm_fd = drm_fd;
+    sargs.ticker = &ticker;
+    sargs.quit = &g_quit;
+    if (pthread_create(&sprite_thread, NULL, sprite_thread_func, &sargs) == 0)
+        sprite_thread_started = 1;
+    else
+        fprintf(stderr, "display: sprite thread failed to start\n");
+
     printf("display: entering framebuffer render loop at %dx%d\n",
            width, height);
 
@@ -2216,6 +2379,35 @@ static int pic_display_run_framebuffer(const char *maps_dir,
          *
          * At 4K this saves ~400 MB of pixel reads per second.
          */
+        /* Sprite mode while "Satellites Overhead Now" is on screen.
+         * The four extra full-screen surfaces are made the first time. */
+        {
+            int want = 0, li2;
+            for (li2 = 0; li2 < stack.count; li2++)
+                if (strcmp(stack.layers[li2].name, "overhead") == 0)
+                    want = stack.layers[li2].enabled && !stack.layers[li2].view_hidden;
+            if (want && !applet_surface) {
+                applet_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                overlay_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                sp_under = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                sp_over = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                if (cairo_surface_status(applet_surface) || cairo_surface_status(overlay_surface) ||
+                    cairo_surface_status(sp_under) || cairo_surface_status(sp_over)) {
+                    printf("display: no memory for smooth sprites\n");
+                    sprites_failed = 1;
+                }
+            }
+            if (sprites_failed) want = 0;
+            pic_sprites_enable(want);
+            if (want != sprite_mode) {
+                sprite_mode = want;
+                base_valid = 0;            /* panels move between surfaces */
+                for (li2 = 0; li2 < stack.count; li2++)
+                    if (strcmp(stack.layers[li2].name, "overhead") == 0)
+                        stack.layers[li2].last_rendered = 0;
+            }
+        }
+
         {
             int base_dirty = 0;
             int li;
@@ -2249,30 +2441,67 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     cairo_paint_with_alpha(bcr, layer->opacity);
                 }
 
-                /* Render applets into the base cache too */
-                pic_applet_stack_render(&applets, bcr, width, height, now);
+                /* Panels go into the base cache, or in sprite mode onto
+                 * their own surface so moving sprites pass under them */
+                if (!sprite_mode)
+                    pic_applet_stack_render(&applets, bcr, width, height, now);
 
                 cairo_destroy(bcr);
                 cairo_surface_flush(base_surface);
+                if (sprite_mode) {
+                    cairo_t *acr = cairo_create(applet_surface);
+                    cairo_set_operator(acr, CAIRO_OPERATOR_CLEAR);
+                    cairo_paint(acr);
+                    cairo_set_operator(acr, CAIRO_OPERATOR_OVER);
+                    pic_applet_stack_render(&applets, acr, width, height, now);
+                    cairo_destroy(acr);
+                    cairo_surface_flush(applet_surface);
+                }
                 base_valid = 1;
+                base_rebuilt = 1;
             }
 
-            /* Build final frame: base cache + legends + HUD on top */
-            cr = cairo_create(frame_surface);
-            cairo_set_source_surface(cr, base_surface, 0, 0);
-            cairo_paint(cr);
+            /* Build final frame: base cache + legends + HUD on top.
+             * Sprite mode: map, then the sprites at this instant, then
+             * an "over" surface with the panels, legends and clock. */
+            {
+                cairo_t *ocr;
+                cr = cairo_create(frame_surface);
+                cairo_set_source_surface(cr, base_surface, 0, 0);
+                cairo_paint(cr);
+                if (sprite_mode) {
+                    struct timespec tsn;
+                    clock_gettime(CLOCK_REALTIME, &tsn);
+                    frame_tf = tsn.tv_sec + tsn.tv_nsec / 1e9;
+                    pic_sprites_draw(cr, frame_tf, width, height);
+                    ocr = cairo_create(overlay_surface);
+                    cairo_set_operator(ocr, CAIRO_OPERATOR_CLEAR);
+                    cairo_paint(ocr);
+                    cairo_set_operator(ocr, CAIRO_OPERATOR_OVER);
+                    cairo_set_source_surface(ocr, applet_surface, 0, 0);
+                    cairo_paint(ocr);
+                } else {
+                    ocr = cairo_reference(cr);
+                }
 
-            /* Draw legends at full opacity — not affected by layer opacity */
-            pic_layer_stack_render_legends(&stack, cr, now);
-            pic_map_key_draw(cr, width, height, pic_ticker_bar_top);
+                /* Draw legends at full opacity — not affected by layer opacity */
+                pic_layer_stack_render_legends(&stack, ocr, now);
+                pic_map_key_draw(ocr, width, height, pic_ticker_bar_top);
 
-            /* Paint just the HUD layer — clock text, very cheap */
-            for (li = 0; li < stack.count; li++) {
-                if (strcmp(stack.layers[li].name, "hud") == 0 &&
-                    stack.layers[li].enabled) {
-                    cairo_set_source_surface(cr, stack.layers[li].surface, 0, 0);
-                    cairo_paint_with_alpha(cr, stack.layers[li].opacity);
-                    break;
+                /* Paint just the HUD layer — clock text, very cheap */
+                for (li = 0; li < stack.count; li++) {
+                    if (strcmp(stack.layers[li].name, "hud") == 0 &&
+                        stack.layers[li].enabled) {
+                        cairo_set_source_surface(ocr, stack.layers[li].surface, 0, 0);
+                        cairo_paint_with_alpha(ocr, stack.layers[li].opacity);
+                        break;
+                    }
+                }
+                cairo_destroy(ocr);
+                if (sprite_mode) {
+                    cairo_surface_flush(overlay_surface);
+                    cairo_set_source_surface(cr, overlay_surface, 0, 0);
+                    cairo_paint(cr);
                 }
             }
 
@@ -2291,6 +2520,29 @@ static int pic_display_run_framebuffer(const char *maps_dir,
          * the blit so their console isn't overwritten. Rendering
          * continues internally so the display is instantly correct
          * when they switch back to tty7 (Ctrl+Alt+F7). */
+        /* Hand the sprite thread this second's map and overlay, and
+         * keep it off the framebuffer while the whole frame goes out */
+        pthread_mutex_lock(&fb_lock);
+        if (sprite_mode) {
+            size_t bytes = (size_t)cairo_image_surface_get_stride(base_surface) * height;
+            if (base_rebuilt || !sargs.under) {
+                memcpy(cairo_image_surface_get_data(sp_under),
+                       cairo_image_surface_get_data(base_surface), bytes);
+                cairo_surface_mark_dirty(sp_under);
+            }
+            memcpy(cairo_image_surface_get_data(sp_over),
+                   cairo_image_surface_get_data(overlay_surface), bytes);
+            cairo_surface_mark_dirty(sp_over);
+            sargs.under = sp_under;
+            sargs.over = sp_over;
+            sargs.nprev = pic_sprites_rects(frame_tf, width, height, sargs.prev,
+                                            PIC_SPRITES_MAX);
+        } else {
+            sargs.under = sargs.over = NULL;
+            sargs.nprev = 0;
+        }
+        base_rebuilt = 0;
+
         if (!vt_is_active()) goto skip_blit;
 
         /* Blit the frame to the framebuffer, skipping the ticker
@@ -2351,6 +2603,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
         }
 
 skip_blit:
+        pthread_mutex_unlock(&fb_lock);
         /* Sleep precisely until the next second boundary.
          * Using clock_gettime + nanosleep instead of sleep(1) ensures
          * the clock never drifts regardless of rendering time. On a
@@ -2406,6 +2659,12 @@ skip_blit:
     pic_ticker_stop();
     if (ticker_thread_started)
         pthread_join(ticker_render_thread, NULL);
+    if (sprite_thread_started)
+        pthread_join(sprite_thread, NULL);
+    if (applet_surface) cairo_surface_destroy(applet_surface);
+    if (overlay_surface) cairo_surface_destroy(overlay_surface);
+    if (sp_under) cairo_surface_destroy(sp_under);
+    if (sp_over) cairo_surface_destroy(sp_over);
     if (drm_fd >= 0)
         close(drm_fd);
     if (ctydb) pic_ctydat_free(ctydb);

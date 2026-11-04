@@ -28,6 +28,7 @@
 #include "feature.h"
 #include "features_all.h"
 #include "sat_icons.h"
+#include "sprites.h"
 #include "satellite.h"
 #include "solar.h"
 #include "config.h"
@@ -300,6 +301,9 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
      */
     {
         static struct { int i; double lat, lon, el; int lit; } vis[OV_MAX];
+        static pic_sprite_t spl[PIC_SPRITES_MAX];
+        static int spmap[OV_MAX];
+        int sprites, nsp;
         static int cand[OV_MAX], ncand = -1;
         static time_t cand_t;
         static double cand_key[3];
@@ -336,6 +340,11 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
             memcpy(cand_key, key, sizeof(key));
             cand_gen = ov.gen;
         }
+        /* Smooth mode: the framebuffer loop draws the markers and labels
+         * (sprites.c) at ~30 fps from positions now and 1 s on; this
+         * layer keeps the trails and decides which labels fit */
+        sprites = pic_sprites_enabled();
+        nsp = 0;
         /* Pass 0: marks and trails; 1: labels of sats above home's
          * horizon (and named ones); 2: other labels where they fit */
         for (pass = 0; pass < 3; pass++)
@@ -350,7 +359,10 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                 if (lit && up && home_dark) { r = 1.0; g = 0.85; b = 0.25; a = 1.0; }
                 else if (lit)               { r = 0.95; g = 0.95; b = 0.97; a = 0.9; }
                 else                        { r = 0.55; g = 0.58; b = 0.65; a = 0.7; }
-                known = pic_sat_kind(st->name) != PIC_SAT_GENERIC;
+                /* 2: landmark (ISS, Tiangong, Hubble), drawn large and
+                 * always labelled; 1: everyone else as a realistic icon
+                 * when zoomed in (dots when the view is wider than 60 deg) */
+                known = pic_sat_is_landmark(st->name) ? 2 : span <= 60 ? 1 : 0;
 
                 if (pass == 0) {
                     double px = x, py = y;
@@ -371,8 +383,32 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                         cairo_stroke(cr);
                         px = x2; py = y2;
                     }
-                    if (known) {
-                        pic_draw_sat_icon(cr, st->name, x, y, s * 14, 0, r, g, b);
+                    if (sprites) {
+                        spmap[j] = -1;
+                        if (nsp < PIC_SPRITES_MAX && x > -50 && y > -50 &&
+                            x < width + 50 && y < height + 50) {
+                            pic_sprite_t *q = &spl[nsp];
+                            double la1, lo1, al1;
+                            memset(q, 0, sizeof(*q));
+                            snprintf(q->icon, sizeof(q->icon), "%s", st->name);
+                            snprintf(q->label, sizeof(q->label), "%s", ov.sats[vis[j].i].label);
+                            q->known = (unsigned char)known;
+                            q->up = (unsigned char)up;
+                            q->ring = (unsigned char)(lit && up && home_dark);
+                            q->r = (float)r; q->g = (float)g; q->b = (float)b; q->a = (float)a;
+                            q->lat0 = vis[j].lat; q->lon0 = vis[j].lon;
+                            pic_sat_position_at(st, now + 1, &la1, &lo1, &al1);
+                            q->lat1 = la1; q->lon1 = lo1;
+                            spmap[j] = nsp++;
+                        }
+                    } else if (known) {
+                        double la1, lo1, al1, ang = 0;
+                        pic_sat_position_at(st, now + 1, &la1, &lo1, &al1);
+                        if (fabs(pic_lon_to_x(lo1, width) - x) < wrap)
+                            ang = pic_sat_icon_angle(st->name, pic_lon_to_x(lo1, width) - x,
+                                                     pic_lat_to_y(la1, height) - y);
+                        pic_draw_sat_icon(cr, st->name, x, y, s * (known == 2 ? 14 : 10), ang,
+                                          r, g, b);
                     } else {
                         cairo_new_path(cr);
                         cairo_arc(cr, x, y, s * (up ? 2.2 : 1.6), 0, 2 * M_PI);
@@ -382,9 +418,9 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                         cairo_set_line_width(cr, s * 0.5);
                         cairo_stroke(cr);
                     }
-                    if (lit && up && home_dark) {   /* ring: look up now */
+                    if (!sprites && lit && up && home_dark) {   /* ring: look up now */
                         cairo_new_path(cr);
-                        cairo_arc(cr, x, y, s * (known ? 9 : 4.2), 0, 2 * M_PI);
+                        cairo_arc(cr, x, y, s * (known == 2 ? 9 : known ? 6.5 : 4.2), 0, 2 * M_PI);
                         cairo_set_source_rgba(cr, r, g, b, 0.8);
                         cairo_set_line_width(cr, s * 0.6);
                         cairo_stroke(cr);
@@ -394,10 +430,10 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                     double lx, ly, bx[4];
                     const char *lab = ov.sats[vis[j].i].label;
                     int q, clash = 0;
-                    if ((pass == 1) != (up || known)) continue;
+                    if ((pass == 1) != (up || known == 2)) continue;
                     if (x < 0 || x > width || y < 0 || y > height) continue;
                     cairo_text_extents(cr, lab, &e);
-                    lx = x + s * (known ? 9 : 4);
+                    lx = x + s * (known == 2 ? 9 : known ? 6.5 : 4);
                     ly = y - s * 2;
                     bx[0] = lx - 2; bx[1] = ly - fs; bx[2] = lx + e.x_advance + 2; bx[3] = ly + fs * 0.35;
                     for (q = 0; q < nbox && !clash; q++)
@@ -405,16 +441,28 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                                   bx[3] < boxes[q][1] || bx[1] > boxes[q][3]);
                     if (clash || nbox >= OV_MAX) continue;
                     memcpy(boxes[nbox++], bx, sizeof(bx));
+                    if (sprites) {
+                        if (spmap[j] >= 0) {
+                            spl[spmap[j]].show_label = 1;
+                            spl[spmap[j]].label_w = (float)e.x_advance;
+                        }
+                        continue;
+                    }
                     cairo_new_path(cr);
                     cairo_move_to(cr, lx, ly);
                     cairo_text_path(cr, lab);
-                    cairo_set_source_rgba(cr, 0, 0, 0, 0.75);
-                    cairo_set_line_width(cr, fs * 0.25);
+                    cairo_set_source_rgba(cr, 0, 0, 0, 0.85);
+                    cairo_set_line_width(cr, fs * 0.32);
                     cairo_stroke_preserve(cr);
-                    cairo_set_source_rgba(cr, r, g, b, up ? 1.0 : 0.85);
+                    if ((r + g + b) / 3.0 < 0.7)      /* shadow: readable blue-grey */
+                        cairo_set_source_rgba(cr, 0.74, 0.8, 0.93, up ? 1.0 : 0.9);
+                    else
+                        cairo_set_source_rgba(cr, r, g, b, up ? 1.0 : 0.9);
                     cairo_fill(cr);
                 }
             }
+        if (sprites)
+            pic_sprites_publish(spl, nsp, now, s, fs, pic_config.viewport_gen);
     }
     ov.in_view = in_view;
     ov.visible = visible;

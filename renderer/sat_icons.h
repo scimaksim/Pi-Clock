@@ -14,10 +14,27 @@ typedef enum {
     PIC_SAT_ISS,
     PIC_SAT_TIANGONG,
     PIC_SAT_HUBBLE,
+    PIC_SAT_STARLINK,
+    PIC_SAT_ONEWEB,
+    PIC_SAT_IRIDIUM,
+    PIC_SAT_EARTHOBS,      /* weather / Earth observation */
+    PIC_SAT_CUBESAT,
+    PIC_SAT_ROCKET_BODY,
 } pic_sat_kind_t;
 
 /* Which silhouette a satellite name maps to (case-insensitive) */
 pic_sat_kind_t pic_sat_kind(const char *name);
+
+/* ISS, Tiangong, Hubble: drawn larger and always labelled */
+int pic_sat_is_landmark(const char *name);
+
+/*
+ * Icon rotation for a satellite moving (dx, dy) on screen: stations and
+ * winged satellites fly with their arrays across the track (the ISS's
+ * truss is perpendicular to its velocity); Hubble and spent stages
+ * along it.
+ */
+double pic_sat_icon_angle(const char *name, double dx, double dy);
 
 /*
  * Draw the icon for `name` centred on (x, y), `size` px wide, rotated
