@@ -595,3 +595,20 @@ PCH(smoke, "hrrr_smoke", 1)
 PCH(gust, "hrrr_gust", 1)
 PCH(frost, "hrrr_frost", 60)
 PCH(birds, "birds", 1)
+
+/* Rain nowcast for the events strip: when rain reaches home (or, if it
+ * is raining, when it eases), from the {in:EPOCH} token in the note.
+ * Returns 0 when unknown; *raining says which it is. */
+time_t pic_pch_rain_change(time_t now, int *raining)
+{
+    const char *p;
+    time_t t = 0;
+    pthread_mutex_lock(&nowcast_d.mutex);
+    if (usable(&nowcast_d, now) && (p = strstr(nowcast_d.note, "{in:")) != NULL) {
+        t = (time_t)atoll(p + 4);
+        if (raining) *raining = strstr(nowcast_d.note, "Raining") != NULL;
+    }
+    pthread_mutex_unlock(&nowcast_d.mutex);
+    return t > now ? t : 0;
+}
+

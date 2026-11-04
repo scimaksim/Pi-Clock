@@ -153,6 +153,10 @@ int pic_layer_stack_update(pic_layer_stack_t *stack, time_t now)
             }
         }
 
+        if (layer->render == pic_layer_render_none) {   /* legend only */
+            layer->last_rendered = now;
+            continue;
+        }
         /* Allocate surface on first render (lazy allocation) */
         if (!ensure_surface(layer, stack->width, stack->height)) {
             continue; /* Allocation failed — skip this frame */
@@ -229,6 +233,11 @@ void pic_layer_stack_composite(pic_layer_stack_t *stack, cairo_t *cr)
  * are always readable. Only enabled layers with a render_legend
  * callback are processed.
  */
+void pic_layer_render_none(cairo_t *cr, int width, int height, time_t now, void *ud)
+{
+    (void)cr; (void)width; (void)height; (void)now; (void)ud;
+}
+
 /* ── Cached compositing ─────────────────────────────────────────
  * Premultiplied OVER is associative, (A over B) over C = A over
  * (B over C), so a run of layers can be blended onto a transparent

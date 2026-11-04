@@ -1308,6 +1308,63 @@ function loadDataStatus() {
     }).catch(function() { el.innerHTML = '<span class="text-muted">Could not load.</span>'; });
 }
 
+// ── Pi health: a week of vital signs as sparklines ─────────
+function sparkline(samples, key, starts, lo, hi) {
+    if (!samples.length) return '';
+    var W = 300, H = 56, t0 = samples[0].t, t1 = samples[samples.length - 1].t || t0 + 1;
+    var vals = samples.map(function(s) { return s[key]; }).filter(function(v) { return v >= 0; });
+    if (lo === undefined) lo = Math.min.apply(null, vals);
+    if (hi === undefined) hi = Math.max.apply(null, vals);
+    if (hi <= lo) hi = lo + 1;
+    var X = function(t) { return ((t - t0) / Math.max(1, t1 - t0)) * W; };
+    var Y = function(v) { return H - 2 - ((v - lo) / (hi - lo)) * (H - 6); };
+    var d = '', first = true;
+    samples.forEach(function(s) {
+        if (s[key] < 0) return;
+        d += (first ? 'M' : 'L') + X(s.t).toFixed(1) + ' ' + Y(s[key]).toFixed(1) + ' ';
+        first = false;
+    });
+    var area = d ? d + 'L' + W + ' ' + H + ' L0 ' + H + ' Z' : '';
+    var marks = (starts || []).filter(function(st) { return st.t >= t0 && st.t <= t1; }).map(function(st) {
+        return '<line class="hc-restart" x1="' + X(st.t).toFixed(1) + '" y1="0" x2="' + X(st.t).toFixed(1) + '" y2="' + H + '"/>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' +
+           '<path class="hc-area" d="' + area + '"/><path class="hc-line" d="' + d + '"/>' + marks + '</svg>';
+}
+
+function loadHealth() {
+    var sum = document.getElementById('health-summary'), ch = document.getElementById('health-charts');
+    if (!sum || !ch) return;
+    apiCall('GET', '/api/health').then(function(r) {
+        if (!r.available || !r.samples || !r.samples.length) {
+            sum.textContent = 'No history yet (the first sample is written 5 minutes after the clock starts).';
+            ch.innerHTML = '';
+            return;
+        }
+        var s = r.samples, last = s[s.length - 1], span = (last.t - s[0].t) / 3600;
+        var up = last.uptime_s, upTxt = up > 172800 ? Math.round(up / 86400) + ' days' :
+                 up > 7200 ? Math.round(up / 3600) + ' h' : Math.round(up / 60) + ' min';
+        var mem = 'Memory ' + last.avail_mb + ' MB free, renderer ' + last.rss_mb + ' MB';
+        var parts = ['Renderer up ' + upTxt, mem, last.temp_c + '\u00b0C',
+                     (r.restarts_24h || 0) + ' restart' + (r.restarts_24h === 1 ? '' : 's') + ' in 24 h',
+                     'History ' + (span > 48 ? Math.round(span / 24) + ' days' : Math.round(span) + ' h')];
+        sum.textContent = parts.join(' \u00b7 ');
+        sum.className = 'mb-8 ' + ((r.restarts_24h >= 2 || last.temp_c >= 80 || last.avail_mb < 60) ? 'text-danger' : 'text-muted');
+        var cards = [
+            ['Memory free (MB)', 'avail_mb', last.avail_mb, 0, undefined],
+            ['Renderer memory (MB)', 'rss_mb', last.rss_mb, 0, undefined],
+            ['CPU temperature (\u00b0C)', 'temp_c', last.temp_c, 30, 85],
+            ['Renderer CPU (%)', 'cpu_pct', Math.round(last.cpu_pct), 0, undefined],
+            ['Disk free, /data (MB)', 'data_free_mb', last.data_free_mb, 0, undefined],
+            ['Load (1 min)', 'load1', last.load1, 0, undefined]
+        ];
+        ch.innerHTML = cards.map(function(c) {
+            return '<div class="hc"><div class="hc-title"><span>' + c[0] + '</span><span>' + c[2] + '</span></div>' +
+                   sparkline(s, c[1], r.starts, c[3], c[4]) + '</div>';
+        }).join('');
+    }).catch(function() { sum.textContent = 'Could not load.'; });
+}
+
 function savePCHelper() {
     var card = document.getElementById('pchelper-card');
     if (!card) return;
@@ -2047,7 +2104,8 @@ document.addEventListener('DOMContentLoaded', function() {
     loadRendererSettings('pchelper-card');
     loadPCHelperStatus();
     loadDataStatus();
-    setInterval(function() { if (!document.hidden) loadDataStatus(); }, 60000);
+    loadHealth();
+    setInterval(function() { if (!document.hidden) { loadDataStatus(); loadHealth(); } }, 60000);
 
     setInterval(loadSystemInfo, 30000);
 });

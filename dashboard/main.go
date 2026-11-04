@@ -122,6 +122,7 @@ func main() {
 		r.Put("/renderer-settings", api.PutRendererSettings(cfg))
 		r.Get("/pchelper-status", api.GetPCHelperStatus())
 		r.Get("/data-status", api.GetDataStatus())
+		r.Get("/health", api.GetHealth())
 
 		// Astrospheric API key (write-only)
 		r.Get("/astrospheric-key", api.GetAstrosphericKey())

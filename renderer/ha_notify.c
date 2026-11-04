@@ -13,6 +13,9 @@
  *                      the view or photo line)
  *   aurora_forecast  - the 3-day Kp forecast reaches the level home
  *                      needs within the next 24 hours
+ *   health           - the clock itself: renderer restarted twice or
+ *                      more in a day, CPU over 80 C, under 60 MB free
+ *                      (at most once a day each)
  *   launch           - a rocket launch predicted to be visible from home
  *                      (Florida / Virginia, dark sky, high enough) lifts
  *                      off in HA_LAUNCH_LEAD_MIN minutes (default 30)
@@ -62,7 +65,8 @@ int pic_hanotify_wants(const char *flag_key)
     return flag_key ? pic_conf_int(flag_key, 1) != 0
                     : pic_conf_int("HA_NOTIFY_PASSES", 1) ||
                       pic_conf_int("HA_NOTIFY_AURORA", 1) ||
-                      pic_conf_int("HA_NOTIFY_LAUNCHES", 1);
+                      pic_conf_int("HA_NOTIFY_LAUNCHES", 1) ||
+                      pic_conf_int("HA_NOTIFY_HEALTH", 1);
 }
 
 static const char *compass8(double az)
@@ -292,6 +296,40 @@ static void check_launches(time_t now)
     }
 }
 
+static time_t health_sent[3];
+
+static void check_health(time_t now)
+{
+    pic_health_t h;
+    char json[400];
+    int i;
+    struct { int cond; const char *title, *msg; } w[3];
+
+    if (!pic_conf_int("HA_NOTIFY_HEALTH", 1)) return;
+    if (!pic_health_summary(now, &h)) return;
+    w[0].cond = h.restarts_24h >= 2;
+    w[0].title = "Pi-Clock keeps restarting";
+    w[0].msg = "The clock's renderer has restarted %d times in the last 24 h.";
+    w[1].cond = h.temp_c >= 80;
+    w[1].title = "Pi-Clock running hot";
+    w[1].msg = "CPU at %.0f C. Check airflow around the Pi.";
+    w[2].cond = h.avail_mb >= 0 && h.avail_mb < 60;
+    w[2].title = "Pi-Clock low on memory";
+    w[2].msg = "Only %ld MB free. Turning off a layer or two would help.";
+    for (i = 0; i < 3; i++) {
+        char msg[160];
+        if (!w[i].cond || now - health_sent[i] < 86400) continue;
+        if (i == 0) snprintf(msg, sizeof(msg), w[i].msg, h.restarts_24h);
+        else if (i == 1) snprintf(msg, sizeof(msg), w[i].msg, h.temp_c);
+        else snprintf(msg, sizeof(msg), w[i].msg, h.avail_mb);
+        snprintf(json, sizeof(json),
+                 "{\"source\":\"pi-clock\",\"event\":\"health\",\"title\":\"%s\","
+                 "\"message\":\"%s\",\"restarts_24h\":%d,\"temp_c\":%.1f,\"avail_mb\":%ld}",
+                 w[i].title, msg, h.restarts_24h, h.temp_c, h.avail_mb);
+        if (post(json) == 0) health_sent[i] = now;
+    }
+}
+
 static int hanotify_work(pic_feature_t *f)
 {
     time_t now = time(NULL);
@@ -299,6 +337,7 @@ static int hanotify_work(pic_feature_t *f)
     check_passes(now);
     check_aurora(now);
     check_launches(now);
+    check_health(now);
     return 30;
 }
 

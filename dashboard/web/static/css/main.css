@@ -967,3 +967,14 @@ select.form-control {
 .ds-ok { background: var(--success); }
 .ds-warn { background: var(--warning); color: #222; }
 .ds-down { background: var(--danger); }
+
+/* Pi Health card */
+.health-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.hc { background: var(--bg-elevated, rgba(0,0,0,0.04)); border-radius: 6px; padding: 8px 10px; }
+.hc-title { font-size: 0.8em; font-weight: 600; display: flex; justify-content: space-between; }
+.hc-title span:last-child { font-weight: 400; opacity: 0.8; }
+.hc svg { width: 100%; height: 56px; display: block; margin-top: 4px; }
+.hc-restart { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 2 2; }
+.hc-line { fill: none; stroke: var(--primary, #3a6fd8); stroke-width: 1.5; }
+.hc-area { fill: var(--primary, #3a6fd8); opacity: 0.12; }
+.text-danger { color: var(--danger); }

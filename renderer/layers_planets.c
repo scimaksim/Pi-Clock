@@ -184,6 +184,8 @@ static const struct {
     { 2029, 12, 20, 22, 42, 1, "Total lunar" },
 };
 
+time_t pic_planets_next_shower(time_t now, char *name, size_t n, int *zhr);
+
 static time_t utc(int y, int mo, int d, int h, int mi)
 {
     struct tm tm;
@@ -437,4 +439,22 @@ static pic_feature_t feature_def = {
 pic_feature_t *pic_feature_planets(void)
 {
     return &feature_def;
+}
+
+/* Peak (evening, local) of the next major meteor shower; 0 if none */
+time_t pic_planets_next_shower(time_t now, char *name, size_t n, int *zhr)
+{
+    struct tm lt;
+    time_t best = 0;
+    int bi = 0, yr, k;
+    gmtime_r(&now, &lt);
+    for (yr = lt.tm_year + 1900; yr <= lt.tm_year + 1901; yr++)
+        for (k = 0; k < (int)(sizeof(showers) / sizeof(showers[0])); k++) {
+            time_t t = utc(yr, showers[k].mon, showers[k].day, 6, 0) + 86400;
+            if (t > now - 12 * 3600 && (!best || t < best)) { best = t; bi = k; }
+        }
+    if (!best) return 0;
+    snprintf(name, n, "%s", showers[bi].name);
+    if (zhr) *zhr = showers[bi].zhr;
+    return best - 86400;
 }

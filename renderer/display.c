@@ -1986,7 +1986,9 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     register_feature(pic_feature_coast());
     register_feature(pic_feature_seasons());
     register_feature(pic_feature_analemma());
+    add_feature_layer(&stack, pic_feature_events());
     register_feature(pic_feature_hanotify());   /* no layer or applet */
+    register_feature(pic_feature_health());     /* vital-signs log */
     register_feature(pic_feature_localbase());  /* regional imagery     */
     register_feature(pic_feature_season());     /* current-season day map */
     {

@@ -163,6 +163,7 @@
                 </select>
             </div>
             <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="VIEW_SMART" onchange="saveRendererSettings('view-card', 'Map view')"> Smart auto-switch: stay on (or switch early to) the local view while something is happening at home &mdash; a visible satellite pass or launch, aurora, rain arriving (up to 20 min)</label>
                 <label class="checkbox-label"><input type="checkbox" data-conf="BASEMAP_SEASON" onchange="saveRendererSettings('view-card', 'Map view')"> Current-season daytime map (cloud-free satellite view of the last 12 days, updated daily; off = NASA Blue Marble, summer 2004)</label>
                 <label class="checkbox-label"><input type="checkbox" data-conf="LOCAL_TOWNS" onchange="saveRendererSettings('view-card', 'Map view')"> Town names in the local view</label>
                 <label class="checkbox-label"><input type="checkbox" data-conf="HUD_UTC" onchange="saveRendererSettings('view-card', 'Map view')"> UTC clock in the top-left corner</label>
@@ -181,6 +182,14 @@
             <div class="mt-12">
                 <button class="btn btn-primary btn-sm" onclick="savePCHelper()">Save</button>
             </div>
+        </div>
+
+        <!-- The Pi's own vital signs over the last week -->
+        <div class="card" id="health-card">
+            <div class="card-title">Pi Health</div>
+            <p class="text-muted mb-8">The last 7 days: memory, temperature, CPU and disk, sampled every 5 minutes, and each time the clock's renderer started. A restart a day or a climbing memory line is worth a look before it becomes a problem.</p>
+            <div id="health-summary" class="mb-8 text-muted">Loading&hellip;</div>
+            <div id="health-charts" class="health-charts"></div>
         </div>
 
         <!-- Health of every data source the clock downloads from -->
@@ -303,6 +312,7 @@
             </div>
             <div class="check-row">
                 <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_LAUNCHES"> Rocket launches visible from home (Florida / Virginia, dark sky)</label>
+                <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_HEALTH"> The clock itself: repeated restarts, running hot, low on memory (once a day at most)</label>
             </div>
             <div class="form-group">
                 <label for="ha_launch_lead">Launch Alert Lead Time</label>

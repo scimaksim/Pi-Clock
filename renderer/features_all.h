@@ -32,6 +32,8 @@ pic_feature_t *pic_feature_overhead(void);       /* Live sats in view  */
 pic_feature_t *pic_feature_sst(void);            /* Sea-surface temp   */
 pic_feature_t *pic_feature_seasons(void);        /* Seasons panel      */
 pic_feature_t *pic_feature_analemma(void);       /* Analemma panel     */
+pic_feature_t *pic_feature_events(void);         /* Coming-up strip    */
+pic_feature_t *pic_feature_health(void);         /* Vital-signs log    */
 /* Layers computed by the PC helper (layers_pchelper.c) */
 pic_feature_t *pic_feature_pch_nowcast(void);
 pic_feature_t *pic_feature_pch_clouds(void);
@@ -75,6 +77,35 @@ typedef struct {
 } pic_aurora_home_t;
 
 void pic_aurora_home(time_t now, pic_aurora_home_t *out);
+
+/* Next major meteor shower peak evening (layers_planets.c); 0 if none */
+time_t pic_planets_next_shower(time_t now, char *name, size_t n, int *zhr);
+/* When rain reaches home / eases, from the PC helper nowcast; 0 unknown */
+time_t pic_pch_rain_change(time_t now, int *raining);
+
+/*
+ * Upcoming events worth stepping outside for (applet_events.c): the
+ * strip along the bottom of the map and the view switcher use these.
+ */
+typedef enum { PIC_EV_PASS, PIC_EV_LAUNCH, PIC_EV_AURORA, PIC_EV_SHOWER,
+               PIC_EV_MOONRISE, PIC_EV_MOONSET, PIC_EV_DARK, PIC_EV_RAIN } pic_event_kind_t;
+typedef struct {
+    pic_event_kind_t kind;
+    time_t start, end;       /* end 0 = instant */
+    char   text[64];         /* "Hubble pass", "Falcon 9 launch" */
+    char   detail[48];       /* "max 38 deg W->S", "look SSE" */
+    int    outdoors;         /* worth going outside for right at start */
+} pic_event_t;
+int pic_events_collect(time_t now, pic_event_t *out, int max);
+
+/* The Pi's own vital signs (health.c) */
+#define PIC_HEALTH_PATH "/data/cache/pi-clock-health.csv"
+typedef struct {
+    int    restarts_24h;
+    double temp_c, max_temp_24h;
+    long   avail_mb, rss_mb, data_free_mb;
+} pic_health_t;
+int pic_health_summary(time_t now, pic_health_t *out);
 
 /* Phone-alert settings shared by passes/aurora "wanted" hooks */
 #ifndef HA_WEBHOOK_PATH

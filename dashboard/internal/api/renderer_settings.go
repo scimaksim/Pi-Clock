@@ -161,6 +161,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	// Rocket launches
 	"LAUNCH_DAYS":   intSetting("1", 1, 30),
 	"LAUNCH_LABELS": boolSetting("1"),
+	"EVENTS_HOURS":  intSetting("36", 6, 168),
 
 	// Planets, passes, tides, ships
 	"PLANET_LABELS": boolSetting("1"),
@@ -178,6 +179,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"VIEW_MODE":       enumSetting("global", "global", "local", "cycle"),
 	"LOCAL_ZOOM":      enumSetting("8", "4", "6", "8", "12", "16", "20", "24"),
 	"VIEW_GLOBAL_MIN": intSetting("5", 1, 240),
+	"VIEW_SMART":      boolSetting("1"),
 	"VIEW_LOCAL_MIN":  intSetting("5", 1, 240),
 	"LOCAL_TOWNS":     boolSetting("1"),
 	"HUD_UTC":         boolSetting("1"),
@@ -206,6 +208,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"HA_PASS_MIN_EL":     intSetting("20", 10, 80),
 	"HA_NOTIFY_LAUNCHES": boolSetting("1"),
 	"HA_LAUNCH_LEAD_MIN": intSetting("30", 5, 120),
+	"HA_NOTIFY_HEALTH":   boolSetting("1"),
 
 	// Tonight's Sky applet (Astrospheric)
 	"ASTRO_INTERVAL_H": intSetting("3", 1, 12),

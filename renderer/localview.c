@@ -19,6 +19,7 @@
  */
 
 #include "localview.h"
+#include "features_all.h"
 #include "season.h"
 #include "config.h"
 #include "fetch.h"
@@ -42,6 +43,11 @@ static int    showing_local;
 static time_t switch_at;
 static int    cycle_started;     /* switch_at is live for the cycle */
 
+static int smart_hold = 1;          /* VIEW_SMART: hold local for events */
+static time_t hold_since;
+static char hold_why[64];
+#define VIEW_HOLD_MAX 20
+
 void pic_view_reload(time_t now)
 {
     char m[16] = "";
@@ -53,6 +59,7 @@ void pic_view_reload(time_t now)
     if (local_zoom > 30) local_zoom = 30;
     global_min = pic_conf_int("VIEW_GLOBAL_MIN", 5);
     local_min = pic_conf_int("VIEW_LOCAL_MIN", 5);
+    smart_hold = pic_conf_int("VIEW_SMART", 1);
     if (global_min < 1) global_min = 1;
     if (local_min < 1) local_min = 1;
     /*
@@ -74,9 +81,67 @@ void pic_view_reload(time_t now)
            local_zoom, global_min, local_min);
 }
 
+/*
+ * Something local worth watching right now: a visible pass or launch
+ * in progress (or starting within 2 min), aurora possible, rain
+ * reaching home within 20 min. The view stays local while it lasts
+ * (up to VIEW_HOLD_MAX minutes), and switches to local for it even if
+ * the global view has only just come on.
+ */
+static int local_interest(time_t now, char *why, size_t n)
+{
+    pic_event_t ev[8];
+    int i, k = pic_events_collect(now, ev, 8);
+    for (i = 0; i < k; i++) {
+        time_t s = ev[i].start, e = ev[i].end ? ev[i].end : s;
+        int hit = 0;
+        switch (ev[i].kind) {
+        case PIC_EV_PASS: case PIC_EV_LAUNCH: case PIC_EV_AURORA:
+            hit = now >= s - 120 && now <= e;
+            break;
+        case PIC_EV_RAIN:
+            hit = s - now <= 20 * 60 && now <= s + 120;
+            break;
+        default: break;
+        }
+        if (hit) { snprintf(why, n, "%s", ev[i].text); return 1; }
+    }
+    return 0;
+}
+
+
 int pic_view_update(time_t now)
 {
-    if (view_mode != VIEW_CYCLE || now < switch_at) return 0;
+    if (view_mode != VIEW_CYCLE) return 0;
+    if (smart_hold) {
+        char why[64];
+        int interest = local_interest(now, why, sizeof(why));
+        if (interest && showing_local) {
+            if (!hold_since) hold_since = now;
+            if (now - hold_since < VIEW_HOLD_MAX * 60) {
+                if (switch_at <= now) {
+                    switch_at = now + 60;           /* look again in a minute */
+                    if (strcmp(why, hold_why)) {
+                        snprintf(hold_why, sizeof(hold_why), "%s", why);
+                        printf("view: holding the local view for %s\n", why);
+                    }
+                }
+                return 0;
+            }
+        } else if (interest && !showing_local && now - hold_since > 60) {
+            /* Switch early, once the global view has been up at least 1 min */
+            if (now >= switch_at - (time_t)global_min * 60 + 60) {
+                hold_since = now;
+                snprintf(hold_why, sizeof(hold_why), "%s", why);
+                printf("view: switching to the local view early for %s\n", why);
+                switch_at = now;
+            }
+        } else if (!interest) {
+            hold_since = 0;
+            hold_why[0] = '\0';
+        }
+    }
+    if (now < switch_at) return 0;
     showing_local = !showing_local;
     switch_at = now + (time_t)(showing_local ? local_min : global_min) * 60;
     pic_config.local_zoom = showing_local ? local_zoom : 0;

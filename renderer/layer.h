@@ -197,6 +197,10 @@ void pic_layer_stack_composite(pic_layer_stack_t *stack, cairo_t *cr);
  * than one per enabled layer. force rebuilds every cache. Falls back
  * to plain compositing if a cache surface can't be allocated.
  */
+/* A render function for layers that draw nothing on the map (legend
+ * only): no surface is allocated for them and they're never composited */
+void pic_layer_render_none(cairo_t *cr, int width, int height, time_t now, void *ud);
+
 #define PIC_LAYER_FAST_S 5
 void pic_layer_stack_composite_cached(pic_layer_stack_t *stack, cairo_t *cr,
                                       const char *const *skip, int force);
