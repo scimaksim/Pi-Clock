@@ -815,7 +815,7 @@ static void *sat_thread_func(void *arg)
     (void)arg;
 
     /* Lower priority so TLS handshakes don't starve the renderer */
-    nice(15);
+    if (nice(15) == -1) { /* priority unchanged: fine */ }
 
     if (!pic_wait_for_network("satellite", &sat_running)) {
         printf("satellite: will retry in %d seconds\n", TLE_FETCH_INTERVAL);

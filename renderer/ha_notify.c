@@ -303,25 +303,27 @@ static void check_health(time_t now)
     pic_health_t h;
     char json[400];
     int i;
-    struct { int cond; const char *title, *msg; } w[3];
+    struct { int cond; const char *title; } w[3];
 
     if (!pic_conf_int("HA_NOTIFY_HEALTH", 1)) return;
     if (!pic_health_summary(now, &h)) return;
     w[0].cond = h.restarts_24h >= 2;
     w[0].title = "Pi-Clock keeps restarting";
-    w[0].msg = "The clock's renderer has restarted %d times in the last 24 h.";
     w[1].cond = h.temp_c >= 80;
     w[1].title = "Pi-Clock running hot";
-    w[1].msg = "CPU at %.0f C. Check airflow around the Pi.";
     w[2].cond = h.avail_mb >= 0 && h.avail_mb < 60;
     w[2].title = "Pi-Clock low on memory";
-    w[2].msg = "Only %ld MB free. Turning off a layer or two would help.";
     for (i = 0; i < 3; i++) {
         char msg[160];
         if (!w[i].cond || now - health_sent[i] < 86400) continue;
-        if (i == 0) snprintf(msg, sizeof(msg), w[i].msg, h.restarts_24h);
-        else if (i == 1) snprintf(msg, sizeof(msg), w[i].msg, h.temp_c);
-        else snprintf(msg, sizeof(msg), w[i].msg, h.avail_mb);
+        if (i == 0)
+            snprintf(msg, sizeof(msg), "The clock's renderer has restarted %d times in the last 24 h.",
+                     h.restarts_24h);
+        else if (i == 1)
+            snprintf(msg, sizeof(msg), "CPU at %.0f C. Check airflow around the Pi.", h.temp_c);
+        else
+            snprintf(msg, sizeof(msg), "Only %ld MB free. Turning off a layer or two would help.",
+                     h.avail_mb);
         snprintf(json, sizeof(json),
                  "{\"source\":\"pi-clock\",\"event\":\"health\",\"title\":\"%s\","
                  "\"message\":\"%s\",\"restarts_24h\":%d,\"temp_c\":%.1f,\"avail_mb\":%ld}",

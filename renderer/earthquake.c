@@ -92,7 +92,6 @@ static int parse_features(const char *json, pic_quake_t *quakes, int max)
     while (count < max && (p = strstr(p, "\"geometry\"")) != NULL) {
         pic_quake_t q;
         const char *coords;
-        const char *props;
 
         memset(&q, 0, sizeof(q));
 

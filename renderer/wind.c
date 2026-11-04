@@ -213,7 +213,7 @@ static int decompress_gz(const char *gz_path, const char *out_path)
         if (fd < 0) _exit(1);
         dup2(fd, 1);
         close(fd);
-        freopen("/dev/null", "w", stderr);
+        if (!freopen("/dev/null", "w", stderr)) { /* keep going */ }
         execlp("gunzip", "gunzip", "-c", gz_path, NULL);
         _exit(127);
     }

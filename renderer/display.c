@@ -257,7 +257,7 @@ static void vt_activate(void)
         snprintf(tty_path, sizeof(tty_path), "/dev/tty%d", PIC_VT);
         tfd = open(tty_path, O_WRONLY | O_NOCTTY);
         if (tfd >= 0) {
-            write(tfd, "\033[?25l", 6);
+            if (write(tfd, "\033[?25l", 6) < 0) { /* cursor stays; harmless */ }
             close(tfd);
         }
     }

@@ -214,6 +214,24 @@ jobs:
         # (it may not have packages yet during initial builds)
         apk update || echo "WARNING: Some repositories unavailable, continuing..."
 
+        # A corrupted download (package integrity / I/O error) has failed
+        # whole builds: retry apk add a few times, clearing the cache
+        apk() {
+          if [ "$1" = add ]; then
+            n=0
+            while ! command apk "$@"; do
+              n=$((n + 1))
+              [ $n -ge 4 ] && return 1
+              echo "apk add failed (attempt $n), retrying in 20 s..."
+              rm -rf /var/cache/apk/* /etc/apk/cache/* 2>/dev/null
+              sleep 20
+              command apk update || true
+            done
+          else
+            command apk "$@"
+          fi
+        }
+
         # Install base packages
         apk add --no-cache \
           alpine-base \

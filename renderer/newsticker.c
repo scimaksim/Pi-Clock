@@ -475,7 +475,7 @@ static void *ticker_thread_func(void *arg)
     (void)arg;
 
     /* Lower priority so RSS fetches don't starve the renderer */
-    nice(15);
+    if (nice(15) == -1) { /* priority unchanged: fine */ }
 
     if (ticker_layer_enabled()) {
         if (pic_wait_for_network("ticker", &ticker_running)) {

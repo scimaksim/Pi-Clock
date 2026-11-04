@@ -337,7 +337,7 @@ static void *solar_thread_func(void *arg)
 
     /* Lower priority so TLS handshakes don't starve the renderer.
      * On Pi Zero, each HTTPS fetch takes seconds of CPU. */
-    nice(15);
+    if (nice(15) == -1) { /* priority unchanged: fine */ }
 
     /* Ensure tmpfs cache directory exists */
     mkdir("/tmp/pi-clock-cache", 0700);

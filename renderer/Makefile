@@ -11,7 +11,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 CC      ?= gcc
-CFLAGS  ?= -Wall -Wextra -Wformat=2 -O2
+# snprintf into fixed buffers truncates by design throughout: those two
+# warning classes are noise here
+CFLAGS  ?= -Wall -Wextra -Wformat=2 -Wno-format-truncation -Wno-stringop-truncation -O2
 LDFLAGS ?=
 VERSION ?= 0.0.0-dev
 

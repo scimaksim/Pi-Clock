@@ -735,7 +735,7 @@ static void *lightning_thread_func(void *arg)
         /* Read WebSocket frames until disconnect */
         while (lightning_running) {
             unsigned char frame_buf[4096];
-            int opcode;
+            int opcode = 0;
             int len;
 
             len = ws_read_frame(ssl, frame_buf, sizeof(frame_buf) - 1,

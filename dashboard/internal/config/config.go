@@ -35,9 +35,9 @@ const (
 // MapZoom is a 0-100 percent slider controlling how far the
 // viewport is zoomed and panned toward the QTH — see pic_config
 // in renderer/config.h for the full semantics.
-type RendererConfig struct {
-	mu sync.RWMutex // guards all fields below
-
+// RendererValues are the plain fields of RendererConfig, safe to copy
+// and serialise (RendererConfig itself carries a mutex).
+type RendererValues struct {
 	CenterLon         string `json:"center_lon"`
 	QthLat            string `json:"qth_lat"`
 	QthLon            string `json:"qth_lon"`
@@ -48,9 +48,14 @@ type RendererConfig struct {
 	DisplayRotate     string `json:"display_rotate"` // "0" or "180"
 }
 
+type RendererConfig struct {
+	mu sync.RWMutex // guards all fields below
+	RendererValues
+}
+
 // Load reads the renderer config file and returns a RendererConfig.
 func Load() *RendererConfig {
-	cfg := &RendererConfig{
+	cfg := &RendererConfig{RendererValues: RendererValues{
 		CenterLon:         "0",
 		QthLat:            "0",
 		QthLon:            "0",
@@ -59,7 +64,7 @@ func Load() *RendererConfig {
 		DisplayResolution: "1080p",
 		MapZoom:           "0",
 		DisplayRotate:     "0",
-	}
+	}}
 
 	cfg.Reload()
 	return cfg
@@ -187,10 +192,10 @@ func (c *RendererConfig) Unlock() { c.mu.Unlock() }
 // Snapshot returns a copy of the config fields under the read lock.
 // Safe to pass to template rendering or JSON serialisation without
 // holding the lock — the copy is independent of the original.
-func (c *RendererConfig) Snapshot() RendererConfig {
+func (c *RendererConfig) Snapshot() RendererValues {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return RendererConfig{
+	return RendererValues{
 		CenterLon:         c.CenterLon,
 		QthLat:            c.QthLat,
 		QthLon:            c.QthLon,

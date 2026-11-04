@@ -25,7 +25,7 @@ import (
 // templateData holds data passed to HTML templates.
 type templateData struct {
 	Version string
-	Config  *config.RendererConfig
+	Config  *config.RendererValues
 	Error   string
 }
 

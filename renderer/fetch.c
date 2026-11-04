@@ -306,7 +306,7 @@ int pic_fetch_post_json(const char *url, const char *json,
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
-        freopen("/dev/null", "w", stderr);
+        if (!freopen("/dev/null", "w", stderr)) { /* keep going */ }
         execlp("wget", "wget", "-q", "-O", "-", "--timeout=15",
                "-U", g_useragent,
                "--header", "Content-Type: application/json",
