@@ -138,13 +138,30 @@ static void cat_rgb(int c, double *r, double *g, double *b)
     *r = t[c][0]; *g = t[c][1]; *b = t[c][2];
 }
 
+/* "Swift Creek above McCullers Crossroads, NC" -> "Swift Creek" */
+static void short_name(const char *in, char *out, size_t n)
+{
+    static const char *cut[] = { " at ", " near ", " above ", " below ", " nr ", " abv ",
+                                 " blw ", " @ ", ",", " (", NULL };
+    size_t len = strlen(in);
+    int i;
+    for (i = 0; cut[i]; i++) {
+        const char *p = strstr(in, cut[i]);
+        if (p && (size_t)(p - in) < len && p > in) len = (size_t)(p - in);
+    }
+    if (len >= n) len = n - 1;
+    memcpy(out, in, len);
+    out[len] = '\0';
+}
+
 void pic_layer_render_rivers(cairo_t *cr, int width, int height, time_t now,
                              void *ud)
 {
     double z = pic_zoom_factor(), s = height / 260.0 * (1 + 0.3 * (pic_symbol_zoom() - 1));
     double fs = height / 105.0;
-    int labels = z >= 16, pass, i, nbox = 0;
-    static double box[200][4];
+    int labels = z >= 16, pass, i, k, nbox = 0, ndot = 0, ndrawn = 0;
+    static double box[200][4], dot[400][2];
+    static struct { int i, hot; double x, y, rad; } drawn[400];
 
     (void)now; (void)ud;
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
@@ -157,13 +174,23 @@ void pic_layer_render_rivers(cairo_t *cr, int width, int height, time_t now,
             const gauge_t *g = &rv.g[i];
             int hot = g->cat >= 1 || g->fcat >= 2;
             double x, y, r, gg, b, rad;
-            char lab[72];
             if (hot != pass) continue;
             x = pic_lon_to_x(g->lon, width);
             y = pic_lat_to_y(g->lat, height);
             if (x < -10 || x > width + 10 || y < -10 || y > height + 10) continue;
             cat_rgb(g->cat, &r, &gg, &b);
             rad = s * (g->cat >= 2 ? 1.6 : g->cat == 1 ? 1.25 : 0.9);
+            /* Crowded gauges (a dozen on one river near a city): skip
+             * a normal one that would sit on a dot already drawn;
+             * flooding gauges always show */
+            if (!hot) {
+                int d, near = 0;
+                for (d = 0; d < ndot && !near; d++)
+                    near = (dot[d][0] - x) * (dot[d][0] - x) +
+                           (dot[d][1] - y) * (dot[d][1] - y) < rad * rad * 5.0;
+                if (near) continue;
+            }
+            if (ndot < 400) { dot[ndot][0] = x; dot[ndot][1] = y; ndot++; }
             cairo_new_path(cr);
             cairo_arc(cr, x, y, rad, 0, 2 * M_PI);
             cairo_set_source_rgba(cr, r, gg, b, 0.95);
@@ -178,25 +205,43 @@ void pic_layer_render_rivers(cairo_t *cr, int width, int height, time_t now,
                 cairo_set_line_width(cr, s * 0.35);
                 cairo_stroke(cr);
             }
-            /* Label flooding gauges when zoomed in, and the rest
-             * only close to home in the closest views */
+            drawn[ndrawn].i = i;
+            drawn[ndrawn].x = x;
+            drawn[ndrawn].y = y;
+            drawn[ndrawn].rad = rad;
+            drawn[ndrawn].hot = hot;
+            if (ndrawn < 399) ndrawn++;
+        }
+
+    /* Labels after all the dots, so no dot covers a label: flooding
+     * gauges when zoomed in, the rest only close to home in the closest
+     * views; skipped where they'd overlap another label */
+    for (pass = 1; pass >= 0; pass--)
+        for (k = 0; k < ndrawn; k++) {
+            const gauge_t *g = &rv.g[drawn[k].i];
+            double x = drawn[k].x, y = drawn[k].y, rad = drawn[k].rad, r, gg, b;
+            int hot = drawn[k].hot;
+            char lab[72];
+            if (hot != pass) continue;
             if (!hot && (!labels || pic_dist_km(g->lat, g->lon, pic_config.qth_lat,
                                                 pic_config.qth_lon) > 60))
                 continue;
             if (z < 4) continue;
-            snprintf(lab, sizeof(lab), "%s %.1f %s", g->name, g->stage, g->unit);
+            cat_rgb(g->cat, &r, &gg, &b);
+            {
+                char nm[48];
+                short_name(g->name, nm, sizeof(nm));
+                snprintf(lab, sizeof(lab), "%s %.1f %s", nm, g->stage, g->unit);
+            }
             pic_fit_text(cr, lab, fs * 22);
             {
-                /* Skip labels that would overlap one already drawn
-                 * (flooding gauges are drawn last but win: they're
-                 * placed first in pass 1 only among themselves) */
                 cairo_text_extents_t e;
                 double bx0 = x + rad + 1, by0 = y - fs, bx1, by1 = y + fs * 0.6;
-                int b, hit = 0;
+                int q, hit = 0;
                 cairo_text_extents(cr, lab, &e);
                 bx1 = bx0 + e.x_advance + fs * 0.8;
-                for (b = 0; b < nbox && !hit; b++)
-                    hit = !(bx1 < box[b][0] || bx0 > box[b][2] || by1 < box[b][1] || by0 > box[b][3]);
+                for (q = 0; q < nbox && !hit; q++)
+                    hit = !(bx1 < box[q][0] || bx0 > box[q][2] || by1 < box[q][1] || by0 > box[q][3]);
                 if (hit || nbox >= 200) continue;
                 box[nbox][0] = bx0; box[nbox][1] = by0;
                 box[nbox][2] = bx1; box[nbox][3] = by1;

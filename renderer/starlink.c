@@ -9,6 +9,7 @@
  */
 
 #include "starlink.h"
+#include "datastatus.h"
 #include "astro.h"
 #include "config.h"
 #include "fetch.h"
@@ -285,6 +286,7 @@ static char *read_file(const char *path)
 
 static void *sl_thread_func(void *arg)
 {
+    pic_status_feature = "starlink";   /* data-source status (datastatus.c) */
     static pic_sl_train_t temp[SL_MAX_TRAINS];
     time_t next_fetch = 0;
     (void)arg;

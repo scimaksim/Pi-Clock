@@ -18,6 +18,7 @@
  */
 
 #include "astro.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "json.h"
@@ -307,6 +308,7 @@ static void set_status(const char *msg)
 
 static void *astro_thread_func(void *arg)
 {
+    pic_status_feature = "astro";   /* data-source status (datastatus.c) */
     char *buf;
     static pic_astro_hour_t temp[ASTRO_MAX_HOURS];
     (void)arg;

@@ -11,6 +11,7 @@
  */
 
 #include "airquality.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "json.h"
@@ -95,6 +96,7 @@ int pic_aq_parse(const char *js, size_t len, float *vals, int max,
 
 static void *aq_thread_func(void *arg)
 {
+    pic_status_feature = "airquality";   /* data-source status (datastatus.c) */
     char *buf, *url;
     (void)arg;
 

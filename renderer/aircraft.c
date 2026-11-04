@@ -15,6 +15,7 @@
  */
 
 #include "aircraft.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "json.h"
@@ -263,6 +264,7 @@ static void add_routes(pic_ac_t *ac, int count)
 
 static void *ac_thread_func(void *arg)
 {
+    pic_status_feature = "aircraft";   /* data-source status (datastatus.c) */
     char *buf;
     static pic_ac_t temp[AC_MAX];
     static char hexes[AC_MAX][8];

@@ -955,3 +955,15 @@ select.form-control {
     cursor: pointer;
     font-size: 14px;
 }
+
+/* Data Sources card */
+.data-status { display: flex; flex-direction: column; gap: 6px; }
+.ds-row { display: flex; align-items: flex-start; gap: 10px; }
+.ds-text { min-width: 0; }
+.ds-name { font-weight: 600; overflow-wrap: anywhere; }
+.ds-detail { font-size: 0.85em; }
+.ds-badge { flex: 0 0 auto; min-width: 52px; text-align: center; font-size: 0.75em; font-weight: 700;
+            padding: 2px 6px; border-radius: 4px; color: #fff; margin-top: 2px; }
+.ds-ok { background: var(--success); }
+.ds-warn { background: var(--warning); color: #222; }
+.ds-down { background: var(--danger); }

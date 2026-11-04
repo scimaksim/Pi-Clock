@@ -13,6 +13,9 @@
  */
 
 #include "fetch.h"
+#include "datastatus.h"
+#include <fcntl.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,6 +49,62 @@ const char *pic_fetch_get_useragent(void)
     return g_useragent;
 }
 
+/* Thread-local: an HTTP error answer (404, 502...) still means the
+ * source is up (callers that expect missing items, like map tiles) */
+__thread int pic_status_http_ok;
+
+/* wget's error text -> short description; *http set when the server
+ * answered with an HTTP error */
+static void classify_error(const char *err, int timed_out, char *out, size_t n, int *http)
+{
+    const char *h = strstr(err, "HTTP/1."), *g = strstr(err, "ERROR ");
+    *http = 0;
+    if (timed_out || strstr(err, "timed out")) snprintf(out, n, "timed out");
+    else if (h && strlen(h) > 12) {                 /* BusyBox */
+        *http = 1;
+        snprintf(out, n, "HTTP %.3s", h + 9);
+    } else if (g && isdigit((unsigned char)g[6])) { /* GNU wget */
+        *http = 1;
+        snprintf(out, n, "HTTP %.3s", g + 6);
+    } else if (strstr(err, "bad address") || strstr(err, "resolve"))
+        snprintf(out, n, "DNS lookup failed");
+    else if (strstr(err, "refused")) snprintf(out, n, "connection refused");
+    else if (strstr(err, "unreachable") || strstr(err, "No route"))
+        snprintf(out, n, "network unreachable");
+    else if (strstr(err, "SSL") || strstr(err, "TLS") || strstr(err, "ssl"))
+        snprintf(out, n, "TLS error");
+    else snprintf(out, n, "download failed");
+}
+
+/* Read what the child wrote to its stderr pipe (non-blocking) */
+static void read_err(int fd, char *buf, size_t n)
+{
+    ssize_t r;
+    size_t got = 0;
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    while (got < n - 1 && (r = read(fd, buf + got, n - 1 - got)) > 0) got += (size_t)r;
+    buf[got] = '\0';
+    close(fd);
+}
+
+/* Record the outcome; returns 1 when the server answered with an HTTP
+ * error (404, 502...) rather than not answering at all */
+static int report(const char *url, int ok, const char *err, int timed_out, int rc)
+{
+    char why[48];
+    int http;
+    if (ok) { pic_status_report(url, 1, NULL); return 0; }
+    classify_error(err, timed_out, why, sizeof(why), &http);
+    /* GNU wget is silent with -q: use its exit code instead */
+    if (!err[0] && !timed_out) {
+        if (rc == 8) { http = 1; snprintf(why, sizeof(why), "HTTP error"); }
+        else if (rc == 4) snprintf(why, sizeof(why), "network failure");
+        else if (rc == 5) snprintf(why, sizeof(why), "TLS error");
+    }
+    pic_status_report(url, http && pic_status_http_ok, why);
+    return http;
+}
+
 /*
  * pic_fetch_to_buf - Fetch a URL into a memory buffer via wget.
  *
@@ -57,27 +116,35 @@ const char *pic_fetch_get_useragent(void)
 static int fetch_impl(const char *url, const char *header, char *buf,
                       int buf_size)
 {
-    int pipefd[2];
+    int pipefd[2], errfd[2];
     pid_t pid;
     int n;
+    char err[256];
 
     if (pipe(pipefd) < 0) return -1;
-
-    pid = fork();
-    if (pid < 0) {
+    if (pipe(errfd) < 0) {
         close(pipefd[0]);
         close(pipefd[1]);
         return -1;
     }
 
+    pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        close(errfd[0]);
+        close(errfd[1]);
+        return -1;
+    }
+
     if (pid == 0) {
-        /* Child: redirect stdout to pipe, exec wget */
+        /* Child: stdout to the pipe, stderr (error text) to errfd */
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
-
-        /* Redirect stderr to /dev/null */
-        freopen("/dev/null", "w", stderr);
+        close(errfd[0]);
+        dup2(errfd[1], STDERR_FILENO);
+        close(errfd[1]);
 
         if (header)
             execlp("wget", "wget", "-q", "-O", "-", "--timeout=10",
@@ -90,6 +157,7 @@ static int fetch_impl(const char *url, const char *header, char *buf,
 
     /* Parent: read from pipe */
     close(pipefd[1]);
+    close(errfd[1]);
 
     n = 0;
     while (n < buf_size - 1) {
@@ -112,6 +180,11 @@ static int fetch_impl(const char *url, const char *header, char *buf,
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
         }
+        read_err(errfd[0], err, sizeof(err));
+        if (n <= 0 && !err[0] && WIFEXITED(status) && WEXITSTATUS(status) == 0)
+            snprintf(err, sizeof(err), "empty reply");
+        report(url, n > 0, err, waited >= 30,
+               WIFEXITED(status) ? WEXITSTATUS(status) : -1);
     }
 
     return n > 0 ? n : -1;
@@ -141,17 +214,24 @@ int pic_fetch_to_file(const char *url, const char *path, int timeout)
 int pic_fetch_to_file_rc(const char *url, const char *path, int timeout)
 {
     pid_t pid;
-    int status = -1;
-    char timeout_str[16];
+    int status = -1, errfd[2];
+    char timeout_str[16], err[256];
 
     snprintf(timeout_str, sizeof(timeout_str), "--timeout=%d", timeout);
 
+    if (pipe(errfd) < 0) return -1;
     pid = fork();
-    if (pid < 0) return -1;
+    if (pid < 0) {
+        close(errfd[0]);
+        close(errfd[1]);
+        return -1;
+    }
 
     if (pid == 0) {
-        /* Redirect stderr to /dev/null */
-        freopen("/dev/null", "w", stderr);
+        /* stderr (wget's error text) to the pipe */
+        close(errfd[0]);
+        dup2(errfd[1], STDERR_FILENO);
+        close(errfd[1]);
 
         execlp("wget", "wget", "-q", "-O", path,
                timeout_str, "-U", g_useragent, url, NULL);
@@ -171,6 +251,15 @@ int pic_fetch_to_file_rc(const char *url, const char *path, int timeout)
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
         }
+        close(errfd[1]);
+        read_err(errfd[0], err, sizeof(err));
+        /* BusyBox wget exits 1 for every failure; report a server's
+         * HTTP error as 8, as GNU wget does, so callers can tell "not
+         * there" (e.g. a map tile not made yet) from "can't reach" */
+        if (report(url, WIFEXITED(status) && WEXITSTATUS(status) == 0, err, waited >= 600,
+                   WIFEXITED(status) ? WEXITSTATUS(status) : -1) &&
+            WIFEXITED(status) && WEXITSTATUS(status) == 1)
+            return 8;
     }
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
@@ -251,6 +340,8 @@ int pic_fetch_post_json(const char *url, const char *json,
 
     /* An empty body is still success if wget exited cleanly (e.g. a
      * Home Assistant webhook answers 200 with no content). */
+    pic_status_report(url, n > 0 || (WIFEXITED(status_out) && WEXITSTATUS(status_out) == 0),
+                      "no response or HTTP error");
     if (n > 0) return n;
     return (WIFEXITED(status_out) && WEXITSTATUS(status_out) == 0) ? 0 : -1;
 }

@@ -11,6 +11,7 @@
  */
 
 #include "radar.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "feature.h"
@@ -109,6 +110,7 @@ static void request_size(int screen_w, int *w, int *h)
 
 static void *radar_thread_func(void *arg)
 {
+    pic_status_feature = "radar";   /* data-source status (datastatus.c) */
     (void)arg;
 
     if (!pic_wait_for_network("radar", &radar_running))

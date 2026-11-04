@@ -1262,6 +1262,52 @@ function loadPCHelperStatus() {
     }).catch(function() { el.textContent = ''; });
 }
 
+// ── Data sources: last success / failures per host ─────────
+function escapeHtml(t) {
+    return String(t).replace(/[&<>"']/g, function(c) {
+        return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+}
+
+function agoText(now, t) {
+    if (!t) return 'never';
+    var d = Math.max(0, now - t);
+    if (d < 90) return 'just now';
+    if (d < 5400) return Math.round(d / 60) + ' min ago';
+    if (d < 172800) return Math.round(d / 3600) + ' h ago';
+    return Math.round(d / 86400) + ' days ago';
+}
+
+function loadDataStatus() {
+    var el = document.getElementById('data-status');
+    if (!el) return;
+    apiCall('GET', '/api/data-status').then(function(r) {
+        if (!r.available) {
+            el.innerHTML = '<span class="text-muted">No data yet (the clock writes this a minute or two after it starts).</span>';
+            return;
+        }
+        var rows = (r.sources || []).map(function(s) {
+            var badge, detail;
+            if (s.state === 'ok') {
+                badge = '<span class="ds-badge ds-ok">OK</span>';
+                detail = 'Last worked ' + agoText(r.now, s.last_ok);
+            } else {
+                badge = '<span class="ds-badge ' + (s.state === 'down' ? 'ds-down' : 'ds-warn') + '">' +
+                        (s.state === 'down' ? 'Down' : 'Failing') + '</span>';
+                detail = 'Failing since ' + agoText(r.now, s.fail_since) + ' (' + s.streak +
+                         ' in a row' + (s.error ? ': ' + escapeHtml(s.error) : '') + ')' +
+                         ' \u00b7 last worked ' + agoText(r.now, s.last_ok);
+            }
+            var users = (s.users || []).length ? ' <span class="text-muted">\u00b7 used by ' +
+                        escapeHtml(s.users.join(', ')) + '</span>' : '';
+            return '<div class="ds-row">' + badge + '<div class="ds-text"><div class="ds-name">' +
+                   escapeHtml(s.name) + users + '</div><div class="ds-detail text-muted">' +
+                   detail + '</div></div></div>';
+        });
+        el.innerHTML = rows.join('') || '<span class="text-muted">No downloads yet.</span>';
+    }).catch(function() { el.innerHTML = '<span class="text-muted">Could not load.</span>'; });
+}
+
 function savePCHelper() {
     var card = document.getElementById('pchelper-card');
     if (!card) return;
@@ -2000,6 +2046,8 @@ document.addEventListener('DOMContentLoaded', function() {
     loadRendererSettings('coast-card');
     loadRendererSettings('pchelper-card');
     loadPCHelperStatus();
+    loadDataStatus();
+    setInterval(function() { if (!document.hidden) loadDataStatus(); }, 60000);
 
     setInterval(loadSystemInfo, 30000);
 });

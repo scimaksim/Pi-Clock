@@ -17,6 +17,7 @@
  */
 
 #include "wind.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include <stdio.h>
@@ -239,6 +240,7 @@ static int decompress_gz(const char *gz_path, const char *out_path)
  */
 static void *wind_thread_func(void *arg)
 {
+    pic_status_feature = "wind";   /* data-source status (datastatus.c) */
     (void)arg;
 
     /* Wait for network */

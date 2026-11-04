@@ -16,6 +16,7 @@
 
 #define _GNU_SOURCE
 #include "feature.h"
+#include "datastatus.h"
 #include "config.h"
 #include "json.h"
 #include "ws.h"
@@ -160,6 +161,7 @@ static int ships_work(pic_feature_t *f)
     gen = pic_config.viewport_gen;
     choose_box(box);
     if (pic_ws_connect(&ws, AIS_HOST, 443, AIS_PATH, 60) != 0) {
+        pic_status_report(AIS_HOST, 0, "could not connect");
         pthread_mutex_lock(&sh.mutex);
         sh.status = 2;
         pthread_mutex_unlock(&sh.mutex);
@@ -180,6 +182,7 @@ static int ships_work(pic_feature_t *f)
     pthread_mutex_lock(&fd_mutex);
     active_fd = ws.fd;
     pthread_mutex_unlock(&fd_mutex);
+    pic_status_report(AIS_HOST, 1, NULL);
     printf("ships: subscribed %.1f,%.1f to %.1f,%.1f\n",
            box[0], box[1], box[2], box[3]);
 
@@ -203,6 +206,7 @@ static int ships_work(pic_feature_t *f)
             /* Errors arrive as {"error": "..."} */
             if (!memcmp(buf, "{\"error\"", 8)) {
                 printf("ships: server error: %.80s\n", (char *)buf);
+                pic_status_report(AIS_HOST, 0, "server error (key?)");
                 server_error = 1;
                 break;
             }

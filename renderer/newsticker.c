@@ -14,6 +14,7 @@
  */
 
 #include "newsticker.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "layer.h"
@@ -470,6 +471,7 @@ static int ticker_layer_enabled(void)
 
 static void *ticker_thread_func(void *arg)
 {
+    pic_status_feature = "newsticker";   /* data-source status (datastatus.c) */
     (void)arg;
 
     /* Lower priority so RSS fetches don't starve the renderer */

@@ -32,6 +32,7 @@
 
 #define _GNU_SOURCE  /* memmem */
 #include "volcano.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include <stdio.h>
@@ -226,6 +227,7 @@ int pic_volcano_parse_cap(const char *xml, pic_volcano_t *out, int max)
 
 static void *volcano_thread_func(void *arg)
 {
+    pic_status_feature = "volcano";   /* data-source status (datastatus.c) */
     char *buf;
 
     (void)arg;

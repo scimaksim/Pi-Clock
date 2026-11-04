@@ -200,10 +200,12 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"DARK_SITES":      patternSetting("", darkSitesRe),
 
 	// Home Assistant phone alerts
-	"HA_NOTIFY_PASSES": boolSetting("1"),
-	"HA_NOTIFY_AURORA": boolSetting("1"),
-	"HA_PASS_LEAD_MIN": intSetting("10", 2, 60),
-	"HA_PASS_MIN_EL":   intSetting("20", 10, 80),
+	"HA_NOTIFY_PASSES":   boolSetting("1"),
+	"HA_NOTIFY_AURORA":   boolSetting("1"),
+	"HA_PASS_LEAD_MIN":   intSetting("10", 2, 60),
+	"HA_PASS_MIN_EL":     intSetting("20", 10, 80),
+	"HA_NOTIFY_LAUNCHES": boolSetting("1"),
+	"HA_LAUNCH_LEAD_MIN": intSetting("30", 5, 120),
 
 	// Tonight's Sky applet (Astrospheric)
 	"ASTRO_INTERVAL_H": intSetting("3", 1, 12),

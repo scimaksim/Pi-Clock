@@ -34,6 +34,7 @@
  */
 
 #include "season.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "localview.h"
@@ -174,7 +175,11 @@ static int get_tile(dl_t *dl, const char *url, const char *path, int fetch,
         unlink(miss);
     }
     snprintf(tmp, sizeof(tmp), "%s.part", path);
+    /* Days not yet processed come back as HTTP errors: that's GIBS
+     * answering, not GIBS being down (data-source status) */
+    pic_status_http_ok = 1;
     rc = pic_fetch_to_file_rc(url, tmp, 30);
+    pic_status_http_ok = 0;
     if (rc == 0 && stat(tmp, &st) == 0 && st.st_size > 100) {
         rename(tmp, path);
         dl->fails = 0;

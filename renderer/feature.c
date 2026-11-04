@@ -6,6 +6,7 @@
 
 #define _GNU_SOURCE  /* pthread_timedjoin_np */
 #include "feature.h"
+#include "datastatus.h"
 #include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@ static void *feature_thread(void *arg)
 {
     pic_feature_t *f = arg;
 
+    pic_status_feature = f->name;      /* user of the sources it fetches */
     if (f->needs_network && !pic_wait_for_network(f->name, &f->running))
         return NULL;
 

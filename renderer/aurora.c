@@ -16,6 +16,7 @@
  */
 
 #include "aurora.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include <stdio.h>
@@ -132,6 +133,7 @@ static int parse_aurora_json(const char *json, pic_aurora_t *data)
  */
 static void *aurora_thread_func(void *arg)
 {
+    pic_status_feature = "aurora";   /* data-source status (datastatus.c) */
     char *buf;
 
     (void)arg;

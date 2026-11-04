@@ -2386,8 +2386,9 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             for (li2 = 0; li2 < stack.count; li2++)
                 if (strcmp(stack.layers[li2].name, "overhead") == 0)
                     want = stack.layers[li2].enabled && !stack.layers[li2].view_hidden;
-            if (want && !applet_surface) {
-                applet_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+            if (want && !overlay_surface) {
+                if (!applet_surface)
+                    applet_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
                 overlay_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
                 sp_under = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
                 sp_over = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
@@ -2427,28 +2428,31 @@ static int pic_display_run_framebuffer(const char *maps_dir,
 
             /* Rebuild base composite if any base layer changed */
             if (base_dirty || !base_valid) {
+                static const char *const skip[] = { "hud", "ticker", NULL };
+                static time_t applets_at;
+                int force = !base_valid;
                 cairo_t *bcr = cairo_create(base_surface);
                 cairo_set_source_rgb(bcr, 0, 0, 0);
                 cairo_paint(bcr);
 
-                for (li = 0; li < stack.count; li++) {
-                    pic_layer_t *layer = &stack.layers[li];
-                    if (!layer->enabled || layer->view_hidden || !layer->surface) continue;
-                    /* Skip HUD and ticker — they're handled separately */
-                    if (strcmp(layer->name, "hud") == 0) continue;
-                    if (strcmp(layer->name, "ticker") == 0) continue;
-                    cairo_set_source_surface(bcr, layer->surface, 0, 0);
-                    cairo_paint_with_alpha(bcr, layer->opacity);
+                /* Layers, with slow-changing runs cached (layer.c): a
+                 * once-a-second layer no longer re-blends every layer */
+                pic_layer_stack_composite_cached(&stack, bcr, skip, force);
+
+                /* Panels: on their own surface (made on first use),
+                 * redrawn every 5 s or when the frame is rebuilt from
+                 * scratch rather than every second. Composited into the
+                 * base, or in sprite mode kept separate so moving
+                 * sprites pass under them. */
+                if (!applet_surface) {
+                    applet_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                    if (cairo_surface_status(applet_surface) != CAIRO_STATUS_SUCCESS) {
+                        cairo_surface_destroy(applet_surface);
+                        applet_surface = NULL;
+                    }
+                    force = 1;
                 }
-
-                /* Panels go into the base cache, or in sprite mode onto
-                 * their own surface so moving sprites pass under them */
-                if (!sprite_mode)
-                    pic_applet_stack_render(&applets, bcr, width, height, now);
-
-                cairo_destroy(bcr);
-                cairo_surface_flush(base_surface);
-                if (sprite_mode) {
+                if (applet_surface && (force || now - applets_at >= 5 || now < applets_at)) {
                     cairo_t *acr = cairo_create(applet_surface);
                     cairo_set_operator(acr, CAIRO_OPERATOR_CLEAR);
                     cairo_paint(acr);
@@ -2456,7 +2460,19 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     pic_applet_stack_render(&applets, acr, width, height, now);
                     cairo_destroy(acr);
                     cairo_surface_flush(applet_surface);
+                    applets_at = now;
                 }
+                if (!sprite_mode) {
+                    if (applet_surface) {
+                        cairo_set_source_surface(bcr, applet_surface, 0, 0);
+                        cairo_paint(bcr);
+                    } else {
+                        pic_applet_stack_render(&applets, bcr, width, height, now);
+                    }
+                }
+
+                cairo_destroy(bcr);
+                cairo_surface_flush(base_surface);
                 base_valid = 1;
                 base_rebuilt = 1;
             }

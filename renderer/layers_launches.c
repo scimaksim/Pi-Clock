@@ -22,6 +22,8 @@
 #include "fetch.h"
 #include "json.h"
 #include "nwsalert.h"   /* pic_nws_parse_time */
+#include "launchvis.h"
+#include "features_all.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +43,9 @@ typedef struct {
     char   pad[48];       /* Short location, e.g. "Cape Canaveral"  */
     char   provider[40];
     int    precise;       /* NET known to the minute/second         */
+    char   orbit[16];     /* Target orbit, LL2 abbreviation (LEO...) */
+    int    near;          /* Pad within NEAR_KM of home              */
+    pic_launchvis_t vis;  /* Visibility from home (near pads)        */
 } launch_t;
 
 typedef struct {
@@ -103,6 +108,7 @@ int pic_launches_parse(const char *js, size_t len, launch_t *out, int max)
         pic_json_str(&j, pic_json_path(&j, pad, "location.name"), L.pad, sizeof(L.pad));
         short_location(L.pad);
         pic_json_str(&j, pic_json_path(&j, r, "launch_service_provider.name"), L.provider, sizeof(L.provider));
+        pic_json_str(&j, pic_json_path(&j, r, "mission.orbit.abbrev"), L.orbit, sizeof(L.orbit));
         pic_json_str(&j, pic_json_path(&j, r, "net_precision.abbrev"), buf, sizeof(buf));
         L.precise = (strcmp(buf, "SEC") == 0 || strcmp(buf, "MIN") == 0);
         /* Launched or scrubbed for good — not "upcoming" any more */
@@ -136,13 +142,31 @@ static int launches_work(pic_feature_t *f)
         printf("launches: parse failed (rate limited?)\n");
         return 30 * 60;
     }
-    pthread_mutex_lock(&ll.mutex);
-    memcpy(ll.items, tmp, sizeof(tmp));
-    ll.count = count;
-    ll.fetched = time(NULL);
-    pthread_mutex_unlock(&ll.mutex);
-    printf("launches: %d upcoming\n", count);
-    return 30 * 60;
+    {
+        /* Visibility from home for launches from nearby pads, and a
+         * faster refresh (status, slips, liftoff) around their launch */
+        time_t now = time(NULL);
+        int i, soon = 0;
+        for (i = 0; i < count; i++) {
+            launch_t *L = &tmp[i];
+            L->near = pic_dist_km(pic_config.qth_lat, pic_config.qth_lon,
+                                  L->lat, L->lon) < NEAR_KM;
+            if (L->near) {
+                pic_launchvis_predict(L->lat, L->lon, L->orbit, L->mission, L->rocket,
+                                      L->net, pic_config.qth_lat, pic_config.qth_lon,
+                                      &L->vis);
+                if (L->net > now - 1800 && L->net < now + 3600) soon = 1;
+            }
+        }
+        pthread_mutex_lock(&ll.mutex);
+        memcpy(ll.items, tmp, sizeof(tmp));
+        ll.count = count;
+        ll.fetched = now;
+        pthread_mutex_unlock(&ll.mutex);
+        printf("launches: %d upcoming%s\n", count, soon ? " (nearby launch soon: 5 min refresh)" : "");
+        /* LL2 free tier allows ~15 requests an hour */
+        return soon ? 5 * 60 : 30 * 60;
+    }
 }
 
 static void launches_reload(pic_feature_t *f)
@@ -157,8 +181,29 @@ static void launches_reload(pic_feature_t *f)
 
 static int is_near(const launch_t *L)
 {
-    return pic_dist_km(pic_config.qth_lat, pic_config.qth_lon,
-                       L->lat, L->lon) < NEAR_KM;
+    return L->near;
+}
+
+/* Short visibility note for a nearby launch: "Visible +3–9 min · look
+ * S → E · up to 15°"; NULL when there is nothing useful to say */
+static const char *vis_note(const launch_t *L, char *out, size_t n, int *good)
+{
+    const pic_launchvis_t *v = &L->vis;
+    *good = 0;
+    if (!L->near || !v->known) return NULL;
+    if (v->visible) {
+        *good = 1;
+        snprintf(out, n, "%s +%d\xe2\x80\x93%d min \xc2\xb7 look %s\xe2\x86\x92%s \xc2\xb7 %d\xc2\xb0%s",
+                 v->sunlit ? "Sunlit plume" : "Visible",
+                 (v->t_start + 30) / 60, (v->t_end + 30) / 60,
+                 pic_launchvis_compass(v->az_start), pic_launchvis_compass(v->az_end),
+                 (int)(v->max_el + 0.5), "");
+    } else if (v->daytime) {
+        snprintf(out, n, "Daylight here \xe2\x80\x94 not visible from home");
+    } else {
+        snprintf(out, n, "Too low to see from home");
+    }
+    return out;
 }
 
 /* Text of one launch's map label */
@@ -174,6 +219,96 @@ static void launch_label(const launch_t *L, time_t now, char *label, size_t n)
     }
     snprintf(label, n, "%s \xc2\xb7 %s", L->rocket, when);
 }
+
+/*
+ * Predicted ascent of a nearby launch, from 30 min before liftoff until
+ * second-stage cut-off: aqua where it can be seen from home, grey
+ * dashes elsewhere, a tick each minute and a "+N min" label where it
+ * comes into view. Once it is in flight (or past its time while still
+ * "Go"), a marker shows where it should be now.
+ */
+static void draw_ascent(cairo_t *cr, int width, int height, const launch_t *L,
+                        time_t now, double s, double fs)
+{
+    const pic_launchvis_t *v = &L->vis;
+    double wrap = width / 3.0, px = 0, py = 0, lw = s * 0.32;
+    int t, prev_vis = 0, labelled = 0;
+
+    for (t = 0; t <= PIC_LV_T_END; t += 10) {
+        double la, lo, h, x, y, el;
+        int vis;
+        pic_launchvis_position(L->lat, L->lon, v->az_launch, t, &la, &lo, &h);
+        x = pic_lon_to_x(lo, width);
+        y = pic_lat_to_y(la, height);
+        el = pic_launchvis_look(pic_config.qth_lat, pic_config.qth_lon, la, lo, h, NULL);
+        vis = v->visible && t >= v->t_start && t <= v->t_end && el >= PIC_LV_MIN_EL;
+        if (t > 0 && fabs(x - px) < wrap) {
+            cairo_new_path(cr);
+            cairo_move_to(cr, px, py);
+            cairo_line_to(cr, x, y);
+            cairo_set_source_rgba(cr, 0, 0, 0, 0.5);
+            cairo_set_line_width(cr, lw * (vis ? 3.2 : 2.4));
+            cairo_stroke_preserve(cr);
+            if (vis) {
+                cairo_set_source_rgba(cr, 0.3, 1.0, 0.92, 0.95);
+                cairo_set_line_width(cr, lw * 1.8);
+            } else {
+                double dash[2] = { s * 0.6, s * 0.45 };
+                cairo_set_dash(cr, dash, 2, 0);
+                cairo_set_source_rgba(cr, 0.8, 0.82, 0.86, 0.75);
+                cairo_set_line_width(cr, lw);
+            }
+            cairo_stroke(cr);
+            cairo_set_dash(cr, NULL, 0, 0);
+        }
+        if (t > 0 && t % 60 == 0) {                    /* minute ticks */
+            cairo_new_path(cr);
+            cairo_arc(cr, x, y, lw * (vis ? 1.6 : 1.1), 0, 2 * M_PI);
+            cairo_set_source_rgba(cr, vis ? 0.3 : 0.85, vis ? 1.0 : 0.87, vis ? 0.92 : 0.9, 0.95);
+            cairo_fill(cr);
+        }
+        if (vis && !prev_vis && !labelled && x > 0 && x < width && y > 0 && y < height) {
+            char lab[48];
+            snprintf(lab, sizeof(lab), "%s from home +%d min",
+                     v->sunlit ? "Sunlit plume" : "Visible", (t + 30) / 60);
+            cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                                   CAIRO_FONT_WEIGHT_BOLD);
+            cairo_set_font_size(cr, fs * 0.85);
+            pic_draw_text_pill(cr, x + s * 0.6, y + fs * 0.3, lab, 0.3, 1.0, 0.92, 0.6);
+            labelled = 1;
+        }
+        prev_vis = vis;
+        px = x; py = y;
+    }
+
+    /* Where it should be now */
+    if (now >= L->net && now <= L->net + PIC_LV_T_END &&
+        (!strcmp(L->status, "In Flight") || !strcmp(L->status, "Go"))) {
+        double la, lo, h, x, y;
+        char lab[64];
+        pic_launchvis_position(L->lat, L->lon, v->az_launch, (double)(now - L->net), &la, &lo, &h);
+        x = pic_lon_to_x(lo, width);
+        y = pic_lat_to_y(la, height);
+        cairo_new_path(cr);
+        cairo_arc(cr, x, y, s * 0.7, 0, 2 * M_PI);
+        cairo_set_source_rgba(cr, 1.0, 0.75, 0.3, 0.95);
+        cairo_fill_preserve(cr);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0.8);
+        cairo_set_line_width(cr, lw);
+        cairo_stroke(cr);
+        snprintf(lab, sizeof(lab), "%s T+%ld:%02ld%s", L->rocket, (long)(now - L->net) / 60,
+                 (long)(now - L->net) % 60,
+                 strcmp(L->status, "In Flight") ? " (if on time)" : "");
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                               CAIRO_FONT_WEIGHT_BOLD);
+        cairo_set_font_size(cr, fs * 0.85);
+        pic_draw_text_pill(cr, x + s * 1.0, y - s * 0.6, lab, 1.0, 0.85, 0.5, 0.6);
+    }
+}
+
+/* Label boxes placed in the last frame (for tests) */
+static double last_label[MAX_LAUNCHES][4];
+static int last_nlabel;
 
 /* Does r overlap any of rs[0..n) other than rs[skip]? */
 static int rect_hits(const double r[4], double (*rs)[4], int n, int skip)
@@ -224,6 +359,17 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
         site[k].idx[site[k].n++] = i;
     }
 
+    /* Predicted ascents of nearby launches around launch time */
+    for (i = 0; i < ll.count; i++) {
+        const launch_t *L = &ll.items[i];
+        if (L->near && L->vis.known && now >= L->net - 1800 &&
+            now <= L->net + PIC_LV_T_END + 60)
+            draw_ascent(cr, width, height, L, now, s, fs);
+    }
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                           CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fs);
+
     /* Rockets first; their outlines are obstacles for the labels */
     for (k = 0; k < nsite; k++) {
         const launch_t *L = &ll.items[site[k].first];
@@ -251,6 +397,7 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
         nrect++;
     }
 
+    last_nlabel = 0;
     if (ll.labels) {
         cairo_font_extents_t fe;
         cairo_font_extents(cr, &fe);
@@ -280,6 +427,7 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
             }
             if (pos == 3) continue;                 /* no room: rocket only */
             memcpy(rects[nrect++], r, sizeof(r));
+            if (last_nlabel < MAX_LAUNCHES) memcpy(last_label[last_nlabel++], r, sizeof(r));
             for (j = 0; j < nl; j++) {
                 int more = j == nl - 1 && site[k].n > 2;
                 pic_draw_text_pill(cr, bx, by + lh * j, lines[j],
@@ -361,9 +509,20 @@ double pic_applet_render_launches(cairo_t *cr, double width, time_t now,
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                                CAIRO_FONT_WEIGHT_NORMAL);
         cairo_set_font_size(cr, fs * 0.85);
-        snprintf(line, sizeof(line), "%s \xc2\xb7 %s", L->mission, L->pad);
+        {
+            /* Visible from home: say when and where to look instead of
+             * the pad (the star and the gold already say it's nearby) */
+            char note[96];
+            int good;
+            if (vis_note(L, note, sizeof(note), &good) && good) {
+                snprintf(line, sizeof(line), "%s", note);
+                cairo_set_source_rgba(cr, 0.3, 1.0, 0.92, 0.95);
+            } else {
+                snprintf(line, sizeof(line), "%s \xc2\xb7 %s", L->mission, L->pad);
+                cairo_set_source_rgba(cr, 0.65, 0.68, 0.75, 0.9);
+            }
+        }
         pic_fit_text(cr, line, width - fs * 1.4);
-        cairo_set_source_rgba(cr, 0.65, 0.68, 0.75, 0.9);
         cairo_move_to(cr, fs * 1.4, y + fs + line_h * 0.85);
         cairo_show_text(cr, line);
         y += line_h * 2.0;
@@ -372,9 +531,39 @@ double pic_applet_render_launches(cairo_t *cr, double width, time_t now,
     return pic_applet_title(NULL, width, "") + fs * 0.4 + rows * line_h * 2.0;
 }
 
+int pic_launches_visible(pic_launch_alert_t *out, int max)
+{
+    int i, n = 0;
+    pthread_mutex_lock(&ll.mutex);
+    for (i = 0; i < ll.count && n < max; i++) {
+        const launch_t *L = &ll.items[i];
+        if (!L->near || !L->vis.visible) continue;
+        memset(&out[n], 0, sizeof(out[n]));
+        snprintf(out[n].rocket, sizeof(out[n].rocket), "%s", L->rocket);
+        snprintf(out[n].mission, sizeof(out[n].mission), "%s", L->mission);
+        snprintf(out[n].pad, sizeof(out[n].pad), "%s", L->pad);
+        snprintf(out[n].status, sizeof(out[n].status), "%s", L->status);
+        out[n].net = L->net;
+        out[n].precise = L->precise;
+        out[n].vis = L->vis;
+        n++;
+    }
+    pthread_mutex_unlock(&ll.mutex);
+    return n;
+}
+
+/* Keep fetching for Home Assistant launch alerts even with the layer
+ * and applet off */
+static int launches_wanted(pic_feature_t *f)
+{
+    (void)f;
+    return pic_hanotify_wants("HA_NOTIFY_LAUNCHES");
+}
+
 static pic_feature_t feature_def = {
-    .name = "launches", .layer = pic_layer_render_launches,
-    .interval = 30, .extra_mb = 1,
+    .name = "launches", .wanted = launches_wanted, .layer = pic_layer_render_launches,
+    /* 5 s: countdowns and the live ascent marker during a launch */
+    .interval = 5, .extra_mb = 1,
     .applet = pic_applet_render_launches, .label = "Rocket Launches",
     .applet_w = 220, .side = APPLET_SIDE_RIGHT,
     .reload = launches_reload, .work = launches_work, .needs_network = 1,

@@ -30,6 +30,7 @@
  */
 
 #include "earthquake.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include <stdio.h>
@@ -232,6 +233,7 @@ static int parse_features(const char *json, pic_quake_t *quakes, int max)
  */
 static void *quake_thread_func(void *arg)
 {
+    pic_status_feature = "earthquake";   /* data-source status (datastatus.c) */
     char *buf;
 
     (void)arg;

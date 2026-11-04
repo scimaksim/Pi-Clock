@@ -13,6 +13,9 @@
  *                      the view or photo line)
  *   aurora_forecast  - the 3-day Kp forecast reaches the level home
  *                      needs within the next 24 hours
+ *   launch           - a rocket launch predicted to be visible from home
+ *                      (Florida / Virginia, dark sky, high enough) lifts
+ *                      off in HA_LAUNCH_LEAD_MIN minutes (default 30)
  *
  * Every payload has "event", "title" and "message" (ready to use as
  * a notification) plus event-specific fields. The webhook URL lives
@@ -25,6 +28,7 @@
 #include "features_all.h"
 #include "config.h"
 #include "fetch.h"
+#include "astro.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,7 +61,8 @@ int pic_hanotify_wants(const char *flag_key)
     if (stat(HA_WEBHOOK_PATH, &st) != 0 || st.st_size < 10) return 0;
     return flag_key ? pic_conf_int(flag_key, 1) != 0
                     : pic_conf_int("HA_NOTIFY_PASSES", 1) ||
-                      pic_conf_int("HA_NOTIFY_AURORA", 1);
+                      pic_conf_int("HA_NOTIFY_AURORA", 1) ||
+                      pic_conf_int("HA_NOTIFY_LAUNCHES", 1);
 }
 
 static const char *compass8(double az)
@@ -198,12 +203,102 @@ static void check_aurora(time_t now)
     }
 }
 
+/* Average Astrospheric cloud cover (%) over [t0, t1), -1 unknown */
+static int clouds_at(time_t t0, time_t t1)
+{
+    pic_astro_t *a = pic_astro_shared;
+    double sum = 0;
+    int i, c = 0;
+    if (!a) return -1;
+    pthread_mutex_lock(&a->mutex);
+    for (i = 0; i < a->nhours; i++)
+        if (a->hours[i].t >= t0 - 1800 && a->hours[i].t < t1) {
+            sum += a->hours[i].cloud;
+            c++;
+        }
+    pthread_mutex_unlock(&a->mutex);
+    return c ? (int)(sum / c + 0.5) : -1;
+}
+
+/* Make text from a web API safe inside a JSON string */
+static void json_safe(char *s)
+{
+    for (; *s; s++)
+        if (*s == '"' || *s == '\\') *s = '\'';
+        else if ((unsigned char)*s < 0x20) *s = ' ';
+}
+
+static struct { char key[64]; time_t net; } sent_launch[16];
+static int n_sent_launch;
+
+static void check_launches(time_t now)
+{
+    pic_launch_alert_t L[8];
+    int n, i, k, lead;
+
+    if (!pic_conf_int("HA_NOTIFY_LAUNCHES", 1)) return;
+    lead = pic_conf_int("HA_LAUNCH_LEAD_MIN", 30);
+    n = pic_launches_visible(L, 8);
+    for (i = 0; i < n; i++) {
+        const pic_launchvis_t *v = &L[i].vis;
+        char json[900], key[64], hm[16], st[24], cl[24];
+        json_safe(L[i].rocket);
+        json_safe(L[i].mission);
+        json_safe(L[i].pad);
+        long until = (long)(L[i].net - now);
+        int dup = 0, c;
+
+        /* A firm time ("Go", to the minute) inside the lead window */
+        if (!L[i].precise || strcmp(L[i].status, "Go") || until <= 0 || until > lead * 60L)
+            continue;
+        snprintf(key, sizeof(key), "%.30s|%.30s", L[i].rocket, L[i].mission);
+        for (k = 0; k < n_sent_launch; k++)
+            if (!strcmp(sent_launch[k].key, key) &&
+                labs((long)(sent_launch[k].net - L[i].net)) < 120)
+                dup = 1;
+        if (dup) continue;
+
+        pic_fmt_hm(hm, sizeof(hm), L[i].net);
+        iso(st, sizeof(st), L[i].net);
+        c = clouds_at(L[i].net, L[i].net + 1800);
+        clouds_text(cl, sizeof(cl), c);
+        snprintf(json, sizeof(json),
+                 "{\"source\":\"pi-clock\",\"event\":\"launch\","
+                 "\"title\":\"%s launch visible from home\","
+                 "\"message\":\"%s (%s) lifts off at %s from %s. %s from home %d\u2013%d min after "
+                 "liftoff: look %s, low, moving toward %s, up to %d\u00b0.%s\","
+                 "\"rocket\":\"%s\",\"mission\":\"%s\",\"net\":\"%s\",\"minutes\":%ld,"
+                 "\"look_from\":\"%s\",\"look_to\":\"%s\",\"max_el\":%d,"
+                 "\"t_start_min\":%d,\"t_end_min\":%d,\"sunlit\":%s,\"clouds\":%d}",
+                 L[i].rocket,
+                 L[i].rocket, L[i].mission, hm, L[i].pad,
+                 v->sunlit ? "The plume may be lit by the sun; visible" : "Visible",
+                 (v->t_start + 30) / 60, (v->t_end + 30) / 60,
+                 pic_launchvis_compass(v->az_start), pic_launchvis_compass(v->az_end),
+                 (int)(v->max_el + 0.5), cl,
+                 L[i].rocket, L[i].mission, st, (until + 30) / 60,
+                 pic_launchvis_compass(v->az_start), pic_launchvis_compass(v->az_end),
+                 (int)(v->max_el + 0.5), (v->t_start + 30) / 60, (v->t_end + 30) / 60,
+                 v->sunlit ? "true" : "false", c);
+        if (post(json) == 0) {
+            if (n_sent_launch == 16) {
+                memmove(sent_launch, sent_launch + 1, 15 * sizeof(sent_launch[0]));
+                n_sent_launch = 15;
+            }
+            snprintf(sent_launch[n_sent_launch].key, sizeof(sent_launch[0].key), "%s", key);
+            sent_launch[n_sent_launch].net = L[i].net;
+            n_sent_launch++;
+        }
+    }
+}
+
 static int hanotify_work(pic_feature_t *f)
 {
     time_t now = time(NULL);
     (void)f;
     check_passes(now);
     check_aurora(now);
+    check_launches(now);
     return 30;
 }
 

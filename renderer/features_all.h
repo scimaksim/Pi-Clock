@@ -53,6 +53,17 @@ typedef struct {
 /* Copy the predicted visible passes (sorted by start). */
 int pic_passes_get(pic_pass_t *out, int max);
 
+/* Upcoming launches from nearby pads predicted to be visible from home
+ * (layers_launches.c), soonest first */
+#include "launchvis.h"
+typedef struct {
+    char   rocket[40], mission[64], pad[48], status[16];
+    time_t net;
+    int    precise;          /* NET known to the minute */
+    pic_launchvis_t vis;
+} pic_launch_alert_t;
+int pic_launches_visible(pic_launch_alert_t *out, int max);
+
 typedef struct {
     int    have_data;
     float  kp_now;
@@ -66,7 +77,9 @@ typedef struct {
 void pic_aurora_home(time_t now, pic_aurora_home_t *out);
 
 /* Phone-alert settings shared by passes/aurora "wanted" hooks */
+#ifndef HA_WEBHOOK_PATH
 #define HA_WEBHOOK_PATH "/data/etc/pi-clock-ha-webhook"
+#endif
 int pic_hanotify_wants(const char *flag_key);
 pic_feature_t *pic_feature_lightpollution(void); /* Sky brightness map */
 

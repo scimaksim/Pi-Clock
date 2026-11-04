@@ -183,6 +183,16 @@
             </div>
         </div>
 
+        <!-- Health of every data source the clock downloads from -->
+        <div class="card" id="data-status-card">
+            <div class="card-title">Data Sources</div>
+            <p class="text-muted mb-8">Every website and service the clock downloads from, when it last worked, and anything failing right now. Problems are listed first.</p>
+            <div id="data-status" class="data-status"><span class="text-muted">Loading&hellip;</span></div>
+            <div class="mt-12">
+                <button class="btn btn-outline btn-sm" onclick="loadDataStatus()">Refresh</button>
+            </div>
+        </div>
+
         <!-- Layer Control -->
         <div class="card">
             <div class="card-title">Map Layers</div>
@@ -255,7 +265,7 @@
         <!-- Home Assistant phone alerts -->
         <div class="card" id="ha-card">
             <div class="card-title">Home Assistant Alerts</div>
-            <p class="text-muted mb-8">Pi-Clock can tell Home Assistant when a bright ISS / Tiangong / Hubble pass is about to start or the aurora may be visible from home, so an automation can notify your phone, flash a light or speak on a speaker. In Home Assistant, create an automation with a <strong>Webhook</strong> trigger and paste its URL here (e.g. <code>http://192.168.1.90:8123/api/webhook/your-id</code>).</p>
+            <p class="text-muted mb-8">Pi-Clock can tell Home Assistant when a bright ISS / Tiangong / Hubble pass is about to start, the aurora may be visible from home, or a rocket launch will be visible from home, so an automation can notify your phone, flash a light or speak on a speaker. In Home Assistant, create an automation with a <strong>Webhook</strong> trigger and paste its URL here (e.g. <code>http://192.168.1.90:8123/api/webhook/your-id</code>).</p>
             <div class="form-group">
                 <label for="ha_webhook">Webhook URL</label>
                 <input type="password" id="ha_webhook" class="form-control" autocomplete="off" placeholder="http://homeassistant-ip:8123/api/webhook/...">
@@ -290,6 +300,17 @@
             </div>
             <div class="check-row">
                 <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_AURORA"> Aurora possible from home (now, or forecast within 24 h)</label>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_LAUNCHES"> Rocket launches visible from home (Florida / Virginia, dark sky)</label>
+            </div>
+            <div class="form-group">
+                <label for="ha_launch_lead">Launch Alert Lead Time</label>
+                <select id="ha_launch_lead" class="form-control" data-conf="HA_LAUNCH_LEAD_MIN">
+                    <option value="15">15 minutes before</option>
+                    <option value="30">30 minutes before (default)</option>
+                    <option value="60">1 hour before</option>
+                </select>
             </div>
             <div class="mt-12">
                 <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('ha-card', 'Alerts')">Save</button>

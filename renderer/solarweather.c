@@ -18,6 +18,7 @@
  */
 
 #include "solarweather.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "image.h"
@@ -329,6 +330,7 @@ static void fetch_sfi(void)
  */
 static void *solar_thread_func(void *arg)
 {
+    pic_status_feature = "solarweather";   /* data-source status (datastatus.c) */
     int tick = 0;
 
     (void)arg;

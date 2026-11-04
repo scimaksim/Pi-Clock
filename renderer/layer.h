@@ -187,6 +187,20 @@ void pic_layer_stack_composite(pic_layer_stack_t *stack, cairo_t *cr);
  *   cr    - Cairo context bound to the output surface.
  *   now   - Current UTC time (passed to legend render functions).
  */
+/*
+ * Composite every enabled, shown layer except those named in skip[]
+ * (NULL-terminated; e.g. "hud", "ticker") onto cr, OVER whatever is
+ * there. Runs of slow layers between the fast ones (update interval
+ * under PIC_LAYER_FAST_S seconds) are kept pre-composited on cache
+ * surfaces and rebuilt only when one of their layers re-renders, so a
+ * layer that changes every second costs a few full-screen blends rather
+ * than one per enabled layer. force rebuilds every cache. Falls back
+ * to plain compositing if a cache surface can't be allocated.
+ */
+#define PIC_LAYER_FAST_S 5
+void pic_layer_stack_composite_cached(pic_layer_stack_t *stack, cairo_t *cr,
+                                      const char *const *skip, int force);
+
 void pic_layer_stack_render_legends(pic_layer_stack_t *stack, cairo_t *cr,
                                     time_t now);
 

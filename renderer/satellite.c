@@ -19,6 +19,7 @@
  */
 
 #include "satellite.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include <stdio.h>
@@ -810,6 +811,7 @@ static void fetch_all_tles(void)
 
 static void *sat_thread_func(void *arg)
 {
+    pic_status_feature = "satellite";   /* data-source status (datastatus.c) */
     (void)arg;
 
     /* Lower priority so TLS handshakes don't starve the renderer */

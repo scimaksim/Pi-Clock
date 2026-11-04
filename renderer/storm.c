@@ -21,6 +21,7 @@
  */
 
 #include "storm.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "json.h"
@@ -319,6 +320,7 @@ int pic_storm_parse_geometry(const char *js, size_t len, pic_storm_t *out,
 
 static void *storm_thread_func(void *arg)
 {
+    pic_status_feature = "storm";   /* data-source status (datastatus.c) */
     char *buf;
     (void)arg;
 

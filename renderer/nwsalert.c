@@ -18,6 +18,7 @@
 
 #define _GNU_SOURCE   /* timegm */
 #include "nwsalert.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "json.h"
@@ -285,6 +286,7 @@ int pic_nws_parse_home(const char *js, size_t len,
 
 static void *nws_thread_func(void *arg)
 {
+    pic_status_feature = "nwsalert";   /* data-source status (datastatus.c) */
     char *buf;
     static pic_nws_t temp;
     (void)arg;
