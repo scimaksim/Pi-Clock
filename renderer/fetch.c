@@ -12,6 +12,9 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE   /* pipe2 */
+#endif
 #include "fetch.h"
 #include "datastatus.h"
 #include <fcntl.h>
@@ -22,6 +25,9 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <poll.h>
+#include <time.h>
+#include <errno.h>
 
 /* Global User-Agent string — set once at startup */
 static char g_useragent[128] = "Pi-Clock";
@@ -77,6 +83,91 @@ static void classify_error(const char *err, int timed_out, char *out, size_t n, 
 }
 
 /* Read what the child wrote to its stderr pipe (non-blocking) */
+/*
+ * Pipes are close-on-exec: wget gets its end through dup2 (which
+ * clears the flag on the copy) and no other child inherits it. Without
+ * this, a wget started by one thread kept the write end of another
+ * thread's pipe open, and a hung child (BusyBox wget's ssl_client
+ * stuck on a dead TLS connection) left several fetchers waiting for an
+ * end of file forever.
+ */
+static int cpipe(int fd[2])
+{
+    return pipe2(fd, O_CLOEXEC);
+}
+
+/* In the child, before exec: own process group, so a timeout can kill
+ * wget together with the ssl_client it starts for https */
+static void child_setup(void)
+{
+    setpgid(0, 0);
+}
+
+static double mono_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1e9;
+}
+
+static int child_exited(pid_t pid)
+{
+    siginfo_t si;
+    memset(&si, 0, sizeof(si));
+    return waitid(P_PID, (id_t)pid, &si, WEXITED | WNOHANG | WNOWAIT) == 0 && si.si_pid == pid;
+}
+
+/* Read the child's stdout into buf until EOF, the buffer is full,
+ * `limit_s` seconds pass, or wget has exited and nothing more comes
+ * (a leftover ssl_client can hold the pipe open). Returns bytes read;
+ * *timed_out set on the time limit. */
+static int read_until(int fd, char *buf, int max, double limit_s, pid_t pid, int *timed_out)
+{
+    double end = mono_now() + limit_s;
+    int n = 0;
+    *timed_out = 0;
+    while (n < max) {
+        struct pollfd pf = { fd, POLLIN, 0 };
+        double left = end - mono_now();
+        int r;
+        if (left <= 0) { *timed_out = 1; break; }
+        r = poll(&pf, 1, left > 0.5 ? 500 : (int)(left * 1000) + 1);
+        if (r < 0 && errno == EINTR) continue;
+        if (r < 0) break;
+        if (r == 0) {
+            if (child_exited(pid)) break;
+            continue;
+        }
+        r = (int)read(fd, buf + n, (size_t)(max - n));
+        if (r < 0 && errno == EINTR) continue;
+        if (r <= 0) break;
+        n += r;
+    }
+    return n;
+}
+
+/*
+ * Wait up to `ticks` x `tick_us` for the child to exit, then kill its
+ * whole process group (wget's ssl_client too, which can outlive wget)
+ * and reap it. The group is killed while the child is still a zombie,
+ * so its id cannot have been reused. Returns 1 if it had to be killed.
+ */
+static int finish_child(pid_t pid, int ticks, useconds_t tick_us, int *status)
+{
+    int t = 0, killed = 0;
+    for (;;) {
+        if (child_exited(pid))
+            break;
+        if (t++ >= ticks) { killed = 1; break; }
+        usleep(tick_us);
+    }
+    kill(-pid, SIGKILL);
+    if (killed) kill(pid, SIGKILL);
+    *status = -1;
+    while (waitpid(pid, status, 0) < 0 && errno == EINTR) {}
+    return killed;
+}
+
 static void read_err(int fd, char *buf, size_t n)
 {
     ssize_t r;
@@ -121,8 +212,8 @@ static int fetch_impl(const char *url, const char *header, char *buf,
     int n;
     char err[256];
 
-    if (pipe(pipefd) < 0) return -1;
-    if (pipe(errfd) < 0) {
+    if (cpipe(pipefd) < 0) return -1;
+    if (cpipe(errfd) < 0) {
         close(pipefd[0]);
         close(pipefd[1]);
         return -1;
@@ -138,6 +229,7 @@ static int fetch_impl(const char *url, const char *header, char *buf,
     }
 
     if (pid == 0) {
+        child_setup();
         /* Child: stdout to the pipe, stderr (error text) to errfd */
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
@@ -159,31 +251,19 @@ static int fetch_impl(const char *url, const char *header, char *buf,
     close(pipefd[1]);
     close(errfd[1]);
 
-    n = 0;
-    while (n < buf_size - 1) {
-        int r = read(pipefd[0], buf + n, buf_size - 1 - n);
-        if (r <= 0) break;
-        n += r;
-    }
-    close(pipefd[0]);
-    buf[n] = '\0';
-
-    /* Wait for child with a timeout — a hung wget must not block
-     * the calling thread indefinitely (prevents clean shutdown). */
+    /* A hung wget must not block the calling thread: at most 90 s of
+     * reading, then 30 s for it to exit, then the group is killed */
     {
-        int status = -1, waited = 0;
-        while (waitpid(pid, &status, WNOHANG) == 0 && waited < 30) {
-            sleep(1);
-            waited++;
-        }
-        if (waited >= 30) {
-            kill(pid, SIGKILL);
-            waitpid(pid, &status, 0);
-        }
+        int status = -1, slow, killed;
+        n = read_until(pipefd[0], buf, buf_size - 1, 90.0, pid, &slow);
+        close(pipefd[0]);
+        buf[n] = '\0';
+        killed = finish_child(pid, slow ? 0 : 300, 100000, &status) || slow;
+        if (killed) n = 0;   /* cut off part-way: not a whole reply */
         read_err(errfd[0], err, sizeof(err));
         if (n <= 0 && !err[0] && WIFEXITED(status) && WEXITSTATUS(status) == 0)
             snprintf(err, sizeof(err), "empty reply");
-        report(url, n > 0, err, waited >= 30,
+        report(url, n > 0, err, killed,
                WIFEXITED(status) ? WEXITSTATUS(status) : -1);
     }
 
@@ -219,7 +299,7 @@ int pic_fetch_to_file_rc(const char *url, const char *path, int timeout)
 
     snprintf(timeout_str, sizeof(timeout_str), "--timeout=%d", timeout);
 
-    if (pipe(errfd) < 0) return -1;
+    if (cpipe(errfd) < 0) return -1;
     pid = fork();
     if (pid < 0) {
         close(errfd[0]);
@@ -228,6 +308,7 @@ int pic_fetch_to_file_rc(const char *url, const char *path, int timeout)
     }
 
     if (pid == 0) {
+        child_setup();
         /* stderr (wget's error text) to the pipe */
         close(errfd[0]);
         dup2(errfd[1], STDERR_FILENO);
@@ -242,21 +323,14 @@ int pic_fetch_to_file_rc(const char *url, const char *path, int timeout)
      * Polled every 50 ms so small files (map tiles) don't each cost a
      * whole second. */
     {
-        int waited = 0;
-        while (waitpid(pid, &status, WNOHANG) == 0 && waited < 600) {
-            usleep(50000);
-            waited++;
-        }
-        if (waited >= 600) {
-            kill(pid, SIGKILL);
-            waitpid(pid, &status, 0);
-        }
+        int killed;
         close(errfd[1]);
+        killed = finish_child(pid, 600, 50000, &status);
         read_err(errfd[0], err, sizeof(err));
         /* BusyBox wget exits 1 for every failure; report a server's
          * HTTP error as 8, as GNU wget does, so callers can tell "not
          * there" (e.g. a map tile not made yet) from "can't reach" */
-        if (report(url, WIFEXITED(status) && WEXITSTATUS(status) == 0, err, waited >= 600,
+        if (report(url, WIFEXITED(status) && WEXITSTATUS(status) == 0, err, killed,
                    WIFEXITED(status) ? WEXITSTATUS(status) : -1) &&
             WIFEXITED(status) && WEXITSTATUS(status) == 1)
             return 8;
@@ -289,7 +363,7 @@ int pic_fetch_post_json(const char *url, const char *json,
     }
     close(fd);
 
-    if (pipe(pipefd) < 0) {
+    if (cpipe(pipefd) < 0) {
         unlink(tmp);
         return -1;
     }
@@ -303,6 +377,7 @@ int pic_fetch_post_json(const char *url, const char *json,
     }
 
     if (pid == 0) {
+        child_setup();
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
@@ -315,24 +390,14 @@ int pic_fetch_post_json(const char *url, const char *json,
     }
 
     close(pipefd[1]);
-    n = 0;
-    while (n < buf_size - 1) {
-        int r = read(pipefd[0], buf + n, buf_size - 1 - n);
-        if (r <= 0) break;
-        n += r;
-    }
-    close(pipefd[0]);
-    buf[n] = '\0';
-
     {
-        int status = -1, waited = 0;
-        while (waitpid(pid, &status, WNOHANG) == 0 && waited < 30) {
-            sleep(1);
-            waited++;
-        }
-        if (waited >= 30) {
-            kill(pid, SIGKILL);
-            waitpid(pid, &status, 0);
+        int status = -1, slow;
+        n = read_until(pipefd[0], buf, buf_size - 1, 60.0, pid, &slow);
+        close(pipefd[0]);
+        buf[n] = '\0';
+        if (finish_child(pid, slow ? 0 : 300, 100000, &status) || slow) {
+            n = 0;
+            status = -1;
         }
         status_out = status;
     }
