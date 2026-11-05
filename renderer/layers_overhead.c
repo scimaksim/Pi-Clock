@@ -30,6 +30,7 @@
 #include "feature.h"
 #include "features_all.h"
 #include "sat_icons.h"
+#include "skycover.h"
 #include "sprites.h"
 #include "satellite.h"
 #include "solar.h"
@@ -70,8 +71,9 @@ static struct {
     ov_sat_t *sats;
     int       n;
     int       in_view, visible;   /* from the last render, for the note */
+    int       hidden, cloud;      /* lit and up but clouded out; cloud % */
     unsigned  gen;                /* bumped when the list is replaced  */
-} ov = { PTHREAD_MUTEX_INITIALIZER, NULL, 0, 0, 0, 0 };
+} ov = { PTHREAD_MUTEX_INITIALIZER, NULL, 0, 0, 0, 0, -1, 0 };
 
 /* "STARLINK-1234" -> "Starlink-1234", "ISS (ZARYA)" -> "ISS";
  * short all-caps runs (NOAA, SL-16, R/B) stay as they are */
@@ -280,6 +282,7 @@ static int overhead_work(pic_feature_t *f)
     int n = 0, got = 0;
 
     (void)f;
+    pic_skycover_refresh(time(NULL));
     mkdir(OV_DIR, 0755);
     if (refresh(URL_VISUAL, OV_VISUAL) == 0) got++;
     if (refresh_satnogs() == 0) got++;
@@ -311,7 +314,7 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
     double s = height / 360.0 * (1 + 0.15 * (pic_symbol_zoom() - 1));
     double fs = height / 100.0, wrap = pic_wrap_threshold_px(width);
     static double boxes[OV_MAX][4];
-    int i, nbox = 0, in_view = 0, visible = 0, home_dark, pass;
+    int i, nbox = 0, in_view = 0, visible = 0, hidden = 0, home_dark, pass, sky, cloud;
     pic_solar_position_t sp = pic_solar_position(now);
 
     (void)ud;
@@ -323,6 +326,8 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
         double el = asin(sin(la) * sin(d) + cos(la) * cos(d) * cos(ha)) * 180 / M_PI;
         home_dark = el < -6;
     }
+    /* "Visible from home" only when the sky there is clear enough */
+    sky = pic_sky_clear(now, now, &cloud);
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                            CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, fs);
@@ -394,7 +399,7 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                 up = el > 10;
                 x = pic_lon_to_x(vis[j].lon, width);
                 y = pic_lat_to_y(vis[j].lat, height);
-                if (lit && up && home_dark) { r = 1.0; g = 0.85; b = 0.25; a = 1.0; }
+                if (lit && up && home_dark && sky == PIC_SKY_CLEAR) { r = 1.0; g = 0.85; b = 0.25; a = 1.0; }
                 else if (lit)               { r = 0.95; g = 0.95; b = 0.97; a = 0.9; }
                 else                        { r = 0.55; g = 0.58; b = 0.65; a = 0.7; }
                 la = pic_sat_label_rgb(r, g, b, &lr, &lg, &lb);
@@ -406,7 +411,10 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                 if (pass == 0) {
                     double px = x, py = y;
                     in_view++;
-                    if (lit && up && home_dark) visible++;
+                    if (lit && up && home_dark) {
+                        if (sky == PIC_SKY_CLEAR) visible++;
+                        else hidden++;
+                    }
                     /* Trail: last 60 s, fading */
                     for (k = 1; k <= 3; k++) {
                         double la2, lo2, al2, x2, y2;
@@ -443,7 +451,7 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                             snprintf(q->label, sizeof(q->label), "%s", ov.sats[vis[j].i].label);
                             q->known = (unsigned char)known;
                             q->up = (unsigned char)up;
-                            q->ring = (unsigned char)(lit && up && home_dark);
+                            q->ring = (unsigned char)(lit && up && home_dark && sky == PIC_SKY_CLEAR);
                             q->r = (float)r; q->g = (float)g; q->b = (float)b; q->a = (float)a;
                             q->lat0 = vis[j].lat; q->lon0 = vis[j].lon;
                             pic_sat_position_at(st, now + 1, &la1, &lo1, &al1);
@@ -517,6 +525,8 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
     }
     ov.in_view = in_view;
     ov.visible = visible;
+    ov.hidden = hidden;
+    ov.cloud = cloud;
     pthread_mutex_unlock(&ov.mutex);
 }
 
@@ -524,12 +534,14 @@ static void overhead_note(cairo_t *cr, int width, int height, time_t now,
                           void *ud)
 {
     char text[128];
-    int n, v, total;
+    int n, v, h, cl, total;
 
     (void)now; (void)ud;
     pthread_mutex_lock(&ov.mutex);
     n = ov.in_view;
     v = ov.visible;
+    h = ov.hidden;
+    cl = ov.cloud;
     total = ov.n;
     pthread_mutex_unlock(&ov.mutex);
     if (!total) return;
@@ -537,6 +549,14 @@ static void overhead_note(cairo_t *cr, int width, int height, time_t now,
         snprintf(text, sizeof(text),
                  "Overhead now: %d satellite%s in view \xc2\xb7 %d visible from home (aqua)",
                  n, n == 1 ? "" : "s", v);
+    else if (h && cl >= 0)
+        snprintf(text, sizeof(text),
+                 "Overhead now: %d satellite%s in view \xc2\xb7 %d sunlit above home, "
+                 "hidden by clouds (%d%%)", n, n == 1 ? "" : "s", h, cl);
+    else if (h)
+        snprintf(text, sizeof(text),
+                 "Overhead now: %d satellite%s in view \xc2\xb7 %d sunlit above home "
+                 "(no cloud forecast)", n, n == 1 ? "" : "s", h);
     else
         snprintf(text, sizeof(text), "Overhead now: %d satellite%s in view",
                  n, n == 1 ? "" : "s");

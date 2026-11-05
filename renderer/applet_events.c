@@ -22,6 +22,7 @@
  */
 
 #include "feature.h"
+#include "skycover.h"
 #include "layer.h"
 #include "features_all.h"
 #include "astro.h"
@@ -69,6 +70,8 @@ int pic_events_collect(time_t now, pic_event_t *out, int max)
         int np = pic_passes_get(p, 12);
         for (i = 0; i < np; i++) {
             if (p[i].end < now) continue;
+            /* Only passes the cloud forecast lets you see */
+            if (pic_sky_clear(p[i].start, p[i].end, NULL) == PIC_SKY_CLOUDY) continue;
             ADD(PIC_EV_PASS, p[i].start, p[i].end, 1, "%.15s pass", p[i].sat);
             snprintf(ev[n - 1].detail, sizeof(ev[n - 1].detail), "%s\xe2\x86\x92%s %d\xc2\xb0",
                      compass8(p[i].az_start), compass8(p[i].az_end), (int)(p[i].max_el + 0.5));

@@ -5,7 +5,8 @@
  * webhook trigger) so HA can push a phone notification, flash a
  * light or speak on a speaker:
  *
- *   pass             - a visible ISS / Tiangong / Hubble pass starts in
+ *   pass             - an ISS / Tiangong / Hubble pass the cloud forecast
+ *                      does not rule out starts in
  *                      HA_PASS_LEAD_MIN minutes (default 10) and peaks
  *                      at least HA_PASS_MIN_EL degrees (default 20)
  *   aurora_now       - aurora may be visible / photographable from
@@ -28,6 +29,7 @@
  */
 
 #include "feature.h"
+#include "skycover.h"
 #include "features_all.h"
 #include "config.h"
 #include "fetch.h"
@@ -109,11 +111,15 @@ static int check_passes(time_t now)
     lead = pic_conf_int("HA_PASS_LEAD_MIN", 10);
     min_el = pic_conf_int("HA_PASS_MIN_EL", 20);
     for (i = 0; i < n; i++) {
-        char json[640], a[16], b[16], st[24];
+        char json[640], a[16], b[16], st[24], cl[24];
         long until = (long)(p[i].start - now);
-        int dup = 0;
+        int dup = 0, cloud, sky;
 
         if (p[i].max_el < min_el || until <= 0 || until > lead * 60L) continue;
+        /* Clouded out: say nothing (and check again next time, in case
+         * the forecast clears before the pass) */
+        sky = pic_sky_clear(p[i].start, p[i].end, &cloud);
+        if (sky == PIC_SKY_CLOUDY) continue;
         for (k = 0; k < n_sent_pass; k++)
             if (!strcmp(sent_pass[k].sat, p[i].sat) &&
                 labs((long)(sent_pass[k].start - p[i].start)) < 120)
@@ -123,17 +129,20 @@ static int check_passes(time_t now)
         pic_fmt_hm(a, sizeof(a), p[i].start);
         pic_fmt_hm(b, sizeof(b), p[i].end);
         iso(st, sizeof(st), p[i].start);
+        if (sky == PIC_SKY_CLEAR) snprintf(cl, sizeof(cl), " Clouds %d%%.", cloud);
+        else snprintf(cl, sizeof(cl), " If the sky is clear.");
         snprintf(json, sizeof(json),
                  "{\"source\":\"pi-clock\",\"event\":\"pass\","
                  "\"title\":\"%s pass in %ld min\","
-                 "\"message\":\"%s visible %s\\u2013%s, up to %d\\u00b0, %s \\u2192 %s. Look %s.\","
-                 "\"sat\":\"%s\",\"start\":\"%s\",\"minutes\":%ld,"
+                 "\"message\":\"%s %s %s\\u2013%s, up to %d\\u00b0, %s \\u2192 %s. Look %s.%s\","
+                 "\"sat\":\"%s\",\"start\":\"%s\",\"minutes\":%ld,\"clouds\":%d,"
                  "\"duration_min\":%d,\"max_el\":%d,\"from\":\"%s\",\"to\":\"%s\"}",
                  p[i].sat, (until + 30) / 60,
-                 p[i].sat, a, b, (int)(p[i].max_el + 0.5),
+                 p[i].sat, sky == PIC_SKY_CLEAR ? "visible" : "passes over", a, b,
+                 (int)(p[i].max_el + 0.5),
                  compass8(p[i].az_start), compass8(p[i].az_end),
-                 compass8(p[i].az_start),
-                 p[i].sat, st, (until + 30) / 60,
+                 compass8(p[i].az_start), cl,
+                 p[i].sat, st, (until + 30) / 60, cloud,
                  (int)((p[i].end - p[i].start + 30) / 60), (int)(p[i].max_el + 0.5),
                  compass8(p[i].az_start), compass8(p[i].az_end));
         if (post(json) == 0) {

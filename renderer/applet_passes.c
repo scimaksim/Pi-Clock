@@ -6,7 +6,10 @@
  * elevation and direction of travel. A pass counts as visible when
  * the satellite is at least 10° up, sunlit, and the observer's sun is
  * below -6° (civil twilight or darker) — the same rule the Starlink
- * train layer uses.
+ * train layer uses — and is only called visible when the cloud
+ * forecast for home allows it (skycover.c, PASS_CLOUD_MAX): passes
+ * under cloud are listed greyed out as "clouded out", and passes with
+ * no forecast yet say "if clear".
  *
  * TLEs: CelesTrak GP API (one request per satellite, every 12 h).
  * Satellites: PASS_SATS=25544,48274,20580 (NORAD IDs, max 6).
@@ -22,6 +25,7 @@
 #include "fetch.h"
 #include "math_utils.h"
 #include "satellite.h"
+#include "skycover.h"
 #include "solar.h"
 #include <math.h>
 #include <stdio.h>
@@ -271,6 +275,7 @@ static int passes_work(pic_feature_t *f)
     double qlat = pic_config.qth_lat, qlon = pic_config.qth_lon;
 
     (void)f;
+    pic_skycover_refresh(now);
     pthread_mutex_lock(&ps.mutex);
     nids = ps.nids;
     memcpy(ids, ps.ids, sizeof(ids));
@@ -376,39 +381,43 @@ double pic_applet_render_passes(cairo_t *cr, double width, time_t now,
     (void)ud;
     if (!cr) return total;
 
-    y = pic_applet_title(cr, width, "Visible Passes") + fs * 0.3;
+    y = pic_applet_title(cr, width, "Satellite Passes") + fs * 0.3;
 
     pthread_mutex_lock(&ps.mutex);
     for (i = 0; i < ps.npasses && shown < rows; i++) {
         const pass_t *p = &ps.passes[i];
         char when[24], line[96];
-        int live = now >= p->start && now <= p->end;
+        int live = now >= p->start && now <= p->end, cl;
+        int sky = pic_sky_clear(p->start, p->end, &cl);
+        int dim = sky == PIC_SKY_CLOUDY;
+        double tr, tg, tb;
         cairo_text_extents_t e;
 
         if (p->end < now) continue;
         shown++;
 
-        if (live) snprintf(when, sizeof(when), "visible now");
+        if (live) snprintf(when, sizeof(when), sky == PIC_SKY_CLEAR ? "visible now" : "overhead now");
         else pic_fmt_when(when, sizeof(when), now, p->start);
+        /* Visible now: aqua (as on the map); high (bright) passes gold;
+         * clouded out: grey */
+        if (dim)                                { tr = 0.55; tg = 0.57; tb = 0.62; }
+        else if (live && sky == PIC_SKY_CLEAR)  { tr = 0.3;  tg = 1.0;  tb = 0.92; }
+        else if (p->max_el >= 40)               { tr = 1.0;  tg = 0.9;  tb = 0.5; }
+        else                                    { tr = 0.9;  tg = 0.9;  tb = 0.92; }
 
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                                CAIRO_FONT_WEIGHT_BOLD);
         cairo_set_font_size(cr, fs);
-        /* Live passes aqua (as on the map); high (bright) passes gold */
-        if (live)                 cairo_set_source_rgba(cr, 0.3, 1.0, 0.92, 1.0);
-        else if (p->max_el >= 40) cairo_set_source_rgba(cr, 1.0, 0.9, 0.5, 0.95);
-        else                      cairo_set_source_rgba(cr, 0.9, 0.9, 0.92, 0.9);
+        cairo_set_source_rgba(cr, tr, tg, tb, 0.95);
         pic_draw_sat_icon(cr, p->sat, fs * 0.8, y + fs * 0.62, fs * 1.6,
-                          0, 0.9, 0.9, 0.6);
+                          0, dim ? 0.5 : 0.9, dim ? 0.5 : 0.9, dim ? 0.55 : 0.6);
         {   /* people aboard, under the icon */
             int aboard = pic_sat_kind(p->sat) == PIC_SAT_ISS ? pic_crew_aboard("ISS") :
                          pic_sat_kind(p->sat) == PIC_SAT_TIANGONG ? pic_crew_aboard("Tiangong") : -1;
             if (aboard >= 0)
                 pic_draw_crew_badge(cr, fs * 0.15, y + fs * 1.55, fs * 0.6, aboard, 0.85, 0.88, 0.95);
         }
-        cairo_set_source_rgba(cr, live ? 0.3 : p->max_el >= 40 ? 1.0 : 0.9,
-                              live ? 1.0 : p->max_el >= 40 ? 0.9 : 0.9,
-                              live ? 0.92 : p->max_el >= 40 ? 0.5 : 0.92, 1.0);
+        cairo_set_source_rgba(cr, tr, tg, tb, 1.0);
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                                CAIRO_FONT_WEIGHT_BOLD);
         cairo_set_font_size(cr, fs);
@@ -421,11 +430,18 @@ double pic_applet_render_passes(cairo_t *cr, double width, time_t now,
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                                CAIRO_FONT_WEIGHT_NORMAL);
         cairo_set_font_size(cr, fs * 0.85);
-        snprintf(line, sizeof(line),
-                 "%d min \xc2\xb7 max %d\xc2\xb0 \xc2\xb7 %s \xe2\x86\x92 %s",
-                 (int)((p->end - p->start + 30) / 60), (int)(p->max_el + 0.5),
-                 compass(p->az_start), compass(p->az_end));
-        cairo_set_source_rgba(cr, 0.65, 0.7, 0.78, 0.9);
+        if (dim)
+            snprintf(line, sizeof(line),
+                     "Clouded out (%d%% cloud) \xc2\xb7 max %d\xc2\xb0",
+                     cl, (int)(p->max_el + 0.5));
+        else
+            snprintf(line, sizeof(line),
+                     "%d min \xc2\xb7 max %d\xc2\xb0 \xc2\xb7 %s \xe2\x86\x92 %s%s",
+                     (int)((p->end - p->start + 30) / 60), (int)(p->max_el + 0.5),
+                     compass(p->az_start), compass(p->az_end),
+                     sky == PIC_SKY_UNKNOWN ? " \xc2\xb7 if clear" : "");
+        if (dim) cairo_set_source_rgba(cr, 0.86, 0.52, 0.66, 0.85);   /* rose, as shadowed sats */
+        else     cairo_set_source_rgba(cr, 0.65, 0.7, 0.78, 0.9);
         cairo_move_to(cr, fs * 2.0, y + fs + line_h * 0.85);
         cairo_show_text(cr, line);
         y += line_h * 2.0;
@@ -435,7 +451,7 @@ double pic_applet_render_passes(cairo_t *cr, double width, time_t now,
         cairo_set_source_rgba(cr, 0.6, 0.6, 0.65, 0.9);
         cairo_move_to(cr, 0, y + fs);
         cairo_show_text(cr, !ps.have_tle ? "Loading\xe2\x80\xa6" :
-                        "No visible passes in 3 days");
+                        "No passes in 3 days");
     }
     pthread_mutex_unlock(&ps.mutex);
     return total;
@@ -480,7 +496,9 @@ void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
         const pass_t *p = &ps.passes[i];
         const pic_sat_t *s = &ps.sats[p->sat_idx];
         double px = 0, py = 0, lx = 0, ly = 0, x0 = 0, y0 = 0, pxp = 0;
-        int live = now >= p->start && now <= p->end, k = 0;
+        int live = now >= p->start && now <= p->end, k = 0, cl;
+        int sky = pic_sky_clear(p->start, p->end, &cl), dim = sky == PIC_SKY_CLOUDY;
+        double cr_, cg, cb;
         time_t t;
         char hm[16], lab[48];
 
@@ -502,14 +520,22 @@ void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
         /* Same colours as the overhead layer's "visible from home"
          * (aqua), with a dark halo so the track stays readable over
          * city lights; upcoming passes a softer sky blue-aqua */
+        /* Clouded-out passes: grey and dashed */
+        if (dim)                               { cr_ = 0.62; cg = 0.64; cb = 0.7; }
+        else if (live && sky == PIC_SKY_CLEAR) { cr_ = 0.30; cg = 1.0;  cb = 0.92; }
+        else                                   { cr_ = 0.55; cg = 0.88; cb = 1.0; }
         cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        if (dim) {
+            double dash[2] = { lw * 5, lw * 4 };
+            cairo_set_dash(cr, dash, 2, 0);
+        }
         cairo_set_source_rgba(cr, 0, 0, 0, 0.5);
         cairo_set_line_width(cr, lw * 3.6);
         cairo_stroke_preserve(cr);
-        if (live) cairo_set_source_rgba(cr, 0.30, 1.0, 0.92, 0.95);
-        else      cairo_set_source_rgba(cr, 0.55, 0.88, 1.0, 0.9);
+        cairo_set_source_rgba(cr, cr_, cg, cb, dim ? 0.75 : 0.92);
         cairo_set_line_width(cr, lw * 2);
         cairo_stroke(cr);
+        cairo_set_dash(cr, NULL, 0, 0);
 
         /* Arrowhead at the end */
         if (k > 1) {
@@ -531,17 +557,17 @@ void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
             }
             if (ix > -50 && ix < width + 50 && iy > -50 && iy < height + 50)
                 pic_draw_sat_icon(cr, p->sat, ix, iy, fs * 3.4, 0,
-                                  1.0, 0.95, 0.6);
+                                  dim ? 0.5 : 1.0, dim ? 0.5 : 0.95, dim ? 0.55 : 0.6);
         }
-        if (live) snprintf(lab, sizeof(lab), "%s now", p->sat);
+        if (live) snprintf(lab, sizeof(lab), dim ? "%s now \xc2\xb7 clouded out" : "%s now", p->sat);
         else {
             pic_fmt_when(hm, sizeof(hm), now, p->start);
-            snprintf(lab, sizeof(lab), "%s %s \xc2\xb7 %d\xc2\xb0", p->sat, hm,
-                     (int)(p->max_el + 0.5));
+            snprintf(lab, sizeof(lab), dim ? "%s %s \xc2\xb7 clouded out" : "%s %s \xc2\xb7 %d\xc2\xb0",
+                     p->sat, hm, (int)(p->max_el + 0.5));
         }
         if (x0 > -50 && x0 < width + 50 && y0 > -20 && y0 < height + 20)
             pic_draw_text_pill(cr, x0 + fs * 1.8, y0 - fs * 1.2, lab,
-                               live ? 0.30 : 0.62, live ? 1.0 : 0.9, live ? 0.92 : 1.0, 0.55);
+                               cr_, cg, cb, 0.55);
     }
     pthread_mutex_unlock(&ps.mutex);
 }
@@ -549,7 +575,7 @@ void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
 static pic_feature_t feature_def = {
     .name = "passes", .wanted = passes_wanted,
     .layer = pic_layer_render_passes, .extra_mb = 1, .is_applet = 1,
-    .applet = pic_applet_render_passes, .label = "Visible Passes",
+    .applet = pic_applet_render_passes, .label = "Satellite Passes",
     .interval = 30, .applet_w = 220, .side = APPLET_SIDE_LEFT,
     .reload = passes_reload, .work = passes_work, .needs_network = 1,
 };

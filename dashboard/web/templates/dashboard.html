@@ -862,11 +862,16 @@
         </div>
 
         <div class="card" id="passtracks-card" style="display:none">
-            <div class="card-title card-title-row">Visible Pass Tracks <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <div class="card-title card-title-row">Pass Tracks <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
             <p class="text-muted mb-8">Draws where each visible ISS / Tiangong / Hubble pass travels across the map (best in the local view), with the start time and peak height. Satellites are set in the Passes &amp; Tides card.</p>
             <div class="form-group">
                 <label for="pass_hours">Show Passes In The Next</label>
                 <select id="pass_hours" class="form-control" data-conf="PASS_MAP_HOURS"><option value="6">6 hours</option><option value="12">12 hours (default)</option><option value="24">24 hours</option></select>
+            </div>
+            <div class="form-group">
+                <label for="pass_cloud">Call A Pass Visible Up To</label>
+                <select id="pass_cloud" class="form-control" data-conf="PASS_CLOUD_MAX"><option value="20">20% cloud (strict)</option><option value="35">35% cloud</option><option value="50">50% cloud (default)</option><option value="70">70% cloud (bright passes through gaps)</option></select>
+                <p class="text-muted mt-4">Cloud cover at home from the Astrospheric forecast, or Open-Meteo without a key. Cloudier passes are listed greyed out as "clouded out" and don't trigger phone alerts.</p>
             </div>
             <div class="mt-12">
                 <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('passtracks-card', 'Pass tracks')">Save</button>

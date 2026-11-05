@@ -199,6 +199,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"COAST_BUOYS":     patternSetting("", buoyListRe),
 	"COAST_METRIC":    boolSetting("0"),
 	"PASS_MAP_HOURS":  intSetting("12", 1, 48),
+	"PASS_CLOUD_MAX":  intSetting("50", 0, 100),
 	"DARK_SITES":      patternSetting("", darkSitesRe),
 
 	// Home Assistant phone alerts
