@@ -123,6 +123,19 @@ void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
 double pic_legend_take(int height, double rows);
 
 /*
+ * A legend row of line-style swatches, centred: a short line in each
+ * item's colour (dashed if asked) followed by its label. Takes one row
+ * of the legend stack, starting with an optional bold title.
+ */
+typedef struct {
+    const char *label;
+    double r, g, b;
+    int dashed;
+} pic_swatch_t;
+void pic_draw_legend_swatches(cairo_t *cr, int width, int height, const char *title,
+                              const pic_swatch_t *items, int n);
+
+/*
  * Part of a fixed data extent worth fetching for the current view:
  * the extent clipped to the viewport (plus a 15% margin), and the
  * image size that gives about screen resolution (max_w cap). ext is

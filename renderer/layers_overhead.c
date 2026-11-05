@@ -561,6 +561,14 @@ static void overhead_note(cairo_t *cr, int width, int height, time_t now,
         snprintf(text, sizeof(text), "Overhead now: %d satellite%s in view",
                  n, n == 1 ? "" : "s");
     pic_draw_legend_line(cr, width, height, 0, text, 0.45, 0.95, 0.9);
+    {   /* what the trail colours and dashes mean (pic_sat_label_rgb) */
+        static const pic_swatch_t key[] = {
+            { "Visible from home", 0.30, 1.0, 0.92, 0 },
+            { "Sunlit", 0.52, 0.80, 1.0, 0 },
+            { "In Earth's shadow", 0.86, 0.52, 0.66, 1 },
+        };
+        pic_draw_legend_swatches(cr, width, height, "Satellites:", key, 3);
+    }
 }
 
 static pic_feature_t feature_def = {

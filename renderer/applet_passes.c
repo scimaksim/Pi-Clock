@@ -572,8 +572,27 @@ void pic_layer_render_passes(cairo_t *cr, int width, int height, time_t now,
     pthread_mutex_unlock(&ps.mutex);
 }
 
+/* Key for the pass tracks, only while some are on the map */
+static void passes_legend(cairo_t *cr, int width, int height, time_t now, void *ud)
+{
+    static const pic_swatch_t key[] = {
+        { "Upcoming", 0.55, 0.88, 1.0, 0 },
+        { "Visible now", 0.30, 1.0, 0.92, 0 },
+        { "Clouded out", 0.62, 0.64, 0.7, 1 },
+    };
+    int i, any = 0;
+    (void)ud;
+    pthread_mutex_lock(&ps.mutex);
+    for (i = 0; i < ps.npasses; i++)
+        if (ps.passes[i].end >= now &&
+            ps.passes[i].start <= now + (time_t)ps.map_hours * 3600)
+            any = 1;
+    pthread_mutex_unlock(&ps.mutex);
+    if (any) pic_draw_legend_swatches(cr, width, height, "Pass tracks:", key, 3);
+}
+
 static pic_feature_t feature_def = {
-    .name = "passes", .wanted = passes_wanted,
+    .name = "passes", .wanted = passes_wanted, .legend = passes_legend,
     .layer = pic_layer_render_passes, .extra_mb = 1, .is_applet = 1,
     .applet = pic_applet_render_passes, .label = "Satellite Passes",
     .interval = 30, .applet_w = 220, .side = APPLET_SIDE_LEFT,

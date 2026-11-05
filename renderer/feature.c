@@ -183,6 +183,65 @@ void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
     pic_draw_text_pill(cr, (width - e.x_advance) / 2.0, y, text, r, g, b, 0.65);
 }
 
+void pic_draw_legend_swatches(cairo_t *cr, int width, int height, const char *title,
+                              const pic_swatch_t *items, int n)
+{
+    double fs = height / 72.0, y = pic_legend_take(height, 1);
+    double sw = fs * 2.0, gap = fs * 0.45, sp = fs * 1.1, w = 0, x, pad;
+    cairo_text_extents_t e;
+    cairo_font_extents_t fe;
+    int i;
+
+    if (n <= 0) return;
+    cairo_save(cr);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fs);
+    cairo_font_extents(cr, &fe);
+    if (title && title[0]) {
+        cairo_text_extents(cr, title, &e);
+        w += e.x_advance + sp;
+    }
+    for (i = 0; i < n; i++) {
+        cairo_text_extents(cr, items[i].label, &e);
+        w += sw + gap + e.x_advance + (i + 1 < n ? sp : 0);
+    }
+    x = (width - w) / 2.0;
+    pad = fe.ascent * 0.3;
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.65);
+    cairo_rectangle(cr, x - pad, y - fe.ascent - pad * 0.5, w + pad * 2,
+                    fe.ascent + fe.descent + pad);
+    cairo_fill(cr);
+    if (title && title[0]) {
+        cairo_set_source_rgba(cr, 0.85, 0.87, 0.92, 1.0);
+        cairo_move_to(cr, x, y);
+        cairo_show_text(cr, title);
+        cairo_text_extents(cr, title, &e);
+        x += e.x_advance + sp;
+    }
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    for (i = 0; i < n; i++) {
+        double ly = y - fe.ascent * 0.35;
+        cairo_new_path(cr);
+        cairo_move_to(cr, x + fs * 0.15, ly);
+        cairo_line_to(cr, x + sw - fs * 0.15, ly);
+        if (items[i].dashed) {
+            double dash[2] = { fs * 0.42, fs * 0.32 };
+            cairo_set_dash(cr, dash, 2, 0);
+        }
+        cairo_set_source_rgba(cr, items[i].r, items[i].g, items[i].b, 1.0);
+        cairo_set_line_width(cr, fs * 0.22);
+        cairo_stroke(cr);
+        cairo_set_dash(cr, NULL, 0, 0);
+        x += sw + gap;
+        cairo_set_source_rgba(cr, items[i].r, items[i].g, items[i].b, 1.0);
+        cairo_move_to(cr, x, y);
+        cairo_show_text(cr, items[i].label);
+        cairo_text_extents(cr, items[i].label, &e);
+        x += e.x_advance + sp;
+    }
+    cairo_restore(cr);
+}
+
 int pic_view_extent(const double full[4], int screen_w, int max_w,
                     double ext[4], int *w, int *h)
 {
