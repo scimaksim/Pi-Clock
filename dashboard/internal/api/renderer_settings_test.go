@@ -83,3 +83,32 @@ func TestDarkSitesNormalized(t *testing.T) {
 		}
 	}
 }
+
+func TestWorldSettings(t *testing.T) {
+	ok := map[string][]string{
+		"VIEW_WORLDS":    {"", "moon", "mars,jupiter", "moon,mars,jupiter"},
+		"VIEW_MODE":      {"cycle", "moon", "mars", "jupiter"},
+		"JUPITER_GRS_L2": {"-1", "0", "100", "359"},
+		"VIEW_WORLD_MIN": {"1", "2", "30"},
+	}
+	bad := map[string][]string{
+		"VIEW_WORLDS":    {"pluto", "moon,", "moon;reboot", "moon,mars,jupiter,moon", "MOON"},
+		"VIEW_MODE":      {"venus"},
+		"JUPITER_GRS_L2": {"360", "-2", "1.5", ""},
+		"VIEW_WORLD_MIN": {"0", "31"},
+	}
+	for k, vs := range ok {
+		for _, v := range vs {
+			if !rendererSettingDefs[k].Valid(v) {
+				t.Fatalf("%s=%q rejected", k, v)
+			}
+		}
+	}
+	for k, vs := range bad {
+		for _, v := range vs {
+			if rendererSettingDefs[k].Valid(v) {
+				t.Fatalf("%s=%q accepted", k, v)
+			}
+		}
+	}
+}

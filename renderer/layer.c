@@ -434,16 +434,20 @@ void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local)
     int i;
     for (i = 0; i < stack->count; i++) {
         pic_layer_t *l = &stack->layers[i];
-        /* local < 0: the view is fixed (not auto-switching), so the
-         * per-layer view choice doesn't apply and nothing is hidden */
-        int hide = local >= 0 &&
+        /* local == -1: the view is fixed (not auto-switching), so the
+         * per-layer view choice doesn't apply and nothing is hidden.
+         * local == -2: another world is on screen (planetview.c):
+         * everything but the clock and the ticker is hidden. */
+        int hide = local == -2 ? strcmp(l->name, "hud") != 0 && strcmp(l->name, "ticker") != 0 :
+                   local >= 0 &&
                    ((l->view == 1 && local) || (l->view == 2 && !local));
         if (hide != l->view_hidden) {
             l->view_hidden = hide;
             l->last_rendered = 0;
             if (l->enabled)
                 printf("layer: '%s' %s for the %s view\n", l->name,
-                       hide ? "hidden" : "shown", local ? "local" : "global");
+                       hide ? "hidden" : "shown",
+                       local == -2 ? "other-world" : local ? "local" : "global");
         }
     }
 }

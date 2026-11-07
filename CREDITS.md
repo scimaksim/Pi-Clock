@@ -261,3 +261,23 @@ https://www.naturalearthdata.com/downloads/10m-raster-data/10m-shaded-relief/
 
 All maps are resized to 4K, 1440p, 1080p, and 720p using Lanczos resampling.
 Output format is JPEG at 95% quality.
+
+## Other worlds (renderer/worlds)
+
+**The Moon** — LRO LROC WAC colour mosaic, NASA's Scientific Visualization
+Studio CGI Moon Kit (lroc_color_16bit_srgb_8k). NASA/GSFC/Arizona State University.
+https://svs.gsfc.nasa.gov/4720
+
+**Mars** — Viking MDIM 2.1 colour mosaic (Mars_Viking_ClrMosaic_global_925m),
+NASA/USGS Astrogeology. Public domain.
+
+**Jupiter** — Cassini global map PIA07782, NASA/JPL/Space Science Institute (December 2000).
+
+**Rover close-ups** — HiRISE / CTX base maps and rover traverses served by NASA/JPL-Caltech
+MMGIS (mars.nasa.gov); HiRISE: NASA/JPL-Caltech/University of Arizona.
+
+**Positions** — JPL Horizons (orbiters, moons, sub-solar points); landing sites from LROC
+(Wagner et al.), NSSDCA and mission publications.
+
+**Spacecraft sprites** — rendered with Blender from NASA 3D Resources models (public domain):
+https://github.com/nasa/NASA-3D-Resources

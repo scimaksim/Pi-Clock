@@ -111,7 +111,8 @@ typedef struct {
 /*
  * Show or hide layers set to "global view only" / "local view only"
  * for the view now on screen (local = 1/0), or show them all when the
- * view is fixed (local = -1). Their data threads keep running so a
+ * view is fixed (local = -1); local = -2 (the Moon, Mars or Jupiter on
+ * screen) hides all but the clock and ticker. Their data threads keep running so a
  * layer appears at once when the view switches.
  */
 void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local);

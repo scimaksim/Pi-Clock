@@ -129,8 +129,34 @@
                 <select id="view_mode" class="form-control" data-conf="VIEW_MODE" onchange="saveRendererSettings('view-card', 'Map view')">
                     <option value="global">World (uses Map Zoom above)</option>
                     <option value="local">Local, centred on home</option>
-                    <option value="cycle">Auto-switch between world and local</option>
+                    <option value="cycle">Auto-switch between world and local (and the worlds below)</option>
+                    <option value="moon">The Moon only</option>
+                    <option value="mars">Mars only</option>
+                    <option value="jupiter">Jupiter only</option>
                 </select>
+            </div>
+            <div class="form-group">
+                <label>Other Worlds in the Auto-switch</label>
+                <p class="text-muted mb-8">After the local view, show each ticked world full screen: landers, rovers and crash sites at their published positions, orbiters live from JPL Horizons, day and night, moons and their shadows. Mars adds Curiosity and Perseverance on HiRISE close-ups with their latest drives. Something happening at home (a pass, a launch, aurora) brings the local view straight back.</p>
+                <input type="hidden" id="view_worlds" data-conf="VIEW_WORLDS">
+                <div class="check-row" id="view_worlds_boxes">
+                    <label class="checkbox-label"><input type="checkbox" value="moon" onchange="setViewWorlds()"> The Moon</label>
+                    <label class="checkbox-label"><input type="checkbox" value="mars" onchange="setViewWorlds()"> Mars</label>
+                    <label class="checkbox-label"><input type="checkbox" value="jupiter" onchange="setViewWorlds()"> Jupiter</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="view_world_min">Auto-switch: Each World For</label>
+                <select id="view_world_min" class="form-control" data-conf="VIEW_WORLD_MIN" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="1">1 minute</option><option value="2">2 minutes (default)</option>
+                    <option value="3">3 minutes</option><option value="5">5 minutes</option>
+                    <option value="10">10 minutes</option><option value="30">30 minutes</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="jupiter_grs">Jupiter: Great Red Spot Longitude (System II)</label>
+                <input type="number" id="jupiter_grs" class="form-control" min="-1" max="359" step="1" data-conf="JUPITER_GRS_L2" onchange="saveRendererSettings('view-card', 'Map view')">
+                <p class="text-muted">-1 = estimate it (91&deg; on 1 June 2026, drifting about 1.75&deg; a month). For the current value see Sky &amp; Telescope's GRS transit page or JUPOS.</p>
             </div>
             <div class="form-group">
                 <label for="local_zoom">Local View Size</label>

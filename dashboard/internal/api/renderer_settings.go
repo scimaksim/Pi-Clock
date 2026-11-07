@@ -63,7 +63,9 @@ var (
 	tideIDRe    = regexp.MustCompile(`^[A-Za-z0-9]{3,12}$`)
 	// An eclipse for the replay picker: S (solar) or L (lunar) + its date
 	eclipsePickRe = regexp.MustCompile(`^[SL](19|20)[0-9]{2}-[01][0-9]-[0-3][0-9]$`)
-	buoyListRe    = regexp.MustCompile(`^[A-Za-z0-9]{3,6}(,[A-Za-z0-9]{3,6}){0,3}$`)
+	// Other worlds in the view cycle, e.g. "moon,mars,jupiter"
+	worldsRe   = regexp.MustCompile(`^(moon|mars|jupiter)(,(moon|mars|jupiter)){0,2}$`)
+	buoyListRe = regexp.MustCompile(`^[A-Za-z0-9]{3,6}(,[A-Za-z0-9]{3,6}){0,3}$`)
 	// Stored as "Name:lat:lon,Name:lat:lon" with "_" for spaces, so the
 	// value is inert even if an old init script sources the file as
 	// shell (see normalizeSetting). Max 10 sites, 400 characters.
@@ -178,7 +180,10 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"LP_NOTE":       boolSetting("1"),
 
 	// Global / local map view
-	"VIEW_MODE":       enumSetting("global", "global", "local", "cycle"),
+	"VIEW_MODE":       enumSetting("global", "global", "local", "cycle", "moon", "mars", "jupiter"),
+	"VIEW_WORLDS":     patternSetting("", worldsRe),
+	"VIEW_WORLD_MIN":  intSetting("2", 1, 30),
+	"JUPITER_GRS_L2":  intSetting("-1", -1, 359),
 	"LOCAL_ZOOM":      enumSetting("8", "4", "6", "8", "12", "16", "20", "24"),
 	"VIEW_GLOBAL_MIN": intSetting("5", 1, 240),
 	"VIEW_SMART":      boolSetting("1"),

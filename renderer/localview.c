@@ -19,6 +19,7 @@
  */
 
 #include "localview.h"
+#include "planetview.h"
 #include "features_all.h"
 #include "season.h"
 #include "config.h"
@@ -34,9 +35,17 @@
 
 /* ── 1. View manager ───────────────────────────────────────────── */
 
-enum { VIEW_GLOBAL, VIEW_LOCAL, VIEW_CYCLE };
+enum { VIEW_GLOBAL, VIEW_LOCAL, VIEW_CYCLE, VIEW_WORLD };
 
 static int    view_mode = VIEW_GLOBAL;
+/*
+ * Other worlds (planetview.c): VIEW_WORLDS lists which join the cycle
+ * after the local view ("moon,mars,jupiter"), each shown for
+ * VIEW_WORLD_MIN minutes; VIEW_MODE=moon|mars|jupiter shows one only.
+ * showing_world: 0 Earth, else PIC_WORLD_*.
+ */
+static int    worlds[4], nworlds, world_min = 2, fixed_world;
+static int    showing_world, world_idx;
 static double local_zoom = 8;
 static int    global_min = 5, local_min = 5;
 static int    showing_local;
@@ -54,6 +63,19 @@ void pic_view_reload(time_t now)
     pic_conf_str("VIEW_MODE", m, sizeof(m));
     view_mode = !strcmp(m, "local") ? VIEW_LOCAL :
                 !strcmp(m, "cycle") ? VIEW_CYCLE : VIEW_GLOBAL;
+    fixed_world = pic_world_by_name(m);
+    if (fixed_world) view_mode = VIEW_WORLD;
+    {
+        char w[64] = "", *tok, *sp;
+        int k;
+        pic_conf_str("VIEW_WORLDS", w, sizeof(w));
+        nworlds = 0;
+        for (tok = strtok_r(w, ",", &sp); tok && nworlds < 3; tok = strtok_r(NULL, ",", &sp))
+            if ((k = pic_world_by_name(tok)) != 0) worlds[nworlds++] = k;
+        world_min = pic_conf_int("VIEW_WORLD_MIN", 2);
+        if (world_min < 1) world_min = 1;
+        if (world_min > 30) world_min = 30;
+    }
     local_zoom = pic_conf_num("LOCAL_ZOOM", 8);
     if (local_zoom < 2) local_zoom = 2;
     if (local_zoom > 30) local_zoom = 30;
@@ -68,11 +90,18 @@ void pic_view_reload(time_t now)
      * the timer, only shortening it if the new duration is shorter.
      */
     if (view_mode == VIEW_CYCLE) {
-        time_t max_at = now + (time_t)(showing_local ? local_min : global_min) * 60;
+        time_t max_at = now + (time_t)(showing_world ? world_min :
+                                       showing_local ? local_min : global_min) * 60;
         if (!cycle_started || switch_at > max_at) switch_at = max_at;
         cycle_started = 1;
+        if (showing_world) {   /* a world dropped from the list: back to Earth */
+            int k, still = 0;
+            for (k = 0; k < nworlds; k++) still |= worlds[k] == showing_world;
+            if (!still) { showing_world = 0; showing_local = 0; switch_at = now; }
+        }
     } else {
         showing_local = view_mode == VIEW_LOCAL;
+        showing_world = view_mode == VIEW_WORLD ? fixed_world : 0;
         cycle_started = 0;
     }
     pic_config.local_zoom = showing_local ? local_zoom : 0;
@@ -128,6 +157,17 @@ int pic_view_update(time_t now)
                 }
                 return 0;
             }
+        } else if (interest && showing_world) {
+            /* something local is happening: leave the other world now */
+            showing_world = 0;
+            showing_local = 1;
+            hold_since = now;
+            snprintf(hold_why, sizeof(hold_why), "%s", why);
+            switch_at = now + (time_t)local_min * 60;
+            pic_config.local_zoom = local_zoom;
+            pic_config_recompute_viewport();
+            printf("view: back to the local view for %s\n", why);
+            return 1;
         } else if (interest && !showing_local && now - hold_since > 60) {
             /* Switch early, once the global view has been up at least 1 min */
             if (now >= switch_at - (time_t)global_min * 60 + 60) {
@@ -142,7 +182,26 @@ int pic_view_update(time_t now)
         }
     }
     if (now < switch_at) return 0;
-    showing_local = !showing_local;
+    /* global -> local -> each listed world -> global */
+    if (showing_world) {
+        if (world_idx + 1 < nworlds) {
+            world_idx++;
+            showing_world = worlds[world_idx];
+            switch_at = now + (time_t)world_min * 60;
+            printf("view: switched to %s\n", pic_world_name(showing_world));
+            return 1;
+        }
+        showing_world = 0;
+        showing_local = 0;
+    } else if (showing_local && nworlds) {
+        world_idx = 0;
+        showing_world = worlds[0];
+        showing_local = 0;
+        switch_at = now + (time_t)world_min * 60;
+        printf("view: switched to %s\n", pic_world_name(showing_world));
+        return 1;
+    } else
+        showing_local = !showing_local;
     switch_at = now + (time_t)(showing_local ? local_min : global_min) * 60;
     pic_config.local_zoom = showing_local ? local_zoom : 0;
     pic_config_recompute_viewport();
@@ -153,6 +212,11 @@ int pic_view_update(time_t now)
 int pic_view_is_local(void)
 {
     return showing_local;
+}
+
+int pic_view_world(void)
+{
+    return showing_world;
 }
 
 int pic_view_is_cycling(void)

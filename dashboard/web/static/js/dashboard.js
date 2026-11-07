@@ -1230,8 +1230,27 @@ function loadRendererSettings(cardId) {
                 el.value = v;
             }
         });
+        card.dispatchEvent(new Event('conf-loaded'));
     });
 }
+
+// Map view card: the world checkboxes stand for one VIEW_WORLDS list
+function setViewWorlds() {
+    var boxes = document.querySelectorAll('#view_worlds_boxes input'), list = [];
+    boxes.forEach(function(b) { if (b.checked) list.push(b.value); });
+    document.getElementById('view_worlds').value = list.join(',');
+    saveRendererSettings('view-card', 'Map view');
+}
+document.addEventListener('DOMContentLoaded', function() {
+    var card = document.getElementById('view-card');
+    if (!card) return;
+    card.addEventListener('conf-loaded', function() {
+        var v = (document.getElementById('view_worlds').value || '').split(',');
+        document.querySelectorAll('#view_worlds_boxes input').forEach(function(b) {
+            b.checked = v.indexOf(b.value) >= 0;
+        });
+    });
+});
 
 function saveRendererSettings(cardId, label) {
     var card = document.getElementById(cardId);

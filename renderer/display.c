@@ -58,6 +58,7 @@
 #include "feature.h"
 #include "features_all.h"
 #include "localview.h"
+#include "planetview.h"
 #include "season.h"
 #include "sprites.h"
 #include "airquality.h"
@@ -1993,6 +1994,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     register_feature(pic_feature_hanotify());   /* no layer or applet */
     register_feature(pic_feature_health());     /* vital-signs log */
     register_feature(pic_feature_crew());       /* people aboard the stations */
+    register_feature(pic_feature_worlds());     /* Moon / Mars / Jupiter data */
     /* Legends of features added after the first pass above */
     {
         int fi;
@@ -2356,12 +2358,17 @@ static int pic_display_run_framebuffer(const char *maps_dir,
          * everything through the new viewport. */
         {
             static unsigned last_reg_gen;
+            static int last_vs = -99;
             unsigned rg = pic_regional_generation();
-            if (pic_view_update(now) || rg != last_reg_gen) {
+            int switched = pic_view_update(now);
+            /* -2 another world, -1 fixed view, 0/1 global/local in the cycle;
+             * also re-applied when a settings change alters it */
+            int vs = pic_view_world() ? -2 : pic_view_is_cycling() ? pic_view_is_local() : -1;
+            if (switched || rg != last_reg_gen || vs != last_vs) {
                 int li;
                 last_reg_gen = rg;
-                pic_layer_stack_apply_view(&stack, pic_view_is_cycling() ?
-                                           pic_view_is_local() : -1);
+                last_vs = vs;
+                pic_layer_stack_apply_view(&stack, vs);
                 pic_qth_invalidate();
                 for (li = 0; li < stack.count; li++)
                     stack.layers[li].last_rendered = 0;
@@ -2436,6 +2443,28 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     strcmp(stack.layers[li].name, "ticker") != 0) {
                     base_dirty = 1;
                     break;
+                }
+            }
+
+            /* Another world on screen: it is redrawn every few seconds
+             * (orbiters move, the rover drive replays) in place of the
+             * Earth layers and panels */
+            {
+                static time_t world_at;
+                if (pic_view_world()) {
+                    if (!base_valid || now - world_at >= 2 || now < world_at) {
+                        cairo_t *bcr = cairo_create(base_surface);
+                        pic_planetview_render(bcr, width, height, pic_view_world(), now);
+                        cairo_destroy(bcr);
+                        cairo_surface_flush(base_surface);
+                        world_at = now;
+                        base_rebuilt = 1;
+                    }
+                    base_valid = 1;
+                    base_dirty = 0;
+                } else if (world_at) {
+                    world_at = 0;
+                    base_valid = 0;
                 }
             }
 
@@ -2514,8 +2543,10 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 }
 
                 /* Draw legends at full opacity — not affected by layer opacity */
-                pic_layer_stack_render_legends(&stack, ocr, now);
-                pic_map_key_draw(ocr, width, height, pic_ticker_bar_top);
+                if (!pic_view_world()) {
+                    pic_layer_stack_render_legends(&stack, ocr, now);
+                    pic_map_key_draw(ocr, width, height, pic_ticker_bar_top);
+                }
 
                 /* Paint just the HUD layer — clock text, very cheap */
                 for (li = 0; li < stack.count; li++) {

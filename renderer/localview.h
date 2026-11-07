@@ -32,6 +32,9 @@ int pic_view_update(time_t now);
 /* 1 while the local view is showing */
 int pic_view_is_local(void);
 
+/* The other world on screen (PIC_WORLD_MOON / MARS / JUPITER), 0 = Earth */
+int pic_view_world(void);
+
 /* Map View is set to auto-switch between the world and local views */
 int pic_view_is_cycling(void);
 
