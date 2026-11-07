@@ -36,7 +36,7 @@
  * Keeping this small and fixed avoids dynamic allocation
  * on a memory-constrained Pi Zero W (512MB RAM).
  */
-#define PIC_MAX_LAYERS 24
+#define PIC_MAX_LAYERS 96
 
 /*
  * pic_layer_render_fn - Function pointer type for layer renderers.
@@ -80,7 +80,16 @@ typedef struct {
     volatile int        enabled;        /* Non-zero if layer is visible.
                                          * volatile: read by ticker thread,
                                          * written by main thread on reload. */
+    int                 view;           /* 0 any view, 1 global view only,
+                                         * 2 local (zoomed) view only       */
+    volatile int        view_hidden;    /* Enabled, but not shown in the
+                                         * current global/local view        */
     int                 update_interval;/* Seconds between re-renders       */
+    int               (*idle)(time_t now, void *user_data);
+                                        /* Optional: non-zero when the layer
+                                         * would draw nothing; it is then
+                                         * not rendered and its surface is
+                                         * freed (pic_layer_set_idle)      */
     time_t              last_rendered;  /* Timestamp of last render (UTC)   */
     int                 dirty;          /* Set by update() when re-rendered */
 } pic_layer_t;
@@ -98,6 +107,15 @@ typedef struct {
     int         width;                  /* Output width in pixels          */
     int         height;                 /* Output height in pixels         */
 } pic_layer_stack_t;
+
+/*
+ * Show or hide layers set to "global view only" / "local view only"
+ * for the view now on screen (local = 1/0), or show them all when the
+ * view is fixed (local = -1); local = -2 (the Moon, Mars or Jupiter on
+ * screen) hides all but the clock and ticker. Their data threads keep running so a
+ * layer appears at once when the view switches.
+ */
+void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local);
 
 /*
  * pic_layer_stack_init - Initialise a layer stack.
@@ -175,6 +193,28 @@ void pic_layer_stack_composite(pic_layer_stack_t *stack, cairo_t *cr);
  *   cr    - Cairo context bound to the output surface.
  *   now   - Current UTC time (passed to legend render functions).
  */
+/*
+ * Composite every enabled, shown layer except those named in skip[]
+ * (NULL-terminated; e.g. "hud", "ticker") onto cr, OVER whatever is
+ * there. Runs of slow layers between the fast ones (update interval
+ * under PIC_LAYER_FAST_S seconds) are kept pre-composited on cache
+ * surfaces and rebuilt only when one of their layers re-renders, so a
+ * layer that changes every second costs a few full-screen blends rather
+ * than one per enabled layer. force rebuilds every cache. Falls back
+ * to plain compositing if a cache surface can't be allocated.
+ */
+/* A render function for layers that draw nothing on the map (legend
+ * only): no surface is allocated for them and they're never composited */
+void pic_layer_render_none(cairo_t *cr, int width, int height, time_t now, void *ud);
+
+/* Give layer `name` an idle test (see pic_layer_t.idle) */
+void pic_layer_set_idle(pic_layer_stack_t *stack, const char *name,
+                        int (*idle)(time_t now, void *user_data));
+
+#define PIC_LAYER_FAST_S 5
+void pic_layer_stack_composite_cached(pic_layer_stack_t *stack, cairo_t *cr,
+                                      const char *const *skip, int force);
+
 void pic_layer_stack_render_legends(pic_layer_stack_t *stack, cairo_t *cr,
                                     time_t now);
 
@@ -233,6 +273,11 @@ void pic_layer_stack_destroy(pic_layer_stack_t *stack);
  */
 void pic_paint_viewport(cairo_t *cr, cairo_surface_t *src,
                         int width, int height);
+
+/* Same for a point grid (samples on lat/lon nodes, e.g. 360x181 GFS):
+ * centres each grid pixel on its sample. */
+void pic_paint_viewport_grid(cairo_t *cr, cairo_surface_t *src,
+                             int width, int height);
 
 /*
  * pic_viewport_pattern - Build a Cairo pattern that samples `src`

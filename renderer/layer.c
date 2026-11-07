@@ -131,7 +131,7 @@ int pic_layer_stack_update(pic_layer_stack_t *stack, time_t now)
         layer->dirty = 0;
 
         /* Skip disabled layers entirely — no CPU cost */
-        if (!layer->enabled) {
+        if (!layer->enabled || layer->view_hidden) {
             continue;
         }
 
@@ -153,6 +153,21 @@ int pic_layer_stack_update(pic_layer_stack_t *stack, time_t now)
             }
         }
 
+        if (layer->render == pic_layer_render_none) {   /* legend only */
+            layer->last_rendered = now;
+            continue;
+        }
+        /* Nothing to draw: drop the surface (once) and skip */
+        if (layer->idle && layer->idle(now, layer->user_data)) {
+            layer->last_rendered = now;
+            if (layer->surface) {
+                cairo_surface_destroy(layer->surface);
+                layer->surface = NULL;
+                layer->dirty = 1;
+                dirty_count++;
+            }
+            continue;
+        }
         /* Allocate surface on first render (lazy allocation) */
         if (!ensure_surface(layer, stack->width, stack->height)) {
             continue; /* Allocation failed — skip this frame */
@@ -208,7 +223,7 @@ void pic_layer_stack_composite(pic_layer_stack_t *stack, cairo_t *cr)
         pic_layer_t *layer = &stack->layers[i];
 
         /* Skip disabled layers or layers with no surface */
-        if (!layer->enabled || !layer->surface) {
+        if (!layer->enabled || layer->view_hidden || !layer->surface) {
             continue;
         }
 
@@ -229,6 +244,122 @@ void pic_layer_stack_composite(pic_layer_stack_t *stack, cairo_t *cr)
  * are always readable. Only enabled layers with a render_legend
  * callback are processed.
  */
+void pic_layer_set_idle(pic_layer_stack_t *stack, const char *name,
+                        int (*idle)(time_t now, void *user_data))
+{
+    int i;
+    for (i = 0; i < stack->count; i++)
+        if (strcmp(stack->layers[i].name, name) == 0) stack->layers[i].idle = idle;
+}
+
+void pic_layer_render_none(cairo_t *cr, int width, int height, time_t now, void *ud)
+{
+    (void)cr; (void)width; (void)height; (void)now; (void)ud;
+}
+
+/* ── Cached compositing ─────────────────────────────────────────
+ * Premultiplied OVER is associative, (A over B) over C = A over
+ * (B over C), so a run of layers can be blended onto a transparent
+ * surface once and that surface painted in their place. */
+#define SEG_MAX 4
+static cairo_surface_t *seg_surf[SEG_MAX];
+static unsigned long seg_sig[SEG_MAX];
+static int seg_w, seg_h;
+
+static int skipped(const char *name, const char *const *skip)
+{
+    for (; skip && *skip; skip++)
+        if (strcmp(name, *skip) == 0) return 1;
+    return 0;
+}
+
+void pic_layer_stack_composite_cached(pic_layer_stack_t *stack, cairo_t *cr,
+                                      const char *const *skip, int force)
+{
+    /* Plan: items in stack order, each a fast layer or a segment */
+    int item_layer[PIC_MAX_LAYERS], item_seg[PIC_MAX_LAYERS];
+    int seg_first[SEG_MAX], seg_dirty[SEG_MAX];
+    unsigned long sig[SEG_MAX];
+    int nitem = 0, nseg = 0, nfast = 0, i, k, prev_fast = 1;
+
+    if (seg_w != stack->width || seg_h != stack->height) {
+        for (k = 0; k < SEG_MAX; k++) {
+            if (seg_surf[k]) cairo_surface_destroy(seg_surf[k]);
+            seg_surf[k] = NULL;
+        }
+        seg_w = stack->width;
+        seg_h = stack->height;
+    }
+    for (i = 0; i < stack->count; i++) {
+        pic_layer_t *l = &stack->layers[i];
+        int fast;
+        if (!l->enabled || l->view_hidden || !l->surface || skipped(l->name, skip))
+            continue;
+        /* At most SEG_MAX segments: later fast layers join a segment */
+        fast = l->update_interval > 0 && l->update_interval < PIC_LAYER_FAST_S &&
+               nfast < SEG_MAX - 1;
+        if (fast) {
+            item_layer[nitem] = i;
+            item_seg[nitem++] = -1;
+            nfast++;
+            prev_fast = 1;
+            continue;
+        }
+        if (prev_fast) {                      /* start a new segment */
+            seg_first[nseg] = nitem;
+            seg_dirty[nseg] = 0;
+            sig[nseg] = 1469598103UL;
+            nseg++;
+            prev_fast = 0;
+        }
+        k = nseg - 1;
+        item_layer[nitem] = i;
+        item_seg[nitem++] = k;
+        seg_dirty[k] |= l->dirty;
+        /* Which layers, at what opacity: a change re-composites */
+        sig[k] = (sig[k] ^ (unsigned long)(i + 1)) * 16777619UL;
+        sig[k] = (sig[k] ^ (unsigned long)(l->opacity * 1000.0)) * 16777619UL;
+    }
+
+    for (k = 0; k < nseg; k++) {
+        if (!seg_surf[k]) {
+            seg_surf[k] = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+                                                     stack->width, stack->height);
+            if (cairo_surface_status(seg_surf[k]) != CAIRO_STATUS_SUCCESS) {
+                cairo_surface_destroy(seg_surf[k]);
+                seg_surf[k] = NULL;
+            }
+            force = 1;
+        }
+        if (seg_surf[k] && (force || seg_dirty[k] || sig[k] != seg_sig[k])) {
+            cairo_t *sc = cairo_create(seg_surf[k]);
+            cairo_set_operator(sc, CAIRO_OPERATOR_CLEAR);
+            cairo_paint(sc);
+            cairo_set_operator(sc, CAIRO_OPERATOR_OVER);
+            for (i = seg_first[k]; i < nitem && item_seg[i] == k; i++) {
+                pic_layer_t *l = &stack->layers[item_layer[i]];
+                cairo_set_source_surface(sc, l->surface, 0, 0);
+                cairo_paint_with_alpha(sc, l->opacity);
+            }
+            cairo_destroy(sc);
+            cairo_surface_flush(seg_surf[k]);
+            seg_sig[k] = sig[k];
+        }
+    }
+
+    for (i = 0; i < nitem; i++) {
+        pic_layer_t *l = &stack->layers[item_layer[i]];
+        k = item_seg[i];
+        if (k < 0 || !seg_surf[k]) {          /* fast layer, or no cache */
+            cairo_set_source_surface(cr, l->surface, 0, 0);
+            cairo_paint_with_alpha(cr, l->opacity);
+        } else if (i == seg_first[k]) {       /* a whole segment at once */
+            cairo_set_source_surface(cr, seg_surf[k], 0, 0);
+            cairo_paint(cr);
+        }
+    }
+}
+
 void pic_layer_stack_render_legends(pic_layer_stack_t *stack, cairo_t *cr,
                                     time_t now)
 {
@@ -237,7 +368,7 @@ void pic_layer_stack_render_legends(pic_layer_stack_t *stack, cairo_t *cr,
     for (i = 0; i < stack->count; i++) {
         pic_layer_t *layer = &stack->layers[i];
 
-        if (!layer->enabled || !layer->render_legend) continue;
+        if (!layer->enabled || layer->view_hidden || !layer->render_legend) continue;
 
         layer->render_legend(cr, stack->width, stack->height,
                              now, layer->user_data);
@@ -296,4 +427,27 @@ void pic_layer_stack_destroy(pic_layer_stack_t *stack)
 
     stack->count = 0;
     printf("layer: stack destroyed\n");
+}
+
+void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local)
+{
+    int i;
+    for (i = 0; i < stack->count; i++) {
+        pic_layer_t *l = &stack->layers[i];
+        /* local == -1: the view is fixed (not auto-switching), so the
+         * per-layer view choice doesn't apply and nothing is hidden.
+         * local == -2: another world is on screen (planetview.c):
+         * everything but the clock and the ticker is hidden. */
+        int hide = local == -2 ? strcmp(l->name, "hud") != 0 && strcmp(l->name, "ticker") != 0 :
+                   local >= 0 &&
+                   ((l->view == 1 && local) || (l->view == 2 && !local));
+        if (hide != l->view_hidden) {
+            l->view_hidden = hide;
+            l->last_rendered = 0;
+            if (l->enabled)
+                printf("layer: '%s' %s for the %s view\n", l->name,
+                       hide ? "hidden" : "shown",
+                       local == -2 ? "other-world" : local ? "local" : "global");
+        }
+    }
 }

@@ -13,6 +13,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
+#include "feature.h"
 #include "layer.h"
 #include "display.h"
 #include "solar.h"
@@ -422,11 +423,9 @@ void pic_layer_render_propagation_legend(cairo_t *cr, int width, int height,
     bg_h = legend_fs * 1.2 + bg_pad * 2;
     gap = height / 160.0;
 
-    if (pic_ticker_bar_top > 0) {
-        ref_bottom = pic_ticker_bar_top - gap - bg_h - gap;
-    } else {
-        ref_bottom = height - height / 80.0 - bg_h - gap;
-    }
+    /* A slot in the shared bottom legend stack (feature.c) */
+    (void)gap;
+    ref_bottom = pic_legend_take(height, 1.3) + height / 72.0 * 0.45;
     lx = (width - total_w) / 2.0;
     ly = ref_bottom - bg_h + bg_pad + dot_r;
 

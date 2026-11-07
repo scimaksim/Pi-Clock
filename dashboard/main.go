@@ -117,7 +117,28 @@ func main() {
 		r.Get("/earthquake-settings", api.GetEarthquakeSettings())
 		r.Put("/earthquake-settings", api.PutEarthquakeSettings(cfg))
 
+		// Generic renderer settings (volcanoes, storms, aircraft, ...)
+		r.Get("/renderer-settings", api.GetRendererSettings())
+		r.Put("/renderer-settings", api.PutRendererSettings(cfg))
+		r.Get("/pchelper-status", api.GetPCHelperStatus())
+		r.Get("/data-status", api.GetDataStatus())
+		r.Get("/health", api.GetHealth())
+
+		// Astrospheric API key (write-only)
+		r.Get("/astrospheric-key", api.GetAstrosphericKey())
+		r.Put("/astrospheric-key", api.PutAstrosphericKey())
+		r.Get("/aisstream-key", api.GetAISKey())
+		r.Put("/aisstream-key", api.PutAISKey())
+		r.Get("/ebird-key", api.GetEBirdKey())
+		r.Put("/ebird-key", api.PutEBirdKey())
+		r.Get("/ha-webhook", api.GetHAWebhook())
+		r.Put("/ha-webhook", api.PutHAWebhook())
+		r.Post("/ha-webhook/test", api.TestHAWebhook())
+
 		// Applet settings
+		r.Get("/settings/export", api.ExportSettings())
+		r.Post("/settings/import", api.ImportSettings(cfg))
+
 		r.Get("/applets", api.GetApplets())
 		r.Put("/applets", api.PutApplets())
 

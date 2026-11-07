@@ -31,6 +31,7 @@
  */
 
 #include "lightning.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include <stdio.h>
@@ -45,6 +46,7 @@
 #include <errno.h>
 #include <time.h>
 #include <stdint.h>
+#include <math.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
@@ -93,6 +95,19 @@ static void add_strike(pic_lightning_t *data, double lat, double lon)
 
     data->head = (data->head + 1) % PIC_MAX_STRIKES;
     if (data->count < PIC_MAX_STRIKES) data->count++;
+
+    /* Near home? Keep it longer for the distance rings */
+    if (!(pic_config.qth_lat == 0 && pic_config.qth_lon == 0)) {
+        double p1 = pic_config.qth_lat * M_PI / 180, p2 = lat * M_PI / 180;
+        double dl = (lon - pic_config.qth_lon) * M_PI / 180;
+        double c = sin(p1) * sin(p2) + cos(p1) * cos(p2) * cos(dl);
+        if (c > 1) c = 1;
+        if (acos(c) * 6371.0 < PIC_NEAR_KM) {
+            data->near[data->near_head] = *s;
+            data->near_head = (data->near_head + 1) % PIC_NEAR_STRIKES;
+            if (data->near_count < PIC_NEAR_STRIKES) data->near_count++;
+        }
+    }
     pthread_mutex_unlock(&data->mutex);
 }
 
@@ -329,6 +344,7 @@ static int tcp_connect_blitz(void)
     printf("lightning: resolving %s...\n", BLITZ_HOST);
     if (getaddrinfo(BLITZ_HOST, port_str, &hints, &res) != 0) {
         printf("lightning: DNS lookup failed for %s\n", BLITZ_HOST);
+        pic_status_report(BLITZ_HOST, 0, "DNS lookup failed");
         return -1;
     }
 
@@ -605,6 +621,7 @@ static int ws_read_frame(SSL *ssl, unsigned char *buf, int buf_size,
  */
 static void *lightning_thread_func(void *arg)
 {
+    pic_status_feature = "lightning";   /* data-source status (datastatus.c) */
     int backoff = 5;
     SSL_CTX *ctx;
 
@@ -635,6 +652,7 @@ static void *lightning_thread_func(void *arg)
         fd = tcp_connect_blitz();
         if (fd < 0) {
             printf("lightning: TCP connect failed, retry in %ds\n", backoff);
+            pic_status_report(BLITZ_HOST, 0, "could not connect");
             {
                 int s;
                 for (s = 0; s < backoff && lightning_running; s++)
@@ -678,10 +696,12 @@ static void *lightning_thread_func(void *arg)
         }
 
         printf("lightning: TLS connected, starting WebSocket handshake\n");
+        pic_status_report(BLITZ_HOST, 1, NULL);
 
         /* Perform WebSocket handshake over TLS */
         if (!ws_handshake(ssl)) {
             printf("lightning: WS handshake failed, retry in %ds\n", backoff);
+            pic_status_report(BLITZ_HOST, 0, "WebSocket handshake failed");
             SSL_shutdown(ssl);
             SSL_free(ssl);
             close(fd);
@@ -715,7 +735,7 @@ static void *lightning_thread_func(void *arg)
         /* Read WebSocket frames until disconnect */
         while (lightning_running) {
             unsigned char frame_buf[4096];
-            int opcode;
+            int opcode = 0;
             int len;
 
             len = ws_read_frame(ssl, frame_buf, sizeof(frame_buf) - 1,

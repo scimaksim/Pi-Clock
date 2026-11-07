@@ -120,6 +120,117 @@
             </div>
         </div>
 
+        <!-- Global / local view -->
+        <div class="card" id="view-card">
+            <div class="card-title">Map View</div>
+            <p class="text-muted mb-8">Switch between the whole world and a close-up of your area, or alternate automatically. The local view uses sharper NASA imagery for the day/night maps and adds coastlines, state lines and towns (Local Detail layer). Local layers &mdash; aircraft, ships, light pollution, radar, fires, satellite clouds &mdash; fetch more detail when zoomed in. Each layer in Map Layers can also be set to show in both views, only the world view or only the local view, so the auto-switch can bring in local layers (river gauges, storm reports, rain totals) when it zooms in and drop them when it zooms out. Changes apply immediately.</p>
+            <div class="form-group">
+                <label for="view_mode">View</label>
+                <select id="view_mode" class="form-control" data-conf="VIEW_MODE" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="global">World (uses Map Zoom above)</option>
+                    <option value="local">Local, centred on home</option>
+                    <option value="cycle">Auto-switch between world and local (and the worlds below)</option>
+                    <option value="moon">The Moon only</option>
+                    <option value="mars">Mars only</option>
+                    <option value="jupiter">Jupiter only</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Other Worlds in the Auto-switch</label>
+                <p class="text-muted mb-8">After the local view, show each ticked world full screen: landers, rovers and crash sites at their published positions, orbiters live from JPL Horizons, day and night, moons and their shadows. Mars adds Curiosity and Perseverance on HiRISE close-ups with their latest drives. Something happening at home (a pass, a launch, aurora) brings the local view straight back.</p>
+                <input type="hidden" id="view_worlds" data-conf="VIEW_WORLDS">
+                <div class="check-row" id="view_worlds_boxes">
+                    <label class="checkbox-label"><input type="checkbox" value="moon" onchange="setViewWorlds()"> The Moon</label>
+                    <label class="checkbox-label"><input type="checkbox" value="mars" onchange="setViewWorlds()"> Mars</label>
+                    <label class="checkbox-label"><input type="checkbox" value="jupiter" onchange="setViewWorlds()"> Jupiter</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="view_world_min">Auto-switch: Each World For</label>
+                <select id="view_world_min" class="form-control" data-conf="VIEW_WORLD_MIN" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="1">1 minute</option><option value="2">2 minutes (default)</option>
+                    <option value="3">3 minutes</option><option value="5">5 minutes</option>
+                    <option value="10">10 minutes</option><option value="30">30 minutes</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="jupiter_grs">Jupiter: Great Red Spot Longitude (System II)</label>
+                <input type="number" id="jupiter_grs" class="form-control" min="-1" max="359" step="1" data-conf="JUPITER_GRS_L2" onchange="saveRendererSettings('view-card', 'Map view')">
+                <p class="text-muted">-1 = estimate it (91&deg; on 1 June 2026, drifting about 1.75&deg; a month). For the current value see Sky &amp; Telescope's GRS transit page or JUPOS.</p>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="MARS_DUST_CLIM" onchange="saveRendererSettings('view-card', 'Map view')"> Mars: tan haze showing the typical dust for the season (Mars Climate Database average of 7 years &mdash; not live; no live Mars dust maps are published)</label>
+            </div>
+            <div class="form-group">
+                <label for="local_zoom">Local View Size</label>
+                <select id="local_zoom" class="form-control" data-conf="LOCAL_ZOOM" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="4">4&times; &mdash; continent (~90&deg; wide)</option>
+                    <option value="6">6&times; &mdash; ~60&deg;</option>
+                    <option value="8">8&times; &mdash; eastern US (~45&deg;, default)</option>
+                    <option value="12">12&times; &mdash; ~30&deg;</option>
+                    <option value="16">16&times; &mdash; several states (~22&deg;)</option>
+                    <option value="20">20&times; &mdash; ~18&deg;</option>
+                    <option value="24">24&times; &mdash; closest (~15&deg;)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="view_global_min">Auto-switch: World For</label>
+                <select id="view_global_min" class="form-control" data-conf="VIEW_GLOBAL_MIN" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="1">1 minute</option><option value="2">2 minutes</option>
+                    <option value="5">5 minutes (default)</option><option value="10">10 minutes</option>
+                    <option value="15">15 minutes</option><option value="30">30 minutes</option>
+                    <option value="60">1 hour</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="view_local_min">Auto-switch: Local For</label>
+                <select id="view_local_min" class="form-control" data-conf="VIEW_LOCAL_MIN" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="1">1 minute</option><option value="2">2 minutes</option>
+                    <option value="5">5 minutes (default)</option><option value="10">10 minutes</option>
+                    <option value="15">15 minutes</option><option value="30">30 minutes</option>
+                    <option value="60">1 hour</option>
+                </select>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="VIEW_SMART" onchange="saveRendererSettings('view-card', 'Map view')"> Smart auto-switch: stay on (or switch early to) the local view while something is happening at home &mdash; a visible satellite pass or launch, aurora, rain arriving (up to 20 min)</label>
+                <label class="checkbox-label"><input type="checkbox" data-conf="BASEMAP_SEASON" onchange="saveRendererSettings('view-card', 'Map view')"> Current-season daytime map (cloud-free satellite view of the last 12 days, updated daily; off = NASA Blue Marble, summer 2004)</label>
+                <label class="checkbox-label"><input type="checkbox" data-conf="LOCAL_TOWNS" onchange="saveRendererSettings('view-card', 'Map view')"> Town names in the local view</label>
+                <label class="checkbox-label"><input type="checkbox" data-conf="HUD_UTC" onchange="saveRendererSettings('view-card', 'Map view')"> UTC clock in the top-left corner</label>
+                <label class="checkbox-label"><input type="checkbox" data-conf="HUD_IP" onchange="saveRendererSettings('view-card', 'Map view')"> IP address under the local time (small)</label>
+            </div>
+        </div>
+
+        <div class="card" id="pchelper-card">
+            <div class="card-title">PC Helper</div>
+            <p class="text-muted mb-8">A PC on your network can run the heavy jobs the Pi can&rsquo;t: the 90-minute radar rain forecast, HRRR cloud/smoke/gust/frost maps and the MistNet bird-migration analysis. Install the helper on the PC (<code>helper/install-windows.ps1</code>), enter the address it prints, then turn on the &ldquo;PC helper&rdquo; layers. If the PC is asleep those layers simply hide.</p>
+            <div class="form-group">
+                <label for="pc_helper_url">PC Helper Address</label>
+                <input type="text" id="pc_helper_url" class="form-control" data-conf="PC_HELPER_URL" maxlength="270" placeholder="http://192.168.1.50:8765">
+                <div class="hint" id="pchelper-status">&nbsp;</div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="savePCHelper()">Save</button>
+            </div>
+        </div>
+
+        <!-- The Pi's own vital signs over the last week -->
+        <div class="card" id="health-card">
+            <div class="card-title">Pi Health</div>
+            <p class="text-muted mb-8">The last 7 days: memory, temperature, CPU and disk, sampled every 5 minutes, and each time the clock's renderer started. A restart a day or a climbing memory line is worth a look before it becomes a problem.</p>
+            <div id="health-summary" class="mb-8 text-muted">Loading&hellip;</div>
+            <div id="health-charts" class="health-charts"></div>
+        </div>
+
+        <!-- Health of every data source the clock downloads from -->
+        <div class="card" id="data-status-card">
+            <div class="card-title">Data Sources</div>
+            <p class="text-muted mb-8">Every website and service the clock downloads from, when it last worked, and anything failing right now. Problems are listed first.</p>
+            <div id="data-status" class="data-status"><span class="text-muted">Loading&hellip;</span></div>
+            <div class="mt-12">
+                <button class="btn btn-outline btn-sm" onclick="loadDataStatus()">Refresh</button>
+            </div>
+        </div>
+
         <!-- Layer Control -->
         <div class="card">
             <div class="card-title">Map Layers</div>
@@ -160,6 +271,141 @@
             </div>
             <div class="mt-12">
                 <button class="btn btn-primary btn-sm" onclick="saveApplets()">Save Panels</button>
+            </div>
+        </div>
+
+        <!-- Passes and tides panels -->
+        <div class="card" id="panels-card">
+            <div class="card-title">Passes &amp; Tides Panels</div>
+            <p class="text-muted mb-8">Settings for the Visible Satellite Passes and Tides panels (enable them in the Applets card above).</p>
+            <div class="form-group">
+                <label for="pass_sats">Satellites for Visible Passes</label>
+                <input type="text" id="pass_sats" class="form-control" data-conf="PASS_SATS" placeholder="25544,48274,20580" maxlength="48">
+                <div class="hint">NORAD numbers, comma-separated (up to 6). Blank = ISS (25544), Tiangong (48274) and Hubble (20580).</div>
+            </div>
+            <div class="form-group">
+                <label for="tide_station">Tide Station</label>
+                <input type="text" id="tide_station" class="form-control" data-conf="TIDE_STATION" placeholder="Nearest to your QTH" maxlength="12">
+                <div class="hint">Blank = nearest NOAA reference station. Find IDs at tidesandcurrents.noaa.gov (e.g. 8658163 Wrightsville Beach).</div>
+            </div>
+            <div class="form-group">
+                <label for="tide_units">Tide Units</label>
+                <select id="tide_units" class="form-control" data-conf="TIDE_UNITS">
+                    <option value="english">Feet (default)</option>
+                    <option value="metric">Metres</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('panels-card', 'Panels')">Save</button>
+            </div>
+        </div>
+
+        <!-- Home Assistant phone alerts -->
+        <div class="card" id="ha-card">
+            <div class="card-title">Home Assistant Alerts</div>
+            <p class="text-muted mb-8">Pi-Clock can tell Home Assistant when a bright ISS / Tiangong / Hubble pass is about to start, the aurora may be visible from home, or a rocket launch will be visible from home, so an automation can notify your phone, flash a light or speak on a speaker. In Home Assistant, create an automation with a <strong>Webhook</strong> trigger and paste its URL here (e.g. <code>http://192.168.1.90:8123/api/webhook/your-id</code>).</p>
+            <div class="form-group">
+                <label for="ha_webhook">Webhook URL</label>
+                <input type="password" id="ha_webhook" class="form-control" autocomplete="off" placeholder="http://homeassistant-ip:8123/api/webhook/...">
+                <div class="hint" id="ha_webhook_status">Stored only on this Pi (root-only file). Use the IP address rather than homeassistant.local.</div>
+            </div>
+            <div class="mt-8" style="margin-bottom:12px">
+                <button class="btn btn-primary btn-sm" onclick="saveHAWebhook()">Save URL</button>
+                <button class="btn btn-outline btn-sm" onclick="testHAWebhook()">Send Test</button>
+                <button class="btn btn-outline btn-sm" onclick="removeHAWebhook()">Remove</button>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_PASSES"> Visible satellite passes</label>
+            </div>
+            <div class="form-group">
+                <label for="ha_lead">Pass Alert Lead Time</label>
+                <select id="ha_lead" class="form-control" data-conf="HA_PASS_LEAD_MIN">
+                    <option value="5">5 minutes before</option>
+                    <option value="10">10 minutes before (default)</option>
+                    <option value="15">15 minutes before</option>
+                    <option value="30">30 minutes before</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="ha_minel">Only Passes Higher Than</label>
+                <select id="ha_minel" class="form-control" data-conf="HA_PASS_MIN_EL">
+                    <option value="10">10&deg; (all visible passes)</option>
+                    <option value="20">20&deg; (default)</option>
+                    <option value="30">30&deg;</option>
+                    <option value="45">45&deg; (best passes only)</option>
+                </select>
+                <div class="hint">Which satellites: see "Satellites for Visible Passes" in the Passes &amp; Tides card.</div>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_AURORA"> Aurora possible from home (now, or forecast within 24 h)</label>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_LAUNCHES"> Rocket launches visible from home (Florida / Virginia, dark sky)</label>
+                <label class="checkbox-label"><input type="checkbox" data-conf="HA_NOTIFY_HEALTH"> The clock itself: repeated restarts, running hot, low on memory (once a day at most)</label>
+            </div>
+            <div class="form-group">
+                <label for="ha_launch_lead">Launch Alert Lead Time</label>
+                <select id="ha_launch_lead" class="form-control" data-conf="HA_LAUNCH_LEAD_MIN">
+                    <option value="15">15 minutes before</option>
+                    <option value="30">30 minutes before (default)</option>
+                    <option value="60">1 hour before</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('ha-card', 'Alerts')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="coast-card">
+            <div class="card-title">Coast Panel</div>
+            <p class="text-muted mb-8">Latest wave height, wave period, water temperature and wind from NOAA buoys (enable the Coast panel in the Applets card).</p>
+            <div class="form-group">
+                <label for="coast_buoys">Buoys</label>
+                <input type="text" id="coast_buoys" class="form-control" data-conf="COAST_BUOYS" maxlength="40" placeholder="41110,41025,41013">
+                <div class="hint">NDBC station IDs, up to 4. Blank = Wrightsville Beach (41110), Diamond Shoals (41025), Frying Pan Shoals (41013).</div>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="COAST_METRIC"> Metric units</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('coast-card', 'Coast')">Save</button>
+            </div>
+        </div>
+
+        <!-- Tonight's Sky (Astronomy applet) settings -->
+        <div class="card" id="astro-card">
+            <div class="card-title">Tonight's Sky (Astronomy)</div>
+            <p class="text-muted mb-8">Sun, moon and darkness times are calculated on the Pi. With an <strong>Astrospheric Pro</strong> API key the panel also shows hourly cloud, transparency (including smoke) and seeing for your QTH, and picks the best clear, dark window. Enable the panel in the Applets card above.</p>
+            <div class="form-group">
+                <label for="astro_key">Astrospheric API Key</label>
+                <input type="password" id="astro_key" class="form-control" autocomplete="off" placeholder="Paste key from Astrospheric &rarr; My Profile">
+                <div class="hint" id="astro_key_status">Stored only on this Pi (root-only file). Leave blank and save to keep the current key.</div>
+            </div>
+            <div class="mt-8" style="margin-bottom:12px">
+                <button class="btn btn-primary btn-sm" onclick="saveAstroKey()">Save Key</button>
+                <button class="btn btn-outline btn-sm" onclick="removeAstroKey()">Remove Key</button>
+            </div>
+            <div class="form-group">
+                <label for="astro_interval">Forecast Refresh</label>
+                <select id="astro_interval" class="form-control" data-conf="ASTRO_INTERVAL_H">
+                    <option value="1">Every hour (~47k credits/month)</option>
+                    <option value="2">Every 2 hours (~24k credits/month)</option>
+                    <option value="3">Every 3 hours (~16k credits/month, default)</option>
+                    <option value="6">Every 6 hours (~8k credits/month)</option>
+                </select>
+                <div class="hint">Pro includes 100,000 API credits per month; each refresh uses about 65.</div>
+            </div>
+            <div class="form-group">
+                <label for="astro_clear">"Clear" Means Cloud Cover Below</label>
+                <select id="astro_clear" class="form-control" data-conf="ASTRO_CLEAR_PCT">
+                    <option value="10">10%</option>
+                    <option value="20">20% (default)</option>
+                    <option value="30">30%</option>
+                    <option value="40">40%</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('astro-card', 'Astronomy')">Save</button>
             </div>
         </div>
 
@@ -262,6 +508,421 @@
             </div>
             <div class="mt-12">
                 <button class="btn btn-primary btn-sm" onclick="saveEarthquakeSettings()">Save</button>
+            </div>
+        </div>
+
+        <!-- Volcano Settings (hidden when volcano layer is off) -->
+        <div class="card" id="volcano-card" style="display:none">
+            <div class="card-title card-title-row">Volcanoes <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Volcanoes in the Smithsonian / USGS Weekly Volcanic Activity Report. Red with a plume = new activity or unrest; orange = continuing eruption.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="VOLCANO_LABELS"> Show volcano names</label>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="VOLCANO_NEW_ONLY"> New activity only</label>
+                <div class="hint">Hide volcanoes with long-running, continuing eruptions</div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('volcano-card', 'Volcano')">Save</button>
+            </div>
+        </div>
+
+        <!-- Tropical Cyclone Settings (hidden when storm layer is off) -->
+        <div class="card" id="storm-card" style="display:none">
+            <div class="card-title card-title-row">Hurricanes / Tropical Storms <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Active tropical cyclones worldwide from GDACS. Atlantic and eastern Pacific storms use the National Hurricane Center forecast. Updated every 30 minutes.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="STORM_CONE"> Show forecast cone</label>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="STORM_TRACK"> Show past and forecast track</label>
+            </div>
+            <div class="form-group">
+                <label for="storm_min_cat">Minimum Strength</label>
+                <select id="storm_min_cat" class="form-control" data-conf="STORM_MIN_CAT">
+                    <option value="0">All, including tropical depressions (default)</option>
+                    <option value="1">Tropical storms and stronger</option>
+                    <option value="2">Hurricanes (Category 1+)</option>
+                    <option value="4">Major hurricanes (Category 3+)</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('storm-card', 'Storm')">Save</button>
+            </div>
+        </div>
+
+        <!-- NWS Alert Settings (hidden when wxalerts layer is off) -->
+        <div class="card" id="wxalert-card" style="display:none">
+            <div class="card-title card-title-row">NWS Weather Alerts <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Active US National Weather Service alerts. Storm-based warnings (tornado, severe thunderstorm, flash flood) are outlined on the map; alerts covering your QTH appear as a banner at the top of the screen. Updated every 3 minutes.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="WX_BANNER"> Show banner for alerts at my QTH</label>
+            </div>
+            <div class="form-group">
+                <label for="wx_banner_min">Banner Shows</label>
+                <select id="wx_banner_min" class="form-control" data-conf="WX_BANNER_MIN">
+                    <option value="1">Everything, including minor advisories</option>
+                    <option value="2">Moderate and above (default)</option>
+                    <option value="3">Severe and extreme only</option>
+                    <option value="4">Extreme only</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="wx_radius_km">Map Area</label>
+                <select id="wx_radius_km" class="form-control" data-conf="WX_RADIUS_KM">
+                    <option value="0">Whole US (default)</option>
+                    <option value="800">Within ~500 miles of QTH</option>
+                    <option value="400">Within ~250 miles of QTH</option>
+                    <option value="160">Within ~100 miles of QTH</option>
+                </select>
+                <div class="hint">Map shows severe and extreme storm-based warnings</div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('wxalert-card', 'Weather alert')">Save</button>
+            </div>
+        </div>
+
+        <!-- Live Radar Settings (hidden when radar layer is off) -->
+        <div class="card" id="radar-card" style="display:none">
+            <div class="card-title card-title-row">Live Radar <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">US NEXRAD base reflectivity mosaic from the Iowa Environmental Mesonet, refreshed every 5 minutes. Covers the contiguous US. Zoom the map toward your QTH for more detail; the image resolution follows the zoom.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="RADAR_TIME"> Show radar image time</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('radar-card', 'Radar')">Save</button>
+            </div>
+        </div>
+
+        <!-- Air Quality Settings (hidden when airquality layer is off) -->
+        <div class="card" id="aq-card" style="display:none">
+            <div class="card-title card-title-row">Air Quality <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">US Air Quality Index around your QTH from the Open-Meteo Air Quality API (CAMS model data), updated every 90 minutes. Clean air is left transparent; moderate or worse air (wildfire smoke, ozone) is shaded in EPA colours.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="AQ_BADGE"> Show AQI badge under my QTH</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('aq-card', 'Air quality')">Save</button>
+            </div>
+        </div>
+
+        <!-- Starlink Train Settings (hidden when starlink layer is off) -->
+        <div class="card" id="starlink-card" style="display:none">
+            <div class="card-title card-title-row">Starlink Trains <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Recently launched Starlink batches (CelesTrak data), drawn as a string of dots with the next pass visible from your QTH: train above 10&deg;, sunlit, and your sky dark. Trains spread out and fade after a week or two.</p>
+            <div class="form-group">
+                <label for="starlink_age">Show Launches From the Last</label>
+                <select id="starlink_age" class="form-control" data-conf="STARLINK_MAX_AGE_D">
+                    <option value="5">5 days</option>
+                    <option value="10">10 days (default)</option>
+                    <option value="20">20 days</option>
+                    <option value="30">30 days</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('starlink-card', 'Starlink')">Save</button>
+            </div>
+        </div>
+
+        <!-- Aircraft Settings (hidden when aircraft layer is off) -->
+        <div class="card" id="aircraft-card" style="display:none">
+            <div class="card-title card-title-row">Aircraft (ADS-B) <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Live aircraft around your QTH from the adsb.lol community network (free), updated every 30 seconds and moved smoothly in between. Colour shows altitude (green low &rarr; violet high, legend at the bottom); amber outline = military; red ring = emergency squawk. Airliners within 50&nbsp;nm of home show their route (e.g. RDU&rarr;LGA) when the flight database confirms it.</p>
+            <div class="form-group">
+                <label for="ac_radius">Area</label>
+                <select id="ac_radius" class="form-control" data-conf="AIRCRAFT_RADIUS_NM">
+                    <option value="50">Within 50 nm</option>
+                    <option value="100">Within 100 nm</option>
+                    <option value="150">Within 150 nm (default)</option>
+                    <option value="250">Within 250 nm (maximum)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="ac_labels">Labels</label>
+                <select id="ac_labels" class="form-control" data-conf="AIRCRAFT_LABELS">
+                    <option value="0">None</option>
+                    <option value="1">Military and emergencies (default)</option>
+                    <option value="2">All (callsign + flight level)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="ac_min_alt">Hide Aircraft Below</label>
+                <select id="ac_min_alt" class="form-control" data-conf="AIRCRAFT_MIN_ALT">
+                    <option value="0">Show all altitudes (default)</option>
+                    <option value="1000">1,000 ft</option>
+                    <option value="3000">3,000 ft (hides most local traffic)</option>
+                    <option value="5000">5,000 ft</option>
+                    <option value="10000">10,000 ft (cruising jets only)</option>
+                </select>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="AIRCRAFT_AIRLINERS"> Airliners only (hide private and small planes)</label>
+                <label class="checkbox-label"><input type="checkbox" data-conf="AIRCRAFT_MIL"> Also show military aircraft worldwide</label>
+            </div>
+            <div class="form-group">
+                <label for="ac_local">Local Receiver (optional)</label>
+                <input type="text" id="ac_local" class="form-control" data-conf="AIRCRAFT_LOCAL" placeholder="e.g. piaware.local:8080" maxlength="96">
+                <div class="hint">If you run readsb, dump1090 or tar1090 on your network, enter its host:port to use your own receiver instead of adsb.lol.</div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('aircraft-card', 'Aircraft')">Save</button>
+            </div>
+        </div>
+
+
+        <div class="card" id="spc-card" style="display:none">
+            <div class="card-title card-title-row">Severe Storm Outlook (SPC) <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">NOAA Storm Prediction Center convective outlook in SPC colours: general thunder (light green) through marginal, slight, enhanced, moderate and high risk. A note at the bottom-left names the risk at your QTH. US only; updated through the day.</p>
+            <div class="form-group">
+                <label for="spc_day">Outlook</label>
+                <select id="spc_day" class="form-control" data-conf="SPC_DAY">
+                    <option value="1">Day 1 (today, default)</option>
+                    <option value="2">Day 2 (tomorrow)</option>
+                    <option value="3">Day 3</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="spc_min">Show From</label>
+                <select id="spc_min" class="form-control" data-conf="SPC_MIN_RISK">
+                    <option value="2">General thunderstorms (default)</option>
+                    <option value="3">Marginal risk</option>
+                    <option value="4">Slight risk</option>
+                    <option value="5">Enhanced risk</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('spc-card', 'Severe outlook')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="fires-card" style="display:none">
+            <div class="card-title card-title-row">Wildfires &amp; Smoke <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">NASA FIRMS satellite fire detections from the last 24 hours (US, plus nearby Canada and Mexico), sized by fire intensity, with NOAA HMS analyst-drawn smoke plumes (light, medium, heavy).</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="FIRE_SMOKE"> Show smoke plumes</label>
+            </div>
+            <div class="form-group">
+                <label for="fire_frp">Hide Small Fires</label>
+                <select id="fire_frp" class="form-control" data-conf="FIRE_MIN_FRP">
+                    <option value="0">Show all detections (default)</option>
+                    <option value="10">Hide below 10 MW (most farm/brush burns)</option>
+                    <option value="50">Hide below 50 MW (large fires only)</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('fires-card', 'Fires')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="satclouds-card" style="display:none">
+            <div class="card-title card-title-row">Satellite Clouds <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Real infrared satellite imagery from GOES-East, GOES-West and Himawari via NASA GIBS (about an hour behind real time), shown as clouds over the map. Covers the Americas, Pacific, Asia and Australia; Europe, Africa and the Indian Ocean have no free geostationary feed here. Zooming in fetches sharper imagery.</p>
+            <div class="form-group">
+                <label for="sc_style">Style</label>
+                <select id="sc_style" class="form-control" data-conf="SATCLOUD_STYLE">
+                    <option value="white">White clouds (default)</option>
+                    <option value="enhanced">Enhanced: colour the coldest storm tops</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('satclouds-card', 'Satellite clouds')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="launches-card" style="display:none">
+            <div class="card-title card-title-row">Rocket Launches <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Upcoming launches worldwide from The Space Devs Launch Library. Pads near your QTH (Cape Canaveral and Wallops from the Carolinas) glow gold &mdash; those launches are often visible from home. Markers appear on the map only for launches coming up soon; the Rocket Launches panel (Applets card) still lists the next several.</p>
+            <div class="form-group">
+                <label for="launch_days">Show Launches Within</label>
+                <select id="launch_days" class="form-control" data-conf="LAUNCH_DAYS">
+                    <option value="1">Next 24 hours (default)</option>
+                    <option value="2">2 days</option>
+                    <option value="3">3 days</option>
+                    <option value="7">7 days</option>
+                    <option value="14">14 days</option>
+                </select>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="LAUNCH_LABELS"> Rocket and countdown labels</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('launches-card', 'Launches')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="planets-card" style="display:none">
+            <div class="card-title card-title-row">Planets <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Marks the point on Earth where each naked-eye planet is directly overhead right now. For when and where to look from home, enable the Planets &amp; Sky Events panel in the Applets card.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="PLANET_LABELS"> Planet names</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('planets-card', 'Planets')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="ships-card" style="display:none">
+            <div class="card-title card-title-row">Ships (AIS) <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Live vessel positions from the aisstream.io network: arrows for ships under way, dots for anchored or moored. Covers the visible map when zoomed in, or about 1,000 km around your QTH at full-world view. Needs a free aisstream.io API key.</p>
+            <div class="form-group">
+                <label for="ais_key">aisstream.io API Key</label>
+                <input type="password" id="ais_key" class="form-control" autocomplete="off" placeholder="Paste key from aisstream.io &rarr; API Keys">
+                <div class="hint" id="ais_key_status">Stored only on this Pi (root-only file).</div>
+            </div>
+            <div class="mt-8" style="margin-bottom:12px">
+                <button class="btn btn-primary btn-sm" onclick="saveAISKey()">Save Key</button>
+                <button class="btn btn-outline btn-sm" onclick="removeAISKey()">Remove Key</button>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="SHIP_LABELS"> Ship names when zoomed in</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('ships-card', 'Ships')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="aurorawatch-card" style="display:none">
+            <div class="card-title card-title-row">Aurora Watch <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Draws NOAA SWPC's aurora view line (solid red: aurora may be seen low on the northern horizon from here northward) and a dotted photo line further south, from the live OVATION model. A banner appears when your QTH is north of either line at night, or when the 3-day Kp forecast says it will be. Cloud cover comes from your Tonight's Sky (Astrospheric) panel when it's enabled &mdash; no extra API credits. Enable the Aurora Watch panel in the Applets card for the Kp chart.</p>
+            <div class="form-group">
+                <label for="aw_margin">Photo Line</label>
+                <select id="aw_margin" class="form-control" data-conf="AURORA_MARGIN">
+                    <option value="0">Same as view line (conservative)</option>
+                    <option value="2">2&deg; south of the view line</option>
+                    <option value="3">3&deg; south (default)</option>
+                    <option value="5">5&deg; south (optimistic)</option>
+                </select>
+                <div class="hint">Citizen-science reports show cameras often catch aurora several degrees south of SWPC's line. This also sets the Kp your home needs for a "photo" alert.</div>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="AURORA_BANNER"> Show the alert banner</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('aurorawatch-card', 'Aurora Watch')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="lightpollution-card" style="display:none">
+            <div class="card-title card-title-row">Light Pollution <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Estimated night-sky brightness, computed on the Pi from NASA's VIIRS night-lights composite with a skyglow model, coloured by approximate Bortle class (blue/green darkest &rarr; yellow, orange, red, white brightest). A note at the bottom gives the estimate at home and the nearest Bortle&nbsp;3 sky. It's an estimate: terrain, trees and changes since 2016 aren't modelled.</p>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="LP_NOTE"> Home sky note and nearest dark site</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('lightpollution-card', 'Light pollution')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="lsr-card" style="display:none">
+            <div class="card-title card-title-row">Storm Reports <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Tornado, hail, wind-damage, flood and snow/ice reports from the National Weather Service (via Iowa Environmental Mesonet), fading with age. Labelled with type and size in the local view.</p>
+            <div class="form-group">
+                <label for="lsr_hours">Show Reports From The Last</label>
+                <select id="lsr_hours" class="form-control" data-conf="LSR_HOURS"><option value="6">6 hours</option><option value="12">12 hours</option><option value="24">24 hours (default)</option><option value="48">48 hours</option></select>
+            </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="LSR_FOG"> Also show fog and routine wind-gust reports</label>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('lsr-card', 'Storm reports')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="rainfall-card" style="display:none">
+            <div class="card-title card-title-row">Rain Totals <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">How much rain actually fell (NOAA MRMS radar estimates corrected with rain gauges), contiguous US.</p>
+            <div class="form-group">
+                <label for="rain_hours">Period</label>
+                <select id="rain_hours" class="form-control" data-conf="RAIN_HOURS"><option value="1">Last hour</option><option value="24">Last 24 hours (default)</option><option value="48">Last 48 hours</option><option value="72">Last 72 hours</option></select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('rainfall-card', 'Rain totals')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="rivers-card" style="display:none">
+            <div class="card-title card-title-row">River &amp; Creek Gauges <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">NOAA river gauges near home, coloured by flood status: blue normal, yellow action stage, orange minor, red moderate, purple major flooding. A ring means the forecast reaches flood stage. Zoom in for names and levels.</p>
+            <div class="form-group">
+                <label for="river_radius">Area</label>
+                <select id="river_radius" class="form-control" data-conf="RIVER_RADIUS_KM"><option value="50">Within 50 km</option><option value="100">Within 100 km</option><option value="150">Within 150 km (default)</option><option value="300">Within 300 km</option></select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('rivers-card', 'Rivers')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="ebird-card" style="display:none">
+            <div class="card-title card-title-row">Rare Birds (eBird) <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Recent sightings eBird flags as rare or unusual for the area and season, near home. Zoom in to see the species at each spot. Needs a free eBird API key.</p>
+            <div class="form-group">
+                <label for="ebird_key">eBird API Key</label>
+                <input type="password" id="ebird_key" class="form-control" autocomplete="off" placeholder="From ebird.org/api/keygen">
+                <div class="hint" id="ebird_key_status">Stored only on this Pi (root-only file).</div>
+            </div>
+            <div class="mt-8" style="margin-bottom:12px">
+                <button class="btn btn-primary btn-sm" onclick="saveEBirdKey()">Save Key</button>
+                <button class="btn btn-outline btn-sm" onclick="removeEBirdKey()">Remove Key</button>
+            </div>
+            <div class="form-group">
+                <label for="ebird_days">Sightings From The Last</label>
+                <select id="ebird_days" class="form-control" data-conf="EBIRD_DAYS"><option value="1">1 day</option><option value="3">3 days (default)</option><option value="7">7 days</option><option value="14">14 days</option></select>
+            </div>
+            <div class="form-group">
+                <label for="ebird_radius">Within</label>
+                <select id="ebird_radius" class="form-control" data-conf="EBIRD_RADIUS_KM"><option value="15">15 km</option><option value="30">30 km</option><option value="50">50 km (default, maximum)</option></select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('ebird-card', 'Rare birds')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="darksites-card" style="display:none">
+            <div class="card-title card-title-row">Dark-Sky Sites Tonight <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Nearby observing sites, coloured by tonight&rsquo;s cloud cover during astronomical darkness (green clear, yellow partly cloudy, grey cloudy), with estimated Bortle class. A note names the best site tonight.</p>
+            <div class="form-group">
+                <label for="dark_sites">Your Sites (optional)</label>
+                <input type="text" id="dark_sites" class="form-control" data-conf="DARK_SITES" maxlength="400" placeholder="Jordan Lake:35.70:-79.07, Falls Lake:36.01:-78.69">
+                <div class="hint">Blank = Jordan Lake, Medoc Mountain SP, Kerr Lake, Uwharrie NF, Staunton River SP (VA), Pettigrew SP and Lake Mattamuskeet. Up to 10, e.g. <code>Backyard:35.69:-78.71;Jordan Lake:35.736:-79.017</code></div>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('darksites-card', 'Dark sites')">Save</button>
+            </div>
+        </div>
+
+        <div class="card" id="passtracks-card" style="display:none">
+            <div class="card-title card-title-row">Pass Tracks <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Draws where each visible ISS / Tiangong / Hubble pass travels across the map (best in the local view), with the start time and peak height. Satellites are set in the Passes &amp; Tides card.</p>
+            <div class="form-group">
+                <label for="pass_hours">Show Passes In The Next</label>
+                <select id="pass_hours" class="form-control" data-conf="PASS_MAP_HOURS"><option value="6">6 hours</option><option value="12">12 hours (default)</option><option value="24">24 hours</option></select>
+            </div>
+            <div class="form-group">
+                <label for="pass_cloud">Call A Pass Visible Up To</label>
+                <select id="pass_cloud" class="form-control" data-conf="PASS_CLOUD_MAX"><option value="20">20% cloud (strict)</option><option value="35">35% cloud</option><option value="50">50% cloud (default)</option><option value="70">70% cloud (bright passes through gaps)</option></select>
+                <p class="text-muted mt-4">Cloud cover at home from the Astrospheric forecast, or Open-Meteo without a key. Cloudier passes are listed greyed out as "clouded out" and don't trigger phone alerts.</p>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('passtracks-card', 'Pass tracks')">Save</button>
+            </div>
+        </div>
+
+        <!-- Eclipses (hidden when the eclipse layer is off) -->
+        <div class="card" id="eclipse-card" style="display:none">
+            <div class="card-title card-title-row">Eclipses <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">While a solar eclipse is under way the map shows where it is seen and how much of the Sun is covered (colour bands), the path of totality or annularity, and the Moon's shadow travelling across the Earth. During a lunar eclipse it tints where the Moon is up and shows the Moon passing through Earth's shadow. Eclipses starting within 12 hours get a preview. Nothing is drawn between eclipses.</p>
+            <div class="form-group">
+                <label for="eclipse_replay">Replay</label>
+                <select id="eclipse_replay" class="form-control" data-conf="ECLIPSE_REPLAY"><option value="0">Off: live eclipses only (default)</option><option value="1">Replay the next eclipse at 60&times; speed</option><option value="2">Replay the last eclipse at 60&times; speed</option><option value="3">Replay the eclipse picked below</option></select>
+                <p class="text-muted mt-4">A preview loop: a whole eclipse in a few minutes. Turn it off again to get the live view back.</p>
+            </div>
+            <div class="form-group">
+                <label for="eclipse_pick">Eclipse to replay (1900&ndash;2050)</label>
+                <select id="eclipse_pick" class="form-control" data-conf="ECLIPSE_PICK"><option value="">(choose one)</option></select>
+                <p class="text-muted mt-4">Every solar and lunar eclipse from 1900 to 2050, with where it was and how much of it you would have seen from home. Pick one, set Replay to "the eclipse picked below" and Save.</p>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('eclipse-card', 'Eclipses')">Save</button>
             </div>
         </div>
 
@@ -381,6 +1042,18 @@
             </div>
         </div>
 
+        <!-- Backup & Restore -->
+        <div class="card" id="backup-card">
+            <div class="card-title">Backup &amp; Restore Settings</div>
+            <p class="text-muted">Save every layer, panel, map-view and renderer setting to one file, then load it on another Pi-Clock to make it look the same. Password, WiFi and hostname aren't included; set those when you flash the card.</p>
+            <label class="checkbox-label"><input type="checkbox" id="backup-keys"> Include API keys and the Home Assistant webhook (keep the file private)</label>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="exportSettings()">Export settings</button>
+                <button class="btn btn-sm" onclick="document.getElementById('import-file').click()">Import settings&hellip;</button>
+                <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importSettings(this)">
+            </div>
+        </div>
+
         <!-- System Information -->
         <div class="grid-2">
             <div class="card">
@@ -479,6 +1152,7 @@
         </footer>
     </div>
 
+    <script src="/static/js/eclipses.js"></script>
     <script src="/static/js/dashboard.js"></script>
 
     {{/*

@@ -18,6 +18,7 @@
  */
 
 #include "solarweather.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "image.h"
@@ -329,13 +330,14 @@ static void fetch_sfi(void)
  */
 static void *solar_thread_func(void *arg)
 {
+    pic_status_feature = "solarweather";   /* data-source status (datastatus.c) */
     int tick = 0;
 
     (void)arg;
 
     /* Lower priority so TLS handshakes don't starve the renderer.
      * On Pi Zero, each HTTPS fetch takes seconds of CPU. */
-    nice(15);
+    if (nice(15) == -1) { /* priority unchanged: fine */ }
 
     /* Ensure tmpfs cache directory exists */
     mkdir("/tmp/pi-clock-cache", 0700);
@@ -356,8 +358,8 @@ static void *solar_thread_func(void *arg)
 
         /* Sleep in 5-second chunks so we can stop promptly */
         while (solar_running && elapsed < FETCH_TICK) {
-            sleep(5);
-            elapsed += 5;
+            sleep(1);       /* 1 s steps so shutdown is prompt */
+            elapsed += 1;
         }
 
         if (!solar_running) break;

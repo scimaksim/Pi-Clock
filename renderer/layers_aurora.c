@@ -157,7 +157,9 @@ void pic_layer_render_aurora(cairo_t *cr, int width, int height,
         for (gy = 0; gy < PIC_AURORA_NY; gy++) {
             for (gx = 0; gx < PIC_AURORA_NX; gx++) {
                 pixels[gy * stride + gx] =
-                    aurora_pixel(data->prob[gy][gx]);
+                    /* OVATION longitudes run 0..359°E; the surface
+                     * starts at 180°W like the other map layers */
+                    aurora_pixel(data->prob[gy][(gx + PIC_AURORA_NX / 2) % PIC_AURORA_NX]);
             }
         }
 
@@ -171,7 +173,7 @@ void pic_layer_render_aurora(cairo_t *cr, int width, int height,
         cairo_paint(cc);
         cairo_set_operator(cc, CAIRO_OPERATOR_OVER);
 
-        pic_paint_viewport(cc, grid_surf, width, height);
+        pic_paint_viewport_grid(cc, grid_surf, width, height);
 
         cairo_destroy(cc);
         cairo_surface_destroy(grid_surf);

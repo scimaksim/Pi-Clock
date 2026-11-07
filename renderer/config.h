@@ -68,6 +68,11 @@ typedef struct {
 
     unsigned int viewport_gen;
 
+    /* Local view (VIEW_MODE=local/cycle): when local_zoom > 0 it
+     * replaces the map_zoom-derived factor and the view is centred
+     * on the QTH in both latitude and longitude. */
+    double local_zoom;
+
     /* Display output rotation. 0 = normal, 1 = 180° flip. Applied at
      * the framebuffer-write stage (and to snapshot output), so it works
      * on every Pi generation and display type without config.txt/KMS
@@ -98,6 +103,13 @@ typedef struct {
 double pic_zoom_factor(void);
 
 /*
+ * pic_symbol_zoom - Zoom factor for sizing markers and labels, capped
+ * so icons grow a little when zoomed in but don't balloon in the
+ * local (8-24x) view.
+ */
+double pic_symbol_zoom(void);
+
+/*
  * pic_wrap_threshold_px - Pixel distance above which two consecutive
  * projected points are considered to be on opposite sides of the
  * longitudinal seam (and the line between them should be broken).
@@ -123,6 +135,9 @@ double pic_wrap_threshold_px(int width);
  * derived state is affected.
  */
 void pic_config_recompute_viewport(void);
+
+/* Span lon/lat and centre lon/lat (v[0..3]) for a local zoom (0 = world) */
+void pic_config_viewport_for(double local_zoom, double v[4]);
 
 /* Global config instance — defined in config.c, read everywhere */
 extern pic_config_t pic_config;

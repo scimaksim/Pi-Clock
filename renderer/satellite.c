@@ -2,13 +2,13 @@
  * satellite.c - Satellite tracking: TLE fetch + SGP4 propagation
  *
  * Downloads TLE data from Celestrak for registered satellites,
- * parses the two-line element sets, and propagates orbits using
- * a simplified SGP4 model to compute current lat/lon/alt.
+ * parses the two-line element sets, and propagates orbits with
+ * SGP4 (near-Earth form, WGS-72 constants as the elements are made
+ * with) to compute lat/lon/alt on the WGS-84 ellipsoid.
  *
- * The SGP4 implementation here is simplified but accurate enough
- * for map display — typically within a few km of the full model.
- * It handles the key perturbations: J2 oblateness, atmospheric
- * drag (B*), and secular variations in RAAN and argument of perigee.
+ * Orbits with a period of 225 minutes or more (GPS, geostationary)
+ * would need the deep-space SDP4 terms; those fall back to a secular
+ * J2 model, which is fine for satellites that barely move on the map.
  *
  * References:
  *   - Hoots & Roehrich, "Spacetrack Report No. 3" (1980)
@@ -19,6 +19,7 @@
  */
 
 #include "satellite.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include <stdio.h>
@@ -38,6 +39,8 @@
 
 /* TLE fetch interval (1 hour) */
 #define TLE_FETCH_INTERVAL 3600
+
+static void sgp4_init(pic_sat_t *s);
 
 static pthread_t sat_thread;
 static volatile int sat_running = 0;
@@ -121,12 +124,262 @@ static int parse_tle(pic_sat_t *sat, const char *line1, const char *line2)
     sat->mean_anomaly = ma * DEG_TO_RAD;
     sat->mean_motion = mm;  /* revs/day */
     sat->tle_loaded = 1;
+    sgp4_init(sat);
 
     return 0;
 }
 
+/* ── SGP4, near-Earth (Hoots & Roehrich 1980; Vallado et al. 2006) ── */
+
+/* WGS-72: the constants TLEs are generated with */
+#define SG_RE     6378.135
+#define SG_MU     398600.8
+#define SG_J2     0.001082616
+#define SG_J3    -0.00000253881
+#define SG_J4    -0.00000165597
+
+static double sg_xke(void) { return 60.0 / sqrt(SG_RE * SG_RE * SG_RE / SG_MU); }
+
+/* Precompute the SGP4 constants for a parsed element set */
+static void sgp4_init(pic_sat_t *s)
+{
+    const double x2o3 = 2.0 / 3.0, j3oj2 = SG_J3 / SG_J2, xke = sg_xke();
+    double ecco = s->eccentricity, inclo = s->inclination, argpo = s->arg_perigee;
+    double no_k = s->mean_motion * TWO_PI / MINUTES_PER_DAY, bstar = s->bstar;
+    double eccsq, omeosq, rteosq, cosio, cosio2, ak, d1, del, adel, ao, sinio, po,
+           con42, posq, rp, sfour, qzms24, perige, pinvsq, tsi, eta, etasq,
+           eeta, psisq, coef, coef1, cc2, cc3, cosio4, temp1, temp2, temp3, xhdot1;
+
+    s->sg_ok = 0;
+    if (s->mean_motion <= 0 || ecco >= 1.0) return;
+    if (MINUTES_PER_DAY / s->mean_motion >= 225.0) return;   /* deep space */
+
+    eccsq = ecco * ecco;
+    omeosq = 1.0 - eccsq;
+    rteosq = sqrt(omeosq);
+    cosio = cos(inclo);
+    cosio2 = cosio * cosio;
+    /* Un-Kozai the mean motion */
+    ak = pow(xke / no_k, x2o3);
+    d1 = 0.75 * SG_J2 * (3.0 * cosio2 - 1.0) / (rteosq * omeosq);
+    del = d1 / (ak * ak);
+    adel = ak * (1.0 - del * del - del * (1.0 / 3.0 + 134.0 * del * del / 81.0));
+    del = d1 / (adel * adel);
+    s->sg_no = no_k / (1.0 + del);
+    ao = pow(xke / s->sg_no, x2o3);
+    s->sg_ao = ao;
+    sinio = sin(inclo);
+    po = ao * omeosq;
+    con42 = 1.0 - 5.0 * cosio2;
+    s->sg_con41 = -con42 - cosio2 - cosio2;
+    posq = po * po;
+    rp = ao * (1.0 - ecco);
+    s->sg_isimp = rp < (220.0 / SG_RE + 1.0);
+
+    /* Atmospheric density parameters, lowered for low perigees */
+    sfour = 78.0 / SG_RE + 1.0;
+    qzms24 = pow((120.0 - 78.0) / SG_RE, 4);
+    perige = (rp - 1.0) * SG_RE;
+    if (perige < 156.0) {
+        sfour = perige - 78.0;
+        if (perige < 98.0) sfour = 20.0;
+        qzms24 = pow((120.0 - sfour) / SG_RE, 4);
+        sfour = sfour / SG_RE + 1.0;
+    }
+    pinvsq = 1.0 / posq;
+    tsi = 1.0 / (ao - sfour);
+    eta = ao * ecco * tsi;
+    etasq = eta * eta;
+    eeta = ecco * eta;
+    psisq = fabs(1.0 - etasq);
+    coef = qzms24 * pow(tsi, 4);
+    coef1 = coef / pow(psisq, 3.5);
+    cc2 = coef1 * s->sg_no * (ao * (1.0 + 1.5 * etasq + eeta * (4.0 + etasq)) +
+          0.375 * SG_J2 * tsi / psisq * s->sg_con41 * (8.0 + 3.0 * etasq * (8.0 + etasq)));
+    s->sg_cc1 = bstar * cc2;
+    cc3 = ecco > 1.0e-4 ? -2.0 * coef * tsi * j3oj2 * s->sg_no * sinio / ecco : 0.0;
+    s->sg_x1mth2 = 1.0 - cosio2;
+    s->sg_cc4 = 2.0 * s->sg_no * coef1 * ao * omeosq *
+        (eta * (2.0 + 0.5 * etasq) + ecco * (0.5 + 2.0 * etasq) -
+         SG_J2 * tsi / (ao * psisq) *
+         (-3.0 * s->sg_con41 * (1.0 - 2.0 * eeta + etasq * (1.5 - 0.5 * eeta)) +
+          0.75 * s->sg_x1mth2 * (2.0 * etasq - eeta * (1.0 + etasq)) * cos(2.0 * argpo)));
+    s->sg_cc5 = 2.0 * coef1 * ao * omeosq * (1.0 + 2.75 * (etasq + eeta) + eeta * etasq);
+    cosio4 = cosio2 * cosio2;
+    temp1 = 1.5 * SG_J2 * pinvsq * s->sg_no;
+    temp2 = 0.5 * temp1 * SG_J2 * pinvsq;
+    temp3 = -0.46875 * SG_J4 * pinvsq * pinvsq * s->sg_no;
+    s->sg_mdot = s->sg_no + 0.5 * temp1 * rteosq * s->sg_con41 +
+                 0.0625 * temp2 * rteosq * (13.0 - 78.0 * cosio2 + 137.0 * cosio4);
+    s->sg_argpdot = -0.5 * temp1 * con42 + 0.0625 * temp2 * (7.0 - 114.0 * cosio2 + 395.0 * cosio4) +
+                    temp3 * (3.0 - 36.0 * cosio2 + 49.0 * cosio4);
+    xhdot1 = -temp1 * cosio;
+    s->sg_nodedot = xhdot1 + (0.5 * temp2 * (4.0 - 19.0 * cosio2) + 2.0 * temp3 * (3.0 - 7.0 * cosio2)) * cosio;
+    s->sg_omgcof = bstar * cc3 * cos(argpo);
+    s->sg_xmcof = ecco > 1.0e-4 ? -x2o3 * coef * bstar / eeta : 0.0;
+    s->sg_nodecf = 3.5 * omeosq * xhdot1 * s->sg_cc1;
+    s->sg_t2cof = 1.5 * s->sg_cc1;
+    if (fabs(cosio + 1.0) > 1.5e-12)
+        s->sg_xlcof = -0.25 * j3oj2 * sinio * (3.0 + 5.0 * cosio) / (1.0 + cosio);
+    else
+        s->sg_xlcof = -0.25 * j3oj2 * sinio * (3.0 + 5.0 * cosio) / 1.5e-12;
+    s->sg_aycof = -0.5 * j3oj2 * sinio;
+    s->sg_eta = eta;
+    s->sg_delmo = pow(1.0 + eta * cos(s->mean_anomaly), 3);
+    s->sg_sinmao = sin(s->mean_anomaly);
+    s->sg_x7thm1 = 7.0 * cosio2 - 1.0;
+    if (!s->sg_isimp) {
+        double cc1sq = s->sg_cc1 * s->sg_cc1, temp;
+        s->sg_d2 = 4.0 * ao * tsi * cc1sq;
+        temp = s->sg_d2 * tsi * s->sg_cc1 / 3.0;
+        s->sg_d3 = (17.0 * ao + sfour) * temp;
+        s->sg_d4 = 0.5 * temp * ao * tsi * (221.0 * ao + 31.0 * sfour) * s->sg_cc1;
+        s->sg_t3cof = s->sg_d2 + 2.0 * cc1sq;
+        s->sg_t4cof = 0.25 * (3.0 * s->sg_d3 + s->sg_cc1 * (12.0 * s->sg_d2 + 10.0 * cc1sq));
+        s->sg_t5cof = 0.2 * (3.0 * s->sg_d4 + 12.0 * s->sg_cc1 * s->sg_d3 +
+                      6.0 * s->sg_d2 * s->sg_d2 + 15.0 * cc1sq * (2.0 * s->sg_d2 + cc1sq));
+    }
+    s->sg_ok = 1;
+}
+
+/* TEME position (km) at tsince minutes from epoch; 0 if decayed */
+static int sgp4_teme(const pic_sat_t *s, double t, double r[3])
+{
+    const double x2o3 = 2.0 / 3.0, xke = sg_xke();
+    double xmdf, argpdf, nodedf, argpm, mm, t2, nodem, tempa, tempe, templ,
+           am, nm, em, xlm, axnl, aynl, xl, u, eo1, tem5, sineo1 = 0, coseo1 = 1,
+           ecose, esine, el2, pl, rl, betal, temp, sinu, cosu, su, sin2u, cos2u,
+           temp1, temp2, mrt, xnode, xinc, sinip, cosip, sinsu, cossu, snod, cnod,
+           sini, cosi, xmx, xmy;
+    int ktr;
+
+    xmdf = s->mean_anomaly + s->sg_mdot * t;
+    argpdf = s->arg_perigee + s->sg_argpdot * t;
+    nodedf = s->raan + s->sg_nodedot * t;
+    argpm = argpdf;
+    mm = xmdf;
+    t2 = t * t;
+    nodem = nodedf + s->sg_nodecf * t2;
+    tempa = 1.0 - s->sg_cc1 * t;
+    tempe = s->bstar * s->sg_cc4 * t;
+    templ = s->sg_t2cof * t2;
+    if (!s->sg_isimp) {
+        double delomg = s->sg_omgcof * t, t3 = t2 * t, t4 = t3 * t;
+        double delm = s->sg_xmcof * (pow(1.0 + s->sg_eta * cos(xmdf), 3) - s->sg_delmo);
+        temp = delomg + delm;
+        mm = xmdf + temp;
+        argpm = argpdf - temp;
+        tempa = tempa - s->sg_d2 * t2 - s->sg_d3 * t3 - s->sg_d4 * t4;
+        tempe = tempe + s->bstar * s->sg_cc5 * (sin(mm) - s->sg_sinmao);
+        templ = templ + s->sg_t3cof * t3 + t4 * (s->sg_t4cof + t * s->sg_t5cof);
+    }
+    nm = s->sg_no;
+    em = s->eccentricity;
+    if (tempa <= 0) return 0;
+    am = pow(xke / nm, x2o3) * tempa * tempa;
+    nm = xke / pow(am, 1.5);
+    em = em - tempe;
+    if (em >= 1.0 || em < -0.001) return 0;
+    if (em < 1.0e-6) em = 1.0e-6;
+    mm = mm + s->sg_no * templ;
+    xlm = mm + argpm + nodem;
+    nodem = fmod(nodem, TWO_PI);
+    argpm = fmod(argpm, TWO_PI);
+    xlm = fmod(xlm, TWO_PI);
+    (void)nm;
+
+    /* Long-period periodics */
+    sinip = sin(s->inclination);
+    cosip = cos(s->inclination);
+    axnl = em * cos(argpm);
+    temp = 1.0 / (am * (1.0 - em * em));
+    aynl = em * sin(argpm) + temp * s->sg_aycof;
+    xl = xlm + temp * s->sg_xlcof * axnl;
+
+    /* Kepler's equation */
+    u = fmod(xl - nodem, TWO_PI);
+    eo1 = u;
+    tem5 = 9999.9;
+    for (ktr = 1; fabs(tem5) >= 1.0e-12 && ktr <= 10; ktr++) {
+        sineo1 = sin(eo1);
+        coseo1 = cos(eo1);
+        tem5 = 1.0 - coseo1 * axnl - sineo1 * aynl;
+        tem5 = (u - aynl * coseo1 + axnl * sineo1 - eo1) / tem5;
+        if (fabs(tem5) >= 0.95) tem5 = tem5 > 0.0 ? 0.95 : -0.95;
+        eo1 += tem5;
+    }
+
+    /* Short-period periodics */
+    ecose = axnl * coseo1 + aynl * sineo1;
+    esine = axnl * sineo1 - aynl * coseo1;
+    el2 = axnl * axnl + aynl * aynl;
+    pl = am * (1.0 - el2);
+    if (pl < 0.0) return 0;
+    rl = am * (1.0 - ecose);
+    betal = sqrt(1.0 - el2);
+    temp = esine / (1.0 + betal);
+    sinu = am / rl * (sineo1 - aynl - axnl * temp);
+    cosu = am / rl * (coseo1 - axnl + aynl * temp);
+    su = atan2(sinu, cosu);
+    sin2u = (cosu + cosu) * sinu;
+    cos2u = 1.0 - 2.0 * sinu * sinu;
+    temp = 1.0 / pl;
+    temp1 = 0.5 * SG_J2 * temp;
+    temp2 = temp1 * temp;
+    mrt = rl * (1.0 - 1.5 * temp2 * betal * s->sg_con41) + 0.5 * temp1 * s->sg_x1mth2 * cos2u;
+    su = su - 0.25 * temp2 * s->sg_x7thm1 * sin2u;
+    xnode = nodem + 1.5 * temp2 * cosip * sin2u;
+    xinc = s->inclination + 1.5 * temp2 * cosip * sinip * cos2u;
+    if (mrt < 1.0) return 0;                   /* below the surface */
+
+    sinsu = sin(su); cossu = cos(su);
+    snod = sin(xnode); cnod = cos(xnode);
+    sini = sin(xinc); cosi = cos(xinc);
+    xmx = -snod * cosi;
+    xmy = cnod * cosi;
+    r[0] = mrt * SG_RE * (xmx * sinsu + cnod * cossu);
+    r[1] = mrt * SG_RE * (xmy * sinsu + snod * cossu);
+    r[2] = mrt * SG_RE * (sini * sinsu);
+    return 1;
+}
+
+/* Greenwich mean sidereal time (IAU-82), radians */
+static double gmst_rad(double jd)
+{
+    double tut1 = (jd - 2451545.0) / 36525.0;
+    double sec = -6.2e-6 * tut1 * tut1 * tut1 + 0.093104 * tut1 * tut1 +
+                 (876600.0 * 3600.0 + 8640184.812866) * tut1 + 67310.54841;
+    double g = fmod(sec * DEG_TO_RAD / 240.0, TWO_PI);
+    return g < 0 ? g + TWO_PI : g;
+}
+
+/* Inertial (TEME/ECI) position → WGS-84 geodetic lat/lon (deg), alt (km) */
+static void eci_to_geodetic(const double r[3], double jd,
+                            double *lat, double *lon, double *alt)
+{
+    const double a = 6378.137, f = 1.0 / 298.257223563, e2 = f * (2.0 - f);
+    double g = gmst_rad(jd), x, y, z = r[2], p, phi, N = a, h = 0, l;
+    int i;
+
+    x = r[0] * cos(g) + r[1] * sin(g);
+    y = -r[0] * sin(g) + r[1] * cos(g);
+    p = sqrt(x * x + y * y);
+    phi = atan2(z, p * (1.0 - e2));
+    for (i = 0; i < 5; i++) {
+        double sp = sin(phi);
+        N = a / sqrt(1.0 - e2 * sp * sp);
+        h = p / cos(phi) - N;
+        phi = atan2(z, p * (1.0 - e2 * N / (N + h)));
+    }
+    l = atan2(y, x);
+    *lat = phi * RAD_TO_DEG;
+    *lon = l * RAD_TO_DEG;
+    *alt = h;
+}
+
 /*
- * sgp4_at_time - Simplified SGP4: compute position at a given time.
+ * sgp4_at_time - Position at a given time: SGP4 for near-Earth orbits,
+ *                otherwise a simplified secular J2 model.
  *
  * Returns lat/lon (degrees) and altitude (km).
  */
@@ -139,6 +392,17 @@ static void sgp4_at_time(const pic_sat_t *sat, double jd,
     double r, u, lat_rad, lon_rad, gmst;
 
     tsince_min = (jd - sat->epoch_jd) * MINUTES_PER_DAY;
+
+    if (sat->sg_ok) {
+        double rr[3];
+        if (sgp4_teme(sat, tsince_min, rr)) {
+            eci_to_geodetic(rr, jd, out_lat, out_lon, out_alt);
+            return;
+        }
+        /* decayed: report it at the surface so callers can skip it */
+        *out_lat = 0; *out_lon = 0; *out_alt = -1;
+        return;
+    }
 
     /* Convert mean motion from rev/day to rad/min */
     n0 = sat->mean_motion * TWO_PI / MINUTES_PER_DAY; /* rad/min */
@@ -437,35 +701,32 @@ static int extract_json_string(const char *json, const char *key,
 /*
  * fetch_tle_individual - Fetch a single TLE by NORAD ID.
  *
+ * Network only: fills l1/l2 (each at least 80 bytes) and does not
+ * touch the satellite list, so the caller can run it without holding
+ * the list mutex (the renderer locks that mutex every frame).
+ *
  * Used as a fallback when the AMSAT bulk catalog doesn't contain a
  * satellite (e.g., Meteor-M weather satellites are not amateur).
  * Uses tle.ivanstanojevic.me which returns JSON with line1/line2
  * fields and works reliably with BusyBox wget on the Pi.
  */
-static int fetch_tle_individual(pic_sat_t *sat)
+static int fetch_tle_individual(int norad_id, char *l1, char *l2)
 {
     char url[256];
     char buf[1024];
-    char l1[80], l2[80];
     int n;
 
-    snprintf(url, sizeof(url), TLE_API_URL, sat->norad_id);
+    snprintf(url, sizeof(url), TLE_API_URL, norad_id);
     n = pic_fetch_to_buf(url, buf, sizeof(buf));
     if (n <= 0) return -1;
 
     /* Extract TLE lines from JSON response */
-    if (extract_json_string(buf, "line1", l1, sizeof(l1)) != 0 ||
-        extract_json_string(buf, "line2", l2, sizeof(l2)) != 0) {
+    if (extract_json_string(buf, "line1", l1, 80) != 0 ||
+        extract_json_string(buf, "line2", l2, 80) != 0) {
         return -1;
     }
 
-    if (parse_tle(sat, l1, l2) == 0) {
-        printf("satellite: TLE loaded for %s (NORAD %d, MM=%.4f rev/day)\n",
-               sat->name, sat->norad_id, sat->mean_motion);
-        return 0;
-    }
-
-    return -1;
+    return 0;
 }
 
 /*
@@ -490,30 +751,57 @@ static void fetch_all_tles(void)
     /* Clear in-memory cache so fetch_tle re-reads the fresh file */
     tle_cache_clear();
 
-    /* Parse TLEs from cache for each registered satellite */
-    pthread_mutex_lock(&sat_list->mutex);
-    for (i = 0; i < sat_list->count; i++) {
-        if (!sat_running) break;
-        if (!sat_list->sats[i].enabled) continue;
-        if (fetch_tle(&sat_list->sats[i]) == 0) loaded++;
-    }
-    pthread_mutex_unlock(&sat_list->mutex);
+    /* Parse TLEs from cache for each registered satellite.
+     * got[] records which satellites were refreshed in THIS cycle,
+     * so ones only available via individual fetch are refreshed too
+     * (previously a satellite with any old TLE was skipped forever). */
+    {
+        int got[SAT_MAX] = {0};
+        int count;
 
-    /* Fallback: fetch individually for satellites not in AMSAT.
-     * This covers non-amateur satellites like Meteor-M weather sats.
-     * Each is a separate HTTPS request, but typically only 1-4 sats
-     * need this, so the overhead is minimal. */
-    pthread_mutex_lock(&sat_list->mutex);
-    for (i = 0; i < sat_list->count; i++) {
-        if (!sat_running) break;
-        if (!sat_list->sats[i].enabled) continue;
-        if (sat_list->sats[i].mean_motion > 0) continue;  /* Already loaded */
-        if (fetch_tle_individual(&sat_list->sats[i]) == 0) {
-            loaded++;
-            fallback++;
+        pthread_mutex_lock(&sat_list->mutex);
+        count = sat_list->count;
+        for (i = 0; i < count; i++) {
+            if (!sat_running) break;
+            if (!sat_list->sats[i].enabled) continue;
+            if (fetch_tle(&sat_list->sats[i]) == 0) {
+                got[i] = 1;
+                loaded++;
+            }
+        }
+        pthread_mutex_unlock(&sat_list->mutex);
+
+        /* Fallback: fetch individually for satellites not in AMSAT
+         * (weather sats, space stations, Hubble, etc.). Each is a
+         * separate HTTPS request, so the network I/O happens WITHOUT
+         * the list mutex held — otherwise the render loop stalls for
+         * the length of every TLS handshake. */
+        for (i = 0; i < count; i++) {
+            int norad_id, enabled;
+            char l1[80], l2[80];
+
+            if (!sat_running) break;
+            if (got[i]) continue;
+
+            pthread_mutex_lock(&sat_list->mutex);
+            enabled = sat_list->sats[i].enabled;
+            norad_id = sat_list->sats[i].norad_id;
+            pthread_mutex_unlock(&sat_list->mutex);
+            if (!enabled) continue;
+
+            if (fetch_tle_individual(norad_id, l1, l2) != 0) continue;
+
+            pthread_mutex_lock(&sat_list->mutex);
+            if (parse_tle(&sat_list->sats[i], l1, l2) == 0) {
+                printf("satellite: TLE loaded for %s (NORAD %d, MM=%.4f rev/day)\n",
+                       sat_list->sats[i].name, norad_id,
+                       sat_list->sats[i].mean_motion);
+                loaded++;
+                fallback++;
+            }
+            pthread_mutex_unlock(&sat_list->mutex);
         }
     }
-    pthread_mutex_unlock(&sat_list->mutex);
 
     sat_list->last_tle_update = time(NULL);
     printf("satellite: TLE fetch complete (%d loaded", loaded);
@@ -523,10 +811,11 @@ static void fetch_all_tles(void)
 
 static void *sat_thread_func(void *arg)
 {
+    pic_status_feature = "satellite";   /* data-source status (datastatus.c) */
     (void)arg;
 
     /* Lower priority so TLS handshakes don't starve the renderer */
-    nice(15);
+    if (nice(15) == -1) { /* priority unchanged: fine */ }
 
     if (!pic_wait_for_network("satellite", &sat_running)) {
         printf("satellite: will retry in %d seconds\n", TLE_FETCH_INTERVAL);
@@ -537,8 +826,8 @@ static void *sat_thread_func(void *arg)
     while (sat_running) {
         int elapsed = 0;
         while (sat_running && elapsed < TLE_FETCH_INTERVAL) {
-            sleep(5);
-            elapsed += 5;
+            sleep(1);       /* 1 s steps so shutdown is prompt */
+            elapsed += 1;
             /* Config reload can reset last_tle_update to trigger
              * an immediate refetch for newly enabled satellites */
             if (sat_list->last_tle_update == 0) break;
@@ -677,4 +966,19 @@ void pic_sat_propagate(pic_satlist_t *list, time_t now)
     }
     if (!propagate_logged && list->count > 0) propagate_logged = 1;
     pthread_mutex_unlock(&list->mutex);
+}
+
+/* ── Public helpers for other modules (e.g. Starlink trains) ───── */
+
+int pic_sat_parse_tle(pic_sat_t *sat, const char *line1, const char *line2)
+{
+    return parse_tle(sat, line1, line2);
+}
+
+void pic_sat_position_at(const pic_sat_t *sat, time_t t,
+                         double *lat, double *lon, double *alt_km)
+{
+    /* Unix time → Julian date (2440587.5 = 1970-01-01T00:00Z) */
+    double jd = 2440587.5 + (double)t / 86400.0;
+    sgp4_at_time(sat, jd, lat, lon, alt_km);
 }

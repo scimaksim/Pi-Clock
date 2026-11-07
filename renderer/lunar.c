@@ -112,6 +112,7 @@ pic_lunar_position_t pic_lunar_position(time_t utc)
         /* Phase = (1 - cos(elongation)) / 2
          * This gives 0 at new moon, 1 at full moon */
         pos.phase = (1.0 - cos(elongation)) / 2.0;
+        pos.elongation = normalize_angle(elongation);
     }
 
     return pos;

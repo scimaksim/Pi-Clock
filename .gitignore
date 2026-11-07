@@ -22,6 +22,7 @@ Thumbs.db
 # Test output
 *.png
 !assets/*.png
+!renderer/worlds/sprites/*.png
 
 # Map output images (large, downloaded at build time)
 maps/output/

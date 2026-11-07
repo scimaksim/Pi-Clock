@@ -1,0 +1,6 @@
+numpy>=1.26
+scipy>=1.11
+requests>=2.31
+eccodes>=2.37
+opencv-python-headless>=4.9
+arm_pyart>=1.18

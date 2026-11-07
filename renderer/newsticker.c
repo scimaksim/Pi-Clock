@@ -14,6 +14,7 @@
  */
 
 #include "newsticker.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "layer.h"
@@ -470,10 +471,11 @@ static int ticker_layer_enabled(void)
 
 static void *ticker_thread_func(void *arg)
 {
+    pic_status_feature = "newsticker";   /* data-source status (datastatus.c) */
     (void)arg;
 
     /* Lower priority so RSS fetches don't starve the renderer */
-    nice(15);
+    if (nice(15) == -1) { /* priority unchanged: fine */ }
 
     if (ticker_layer_enabled()) {
         if (pic_wait_for_network("ticker", &ticker_running)) {
@@ -484,8 +486,8 @@ static void *ticker_thread_func(void *arg)
     while (ticker_running) {
         int elapsed = 0;
         while (ticker_running && elapsed < TICKER_FETCH_INTERVAL) {
-            sleep(5);
-            elapsed += 5;
+            sleep(1);       /* 1 s steps so shutdown is prompt */
+            elapsed += 1;
             /* Config reload sets ticker_refetch to trigger immediate re-fetch
              * when sources are enabled/disabled via the dashboard. */
             if (ticker_refetch) {
