@@ -99,7 +99,8 @@ def lunar(t_max):
                 dec=fit(hs, L[:,5], 2), gha=fit(hs, gha, 1))
 
 out = dict(solar=[], lunar=[])
-t1, t2 = ts.utc(2024, 1, 1), ts.utc(2041, 1, 1)
+import os
+t1 = ts.utc(int(os.environ.get('Y1', 1900)), 1, 1); t2 = ts.utc(int(os.environ.get('Y2', 2051)), 1, 1)
 tt, ph = almanac.find_discrete(t1, t2, almanac.moon_phases(eph))
 for t, p in zip(tt, ph):
     if p == 0:

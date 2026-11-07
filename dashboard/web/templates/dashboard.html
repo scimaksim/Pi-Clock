@@ -881,15 +881,16 @@
         <!-- Eclipses (hidden when the eclipse layer is off) -->
         <div class="card" id="eclipse-card" style="display:none">
             <div class="card-title card-title-row">Eclipses <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
-            <p class="text-muted mb-8">While a solar eclipse is under way the map shows the Moon's shadow live, travelling across the Earth, and the Sun as seen from home. During a lunar eclipse it tints where the Moon is up and shows the Moon passing through Earth's shadow. Eclipses starting within 12 hours get a preview. Nothing is drawn between eclipses.</p>
-            <div class="form-group">
-                <label for="eclipse_style">Solar eclipse look</label>
-                <select id="eclipse_style" class="form-control" data-conf="ECLIPSE_STYLE"><option value="0">As seen from orbit: a soft dark shadow (default)</option><option value="1">Chart: % covered contours and the path of totality</option></select>
-            </div>
+            <p class="text-muted mb-8">While a solar eclipse is under way the map shows where it is seen and how much of the Sun is covered (colour bands), the path of totality or annularity, and the Moon's shadow travelling across the Earth. During a lunar eclipse it tints where the Moon is up and shows the Moon passing through Earth's shadow. Eclipses starting within 12 hours get a preview. Nothing is drawn between eclipses.</p>
             <div class="form-group">
                 <label for="eclipse_replay">Replay</label>
-                <select id="eclipse_replay" class="form-control" data-conf="ECLIPSE_REPLAY"><option value="0">Off: live eclipses only (default)</option><option value="1">Replay the next eclipse at 60&times; speed</option><option value="2">Replay the last eclipse at 60&times; speed</option></select>
+                <select id="eclipse_replay" class="form-control" data-conf="ECLIPSE_REPLAY"><option value="0">Off: live eclipses only (default)</option><option value="1">Replay the next eclipse at 60&times; speed</option><option value="2">Replay the last eclipse at 60&times; speed</option><option value="3">Replay the eclipse picked below</option></select>
                 <p class="text-muted mt-4">A preview loop: a whole eclipse in a few minutes. Turn it off again to get the live view back.</p>
+            </div>
+            <div class="form-group">
+                <label for="eclipse_pick">Eclipse to replay (1900&ndash;2050)</label>
+                <select id="eclipse_pick" class="form-control" data-conf="ECLIPSE_PICK"><option value="">(choose one)</option></select>
+                <p class="text-muted mt-4">Every solar and lunar eclipse from 1900 to 2050, with where it was and how much of it you would have seen from home. Pick one, set Replay to "the eclipse picked below" and Save.</p>
             </div>
             <div class="mt-12">
                 <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('eclipse-card', 'Eclipses')">Save</button>
@@ -1122,6 +1123,7 @@
         </footer>
     </div>
 
+    <script src="/static/js/eclipses.js"></script>
     <script src="/static/js/dashboard.js"></script>
 
     {{/*

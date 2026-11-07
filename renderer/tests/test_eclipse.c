@@ -46,12 +46,17 @@ int main(void)
         { "2024-10-02", -21.95, -114.50, 445, 'A' },
         { "2026-08-12", 65.20, -25.20, 138, 'T' },
         { "2027-08-02", 25.50, 33.20, 383, 'T' },
+        /* historic (NASA/Espenak greatest eclipse and duration) */
+        { "2017-08-21", 36.97, -87.67, 160, 'T' },
+        { "1999-08-11", 45.10, 24.30, 143, 'T' },
+        { "1991-07-11", 22.00, -105.20, 413, 'T' },
+        { "1919-05-29", 4.40, -16.70, 411, 'T' },
     };
     int i;
     double lat, lon;
     pic_ecl_local_t o;
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < (int)(sizeof(G) / sizeof(G[0])); i++) {
         const pic_ecl_solar_t *e = find(G[i].date);
         int d;
         CHECK(e != NULL, "%s in the table", G[i].date);
@@ -156,6 +161,8 @@ int main(void)
             f->layer(cr, 960, 540, (time_t)l->tmax, f->data);
             CHECK(cairo_status(cr) == CAIRO_STATUS_SUCCESS, "lunar render");
         }
+        CHECK(pic_ecl_nsolar > 300 && pic_ecl_nlunar > 300, "1900-2050 table: %d / %d",
+              pic_ecl_nsolar, pic_ecl_nlunar);
         remove("/tmp/pic_ecl_test.conf");
         cairo_destroy(cr);
         cairo_surface_destroy(sf);

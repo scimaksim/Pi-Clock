@@ -1,14 +1,12 @@
 /*
  * layers_eclipse.c - Solar and lunar eclipses, live
  *
- * Solar eclipse under way: the Moon's shadow travelling across the map.
- * ECLIPSE_STYLE 0 (default) draws it as astronauts see it: daylight
- * barely dimmed in the outer penumbra, deepening into a dark smudge
- * around the black umbra. ECLIPSE_STYLE 1 is a chart: shading by how
- * much of the Sun is covered with 25/50/75/90% contours, the penumbra
- * edge, the umbra outlined and the whole central path as a band. Both
- * label the umbra (TOTALITY/ANNULARITY and its duration) and, when the
- * eclipse reaches home, show the Sun as seen from home.
+ * Solar eclipse under way: the eclipse map (colour bands by the most of
+ * the Sun covered anywhere it is seen, with 20-80% labels and a key, as
+ * on timeanddate's maps), the path of totality or annularity with its
+ * dashed centre line, and the Moon's shadow travelling across it as seen
+ * from orbit: daylight barely dimmed in the outer penumbra, deepening
+ * into a dark smudge around the black umbra.
  *
  * Lunar eclipse under way: the part of the Earth where the Moon is up
  * (where the eclipse can be seen) tinted, the eclipsed Moon over the
@@ -17,7 +15,9 @@
  *
  * Eclipses within 12 h get a preview (path band and countdown).
  * ECLIPSE_REPLAY (renderer conf): 0 off (default), 1 the next eclipse,
- * 2 the last one, replayed at 60x in a loop so it can be seen any time.
+ * 2 the last one, 3 the one named by ECLIPSE_PICK ("S1999-08-11" solar,
+ * "L2018-07-27" lunar; any from 1900 to 2050), replayed at 60x in a
+ * loop so it can be seen any time.
  * Between eclipses the layer is idle and holds no surface.
  *
  * Geometry: eclipse.c (Besselian elements from JPL DE421).
@@ -48,6 +48,7 @@
 static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
 static char legend_txt[2][200];  /* written by render, read by legend */
 static double legend_rgb[3] = { 1.0, 0.8, 0.5 };
+static char key_name[32];        /* solar: draw the band key with this path name */
 
 /* ---------------------------------------------------------------- */
 /* What to show                                                      */
@@ -60,6 +61,8 @@ typedef struct {
     int preview;                 /* not started yet: path + countdown  */
 } ecl_show_t;
 
+static char pick[16];
+
 static int replay_mode(void)
 {
     static int mode;
@@ -67,13 +70,38 @@ static int replay_mode(void)
     time_t now = time(NULL);
     pthread_mutex_lock(&mu);
     if (!read_at || now - read_at >= 15) {
+        char v[16] = "";
         read_at = now;
         pthread_mutex_unlock(&mu);
         mode = pic_conf_int("ECLIPSE_REPLAY", 0);
+        pic_conf_str("ECLIPSE_PICK", v, sizeof(v));
+        pthread_mutex_lock(&mu);
+        snprintf(pick, sizeof(pick), "%s", v);
+        pthread_mutex_unlock(&mu);
         return mode;
     }
     pthread_mutex_unlock(&mu);
     return mode;
+}
+
+/* The eclipse named by ECLIPSE_PICK */
+static int picked(const pic_ecl_solar_t **s, const pic_ecl_lunar_t **l)
+{
+    char v[16];
+    int i;
+    pthread_mutex_lock(&mu);
+    memcpy(v, pick, sizeof(v));
+    pthread_mutex_unlock(&mu);
+    if (v[0] == 'S')
+        for (i = 0; i < pic_ecl_nsolar; i++)
+            if (!strcmp(pic_ecl_solar[i].date, v + 1)) { *s = &pic_ecl_solar[i]; return 1; }
+    if (v[0] == 'L')
+        for (i = 0; i < pic_ecl_nlunar; i++)
+            if (!strcmp(pic_ecl_lunar[i].date, v + 1) && pic_ecl_lunar[i].c[0]) {
+                *l = &pic_ecl_lunar[i];
+                return 1;
+            }
+    return 0;
 }
 
 static void span_of(const ecl_show_t *w, double *a, double *b)
@@ -88,10 +116,16 @@ static int what(time_t now, ecl_show_t *w)
     int mode = replay_mode();
     memset(w, 0, sizeof(*w));
     w->t = (double)now;
-    if (mode == 1 || mode == 2) {
-        const pic_ecl_solar_t *s = mode == 1 ? pic_ecl_solar_next(now) : pic_ecl_solar_prev(now);
-        const pic_ecl_lunar_t *l = mode == 1 ? pic_ecl_lunar_next(now) : pic_ecl_lunar_prev(now);
+    if (mode >= 1 && mode <= 3) {
+        const pic_ecl_solar_t *s = NULL;
+        const pic_ecl_lunar_t *l = NULL;
         double a, b, loop;
+        if (mode == 3) {
+            if (!picked(&s, &l)) return 0;
+        } else {
+            s = mode == 1 ? pic_ecl_solar_next(now) : pic_ecl_solar_prev(now);
+            l = mode == 1 ? pic_ecl_lunar_next(now) : pic_ecl_lunar_prev(now);
+        }
         if (s && l) {   /* the nearer one in the chosen direction */
             if (mode == 1) { if (l->c[0] < s->p1) s = NULL; else l = NULL; }
             else           { if (l->c[1] > s->p4) s = NULL; else l = NULL; }
@@ -163,8 +197,22 @@ static void hm(char *out, int n, double t)
 
 typedef struct { double x0, y0, x1, y1; } seg_t;
 
-static void contour(cairo_t *cr, const float *g, int gw, int gh, double cell,
-                    double ox, double oy, double level, int night, double *lx, double *ly)
+typedef struct { double x[12], y[12]; int n; double gap; } labels_t;
+
+static void label_spot(labels_t *L, double x, double y)
+{
+    int k;
+    if (!L || L->n >= 12) return;
+    for (k = 0; k < L->n; k++)
+        if (hypot(L->x[k] - x, L->y[k] - y) < L->gap) return;
+    L->x[L->n] = x;
+    L->y[L->n] = y;
+    L->n++;
+}
+
+static void contour_l(cairo_t *cr, const float *g, int gw, int gh, double cell,
+                      double ox, double oy, double level, int night, double *lx, double *ly,
+                      labels_t *L)
 {
     int i, j;
     double best = 1e30;
@@ -195,8 +243,15 @@ static void contour(cairo_t *cr, const float *g, int gw, int gh, double cell,
                 cairo_line_to(cr, ex[k + 1], ey[k + 1]);
                 /* label spot: the topmost crossing */
                 if (ey[k] < best) { best = ey[k]; *lx = ex[k]; *ly = ey[k]; }
+                label_spot(L, (ex[k] + ex[k + 1]) / 2, (ey[k] + ey[k + 1]) / 2);
             }
         }
+}
+
+static void contour(cairo_t *cr, const float *g, int gw, int gh, double cell,
+                    double ox, double oy, double level, int night, double *lx, double *ly)
+{
+    contour_l(cr, g, gw, gh, cell, ox, oy, level, night, lx, ly, NULL);
 }
 
 /* ---------------------------------------------------------------- */
@@ -276,11 +331,15 @@ static int umbra_outline(const pic_ecl_solar_t *e, double t, double clat, double
     return RAYS;
 }
 
+static int central_duration(const pic_ecl_solar_t *e, double t, double lat, double lon);
+
 /* Path cache: outlines along the whole central path */
 #define PATH_STEP 60
 typedef struct {
     const pic_ecl_solar_t *e;
     int n;
+    int ge_ok, ge_dur;
+    double ge_lat, ge_lon;
     double (*lat)[RAYS], (*lon)[RAYS];
     double *clat, *clon;
 } path_t;
@@ -294,6 +353,8 @@ static void path_build(const pic_ecl_solar_t *e)
     free(path.lat); free(path.lon); free(path.clat); free(path.clon);
     memset(&path, 0, sizeof(path));
     path.e = e;
+    path.ge_ok = pic_ecl_solar_centre(e, (double)e->tmax, &path.ge_lat, &path.ge_lon);
+    if (path.ge_ok) path.ge_dur = central_duration(e, (double)e->tmax, path.ge_lat, path.ge_lon);
     if (!e->central) return;
     n = (int)((e->c2 - e->c1) / PATH_STEP) + 2;
     path.lat = malloc(sizeof(*path.lat) * (size_t)n);
@@ -331,12 +392,12 @@ static void poly_path(cairo_t *cr, const double *lat, const double *lon, int n,
     cairo_close_path(cr);
 }
 
-static void draw_path(cairo_t *cr, int width, int height)
+static void draw_path(cairo_t *cr, int width, int height, const char *label)
 {
     int k;
     if (path.n < 2) return;
     cairo_push_group(cr);
-    cairo_set_source_rgb(cr, 0.35, 0.05, 0.08);
+    cairo_set_source_rgb(cr, 0.45, 0.12, 0.05);
     for (k = 0; k < path.n; k++) {
         poly_path(cr, path.lat[k], path.lon[k], RAYS, width, height);
         cairo_fill(cr);
@@ -352,11 +413,15 @@ static void draw_path(cairo_t *cr, int width, int height)
         cairo_stroke(cr);
     }
     cairo_pop_group_to_source(cr);
-    cairo_paint_with_alpha(cr, 0.55);
+    cairo_paint_with_alpha(cr, 0.6);
 
-    /* centre line */
-    cairo_set_source_rgba(cr, 1.0, 0.55, 0.35, 0.7);
-    cairo_set_line_width(cr, height / 900.0 + 0.6);
+    /* centre line, dashed */
+    {
+        double dash[2] = { height / 140.0, height / 220.0 };
+        cairo_set_dash(cr, dash, 2, 0);
+    }
+    cairo_set_source_rgba(cr, 1, 1, 1, 0.9);
+    cairo_set_line_width(cr, height / 600.0 + 0.6);
     for (k = 1; k < path.n; k++) {
         double x0 = pic_lon_to_x(path.clon[k - 1], width), x1 = pic_lon_to_x(path.clon[k], width);
         if (fabs(x1 - x0) > width / 2.0) continue;
@@ -364,6 +429,16 @@ static void draw_path(cairo_t *cr, int width, int height)
         cairo_line_to(cr, x1, pic_lat_to_y(path.clat[k], height));
     }
     cairo_stroke(cr);
+    cairo_set_dash(cr, NULL, 0, 0);
+    /* its name, at an on-screen point a third of the way along */
+    for (k = path.n / 3; k < path.n; k++) {
+        double x = pic_lon_to_x(path.clon[k], width), y = pic_lat_to_y(path.clat[k], height);
+        double fs = height / 72.0;
+        if (x > fs * 4 && x < width - fs * 10 && y > fs * 3 && y < height - fs * 5) {
+            pic_draw_text_pill(cr, x + fs * 0.8, y - fs * 0.9, label, 1, 1, 1, 0.6);
+            break;
+        }
+    }
 }
 
 /* Seconds the centre point (lat, lon) spends in the umbra around t */
@@ -378,77 +453,6 @@ static int central_duration(const pic_ecl_solar_t *e, double t, double lat, doub
     n = 0;
     while (n++ < 900) { pic_ecl_solar_local(e, b + 1, lat, lon, &o); if (!o.central) break; b += 1; }
     return (int)(b - a + 1);
-}
-
-/* The Sun as seen from home, Moon across it */
-static void sun_inset(cairo_t *cr, double cx, double cy, double R, const pic_ecl_local_t *o,
-                      const char *caption)
-{
-    cairo_pattern_t *p;
-    double mx = cx - o->dx * R, my = cy - o->dy * R;   /* east = left, north = up */
-    cairo_text_extents_t te;
-    double fs = R * 0.55;
-
-    cairo_save(cr);
-    cairo_new_path(cr);
-    cairo_rectangle(cr, cx - R * 1.9, cy - R * 1.65, R * 3.8, R * 4.05);
-    cairo_set_source_rgba(cr, 0.02, 0.03, 0.06, 0.82);
-    cairo_fill(cr);
-    /* corona-ish glow when nearly total */
-    if (o->obscuration > 0.97) {
-        p = cairo_pattern_create_radial(cx, cy, R * 0.9, cx, cy, R * 1.6);
-        cairo_pattern_add_color_stop_rgba(p, 0, 0.9, 0.92, 1.0, 0.6);
-        cairo_pattern_add_color_stop_rgba(p, 1, 0.9, 0.92, 1.0, 0.0);
-        cairo_set_source(cr, p);
-        cairo_arc(cr, cx, cy, R * 1.6, 0, 2 * M_PI);
-        cairo_fill(cr);
-        cairo_pattern_destroy(p);
-    }
-    p = cairo_pattern_create_radial(cx - R * 0.2, cy - R * 0.2, R * 0.1, cx, cy, R);
-    cairo_pattern_add_color_stop_rgb(p, 0, 1.0, 0.97, 0.75);
-    cairo_pattern_add_color_stop_rgb(p, 1, 1.0, 0.72, 0.2);
-    cairo_set_source(cr, p);
-    cairo_arc(cr, cx, cy, R, 0, 2 * M_PI);
-    cairo_fill(cr);
-    cairo_pattern_destroy(p);
-    /* the Moon: black where it covers the Sun, a faint outline elsewhere */
-    cairo_save(cr);
-    cairo_arc(cr, cx, cy, R, 0, 2 * M_PI);
-    cairo_clip(cr);
-    cairo_set_source_rgb(cr, 0.03, 0.03, 0.05);
-    cairo_arc(cr, mx, my, o->moon_r * R, 0, 2 * M_PI);
-    cairo_fill(cr);
-    cairo_restore(cr);
-    cairo_set_source_rgba(cr, 0.6, 0.65, 0.75, 0.35);
-    cairo_set_line_width(cr, 1.0);
-    cairo_arc(cr, mx, my, o->moon_r * R, 0, 2 * M_PI);
-    cairo_stroke(cr);
-
-    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-    cairo_set_font_size(cr, fs);
-    cairo_text_extents(cr, caption, &te);
-    cairo_set_source_rgba(cr, 1.0, 0.85, 0.55, 1.0);
-    cairo_move_to(cr, cx - te.x_advance / 2, cy + R * 1.6 + fs * 0.35);
-    cairo_show_text(cr, caption);
-    cairo_set_font_size(cr, fs * 0.8);
-    cairo_text_extents(cr, "From home", &te);
-    cairo_set_source_rgba(cr, 0.75, 0.78, 0.85, 1.0);
-    cairo_move_to(cr, cx - te.x_advance / 2, cy - R * 1.2);
-    cairo_show_text(cr, "From home");
-    cairo_restore(cr);
-}
-
-/* ECLIPSE_STYLE: 0 realistic (the shadow as seen from orbit), 1 chart */
-static int eclipse_style(void)
-{
-    static int style;
-    static time_t read_at;
-    time_t now = time(NULL);
-    if (!read_at || now - read_at >= 15) {
-        read_at = now;
-        style = pic_conf_int("ECLIPSE_STYLE", 0);
-    }
-    return style;
 }
 
 /*
@@ -498,7 +502,8 @@ static void draw_realistic(cairo_t *cr, const pic_ecl_solar_t *e, double t,
             /* As seen from orbit: the outer penumbra barely dims the
              * ground (the eye hardly notices half the Sun gone), the
              * last 10-20% deepens fast into the umbra's dark smudge */
-            double a = 0.22 * o + 0.75 * o * o * o * o;
+            double o2 = o * o, o4 = o2 * o2, o8 = o4 * o4;
+            double a = 0.07 * o + 0.88 * o8;
             if (a > 0.96) a = 0.96;
             unsigned int al = (unsigned int)(255.0 * a + 0.5);
             row[i] = al << 24 | (unsigned int)(al * 0.01) << 16 |
@@ -516,6 +521,217 @@ static void draw_realistic(cairo_t *cr, const pic_ecl_solar_t *e, double t,
     cairo_pattern_destroy(pat);
     cairo_surface_destroy(img);
     free(g);
+}
+
+/*
+ * The eclipse map (as on timeanddate / NASA maps): for each place, the
+ * most of the Sun covered at any moment of the eclipse while the Sun is
+ * up there. Computed once per eclipse and view on a coarse screen grid
+ * (about 6 px), stepping through the eclipse every 2 minutes.
+ */
+typedef struct {
+    const pic_ecl_solar_t *e;
+    int w, h, gw, gh;
+    double key[3], cell;
+    float *g;
+    cairo_surface_t *bands;    /* coloured bands, half resolution */
+} foot_t;
+static foot_t foot;
+
+static void foot_build(const pic_ecl_solar_t *e, int width, int height)
+{
+    double key[3] = { pic_x_to_lon(0, width), pic_x_to_lon(width, width), pic_y_to_lat(0, height) };
+    double cell = height / 180.0, t, *rs, *rc, *lon;
+    int gw = (int)(width / cell) + 2, gh = (int)(height / cell) + 2, i, j;
+    if (foot.e == e && foot.w == width && foot.h == height &&
+        !memcmp(foot.key, key, sizeof(key)))
+        return;
+    free(foot.g);
+    if (foot.bands) cairo_surface_destroy(foot.bands);
+    memset(&foot, 0, sizeof(foot));
+    foot.g = calloc((size_t)gw * (size_t)gh, sizeof(float));
+    rs = malloc(sizeof(double) * (size_t)(gh * 2 + gw));
+    if (!foot.g || !rs) { free(rs); return; }
+    rc = rs + gh;
+    lon = rc + gh;
+    foot.e = e; foot.w = width; foot.h = height; foot.gw = gw; foot.gh = gh;
+    foot.cell = cell;
+    memcpy(foot.key, key, sizeof(key));
+    for (j = 0; j < gh; j++) {
+        double lat = pic_y_to_lat(j * cell, height);
+        if (lat > 90) lat = 90;
+        if (lat < -90) lat = -90;
+        pic_ecl_geocentric(lat, &rs[j], &rc[j]);
+    }
+    for (i = 0; i < gw; i++) lon[i] = pic_x_to_lon(i * cell, width);
+    for (t = (double)e->p1; t <= (double)e->p4; t += 120) {
+        pic_ecl_state_t s;
+        pic_ecl_solar_prep(e, t, &s);
+        for (i = 0; i < gw; i++) {
+            double H = (s.mu + lon[i]) * D2R, sh = sin(H), ch = cos(H);
+            for (j = 0; j < gh; j++) {
+                double xi = rc[j] * sh;
+                double eta = rs[j] * s.cd - rc[j] * ch * s.sd;
+                double zeta = rs[j] * s.sd + rc[j] * ch * s.cd;
+                double L1, L2, u, v, m;
+                float *o = &foot.g[j * gw + i];
+                if (zeta <= 0) continue;
+                L1 = s.l1 - zeta * s.tf1;
+                u = s.x - xi; v = s.y - eta;
+                m = u * u + v * v;
+                if (m >= L1 * L1) continue;
+                L2 = s.l2 - zeta * s.tf2;
+                m = sqrt(m);
+                {
+                    float ob = (float)pic_ecl_overlap((L1 - L2) / (L1 + L2), 2.0 * m / (L1 + L2));
+                    if (ob > *o) *o = ob;
+                }
+            }
+        }
+    }
+    free(rs);
+}
+
+/*
+ * Colour bands by the most of the Sun covered, one per 10%, as on
+ * eclipse maps: a warm glow over the Blue Marble, barely there where a
+ * sliver of the Sun is covered, deepening through amber and orange to
+ * rose beside the path, so the map still shows through.
+ */
+static const double BAND_RGB[10][3] = {
+    { 1.00, 0.95, 0.75 }, { 1.00, 0.91, 0.62 }, { 1.00, 0.86, 0.50 }, { 1.00, 0.80, 0.40 },
+    { 1.00, 0.73, 0.32 }, { 0.99, 0.66, 0.26 }, { 0.97, 0.58, 0.21 }, { 0.94, 0.50, 0.17 },
+    { 0.90, 0.42, 0.14 }, { 0.85, 0.34, 0.11 },
+};
+static const double BAND_A[10] = { 0.16, 0.19, 0.22, 0.25, 0.28, 0.31, 0.34, 0.37, 0.41, 0.46 };
+
+static void bands_build(int width, int height)
+{
+    int bw = width / 2 + 1, bh = height / 2 + 1, x, y, stride;
+    unsigned char *px;
+    if (foot.bands || !foot.g) return;
+    foot.bands = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, bw, bh);
+    px = cairo_image_surface_get_data(foot.bands);
+    stride = cairo_image_surface_get_stride(foot.bands);
+    cairo_surface_flush(foot.bands);
+    for (y = 0; y < bh; y++) {
+        unsigned int *row = (unsigned int *)(void *)(px + y * stride);
+        double gy = y * 2.0 / foot.cell, fy;
+        int j = (int)gy;
+        if (j > foot.gh - 2) j = foot.gh - 2;
+        fy = gy - j;
+        for (x = 0; x < bw; x++) {
+            double gx = x * 2.0 / foot.cell, fx, o;
+            int i = (int)gx, k;
+            const float *g = foot.g;
+            if (i > foot.gw - 2) i = foot.gw - 2;
+            fx = gx - i;
+            /* bilinear between grid points, then banded: crisp edges */
+            o = (g[j * foot.gw + i] * (1 - fx) + g[j * foot.gw + i + 1] * fx) * (1 - fy) +
+                (g[(j + 1) * foot.gw + i] * (1 - fx) + g[(j + 1) * foot.gw + i + 1] * fx) * fy;
+            if (o <= 0.002) {
+                /* just outside a sunrise/sunset edge: let the ramp below
+                 * fade instead of cutting */
+                o = 0;
+                row[x] = 0;
+                continue;
+            }
+            k = (int)(o * 10);
+            if (k > 9) k = 9;
+            {
+                /* soften the outer edge where the eclipse starts at
+                 * sunrise / ends at sunset (o jumps there): coverage of
+                 * the "seen at all" mask, bilinear, as an alpha ramp */
+                double c = ((g[j * foot.gw + i] > 0) * (1 - fx) + (g[j * foot.gw + i + 1] > 0) * fx) * (1 - fy) +
+                           ((g[(j + 1) * foot.gw + i] > 0) * (1 - fx) + (g[(j + 1) * foot.gw + i + 1] > 0) * fx) * fy;
+                double edge = c >= 0.75 ? 1.0 : c <= 0.25 ? 0.0 : (c - 0.25) * 2.0;
+                unsigned int al = (unsigned int)(255 * BAND_A[k] * edge);
+                row[x] = al << 24 |
+                         (unsigned int)(al * BAND_RGB[k][0]) << 16 |
+                         (unsigned int)(al * BAND_RGB[k][1]) << 8 |
+                         (unsigned int)(al * BAND_RGB[k][2]);
+            }
+        }
+    }
+    cairo_surface_mark_dirty(foot.bands);
+}
+
+static void draw_footprint(cairo_t *cr, const pic_ecl_solar_t *e, int width, int height)
+{
+    static const double lv[] = { 0.2, 0.4, 0.6, 0.8 };
+    double fs = height / 72.0, lx, ly;
+    int i;
+    char txt[16];
+
+    foot_build(e, width, height);
+    bands_build(width, height);
+    if (!foot.bands) return;
+    cairo_save(cr);
+    cairo_scale(cr, 2.0, 2.0);
+    cairo_set_source_surface(cr, foot.bands, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BILINEAR);
+    cairo_paint(cr);
+    cairo_restore(cr);
+
+    /* a few % labels on the band edges (no lines) */
+    for (i = 0; i < 4; i++) {
+        labels_t L;
+        int k;
+        memset(&L, 0, sizeof(L));
+        L.gap = height / 3.5;
+        cairo_new_path(cr);
+        contour_l(cr, foot.g, foot.gw, foot.gh, foot.cell, 0, 0, lv[i], 0, &lx, &ly, &L);
+        cairo_new_path(cr);
+        snprintf(txt, sizeof(txt), "%d%%", (int)(lv[i] * 100 + 0.5));
+        for (k = 0; k < L.n && k < 3; k++)
+            if (L.x[k] > fs * 2 && L.x[k] < width - fs * 2 && L.y[k] > fs * 3 && L.y[k] < height - fs * 5)
+                pic_draw_text_pill(cr, L.x[k] - fs * 0.9, L.y[k] + fs * 0.3, txt, 1.0, 0.92, 0.8, 0.35);
+    }
+}
+
+/* The colour key, bottom centre: like the map legend on timeanddate */
+static void draw_band_key(cairo_t *cr, int width, int height, const char *path_name)
+{
+    double fs = height / 72.0, y = pic_legend_take(height, 1.2), sw = fs * 1.6;
+    double x, w, pad = fs * 0.35;
+    cairo_text_extents_t te;
+    int k;
+    const char *lo = "0%", *mid = "50%", *hi = "100%";
+
+    cairo_save(cr);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fs * 0.85);
+    cairo_text_extents(cr, path_name, &te);
+    w = te.x_advance + pad * 2 + sw * 10 + pad;
+    x = (width - w) / 2;
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.65);
+    cairo_rectangle(cr, x - pad, y - fs * 1.15, w + pad * 2, fs * 1.6);
+    cairo_fill(cr);
+    /* the path swatch */
+    cairo_set_source_rgba(cr, 0.45, 0.12, 0.05, 0.95);
+    cairo_rectangle(cr, x, y - fs * 0.95, te.x_advance + pad * 2, fs * 1.2);
+    cairo_fill(cr);
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    cairo_move_to(cr, x + pad, y - fs * 0.05);
+    cairo_show_text(cr, path_name);
+    x += te.x_advance + pad * 3;
+    /* bands, high to low (as timeanddate: path, <100% ... >0%) */
+    for (k = 9; k >= 0; k--) {
+        cairo_set_source_rgba(cr, BAND_RGB[k][0], BAND_RGB[k][1], BAND_RGB[k][2], 0.35 + BAND_A[k] * 1.6);
+        cairo_rectangle(cr, x + (9 - k) * sw, y - fs * 0.95, sw, fs * 1.2);
+        cairo_fill(cr);
+    }
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    cairo_set_font_size(cr, fs * 0.72);
+    cairo_move_to(cr, x + fs * 0.15, y - fs * 0.1);
+    cairo_show_text(cr, hi);
+    cairo_text_extents(cr, mid, &te);
+    cairo_move_to(cr, x + 5 * sw - te.x_advance / 2, y - fs * 0.1);
+    cairo_show_text(cr, mid);
+    cairo_text_extents(cr, lo, &te);
+    cairo_move_to(cr, x + 10 * sw - te.x_advance - fs * 0.15, y - fs * 0.1);
+    cairo_show_text(cr, lo);
+    cairo_restore(cr);
 }
 
 /* Home circumstances for an eclipse, cached */
@@ -548,19 +764,21 @@ static void home_build(const pic_ecl_solar_t *e)
 static void render_solar(cairo_t *cr, int width, int height, const ecl_show_t *w)
 {
     const pic_ecl_solar_t *e = w->s;
-    double cell = height / 150.0, t = w->t, lx, ly, fs = height / 72.0;
-    int gw, gh, i, j;
-    float *g;
+    double t = w->t, fs = height / 72.0;
     char txt[200], a[16], b[16], c[16];
-    static const double levels[] = { 0.25, 0.5, 0.75, 0.9 };
     pic_ecl_local_t ho;
+    const char *pname = e->type == 'T' ? "Path of totality" : e->type == 'A' ? "Path of annularity"
+                      : "Central path";
 
     path_build(e);
     home_build(e);
 
+    /* the eclipse map: where it is seen and how much, and the path */
+    draw_footprint(cr, e, width, height);
+    draw_path(cr, width, height, pname);
+
     if (w->preview) {
         double left = (double)e->p1 - (double)time(NULL);
-        draw_path(cr, width, height);
         hm(a, sizeof(a), (double)e->tmax);
         snprintf(txt, sizeof(txt), "%s begins in %dh %02dm \xc2\xb7 greatest at %s",
                  solar_name(e->type), (int)(left / 3600), (int)fmod(left / 60, 60), a);
@@ -569,128 +787,55 @@ static void render_solar(cairo_t *cr, int width, int height, const ecl_show_t *w
         return;
     }
 
-    /* the path (chart style), then the shadow over it */
-    if (eclipse_style() != 0) draw_path(cr, width, height);
-
-    if (eclipse_style() == 0) {
-        draw_realistic(cr, e, t, width, height);
-        g = NULL;
-    } else
-        g = solar_grid(e, t, width, height, 0, 0, width, height, cell, &gw, &gh);
-    if (g) {
-        cairo_surface_t *img = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, gw, gh);
-        unsigned char *px = cairo_image_surface_get_data(img);
-        int stride = cairo_image_surface_get_stride(img);
-        cairo_pattern_t *pat;
-        cairo_matrix_t m;
-        cairo_surface_flush(img);
-        for (j = 0; j < gh; j++) {
-            unsigned int *row = (unsigned int *)(void *)(px + j * stride);
-            for (i = 0; i < gw; i++) {
-                double o = g[j * gw + i] > 0 ? g[j * gw + i] : 0;
-                unsigned int al = (unsigned int)(255.0 * 0.8 * pow(o, 0.75) + 0.5);
-                row[i] = al << 24 | (unsigned int)(al * 0.02) << 16 |
-                         (unsigned int)(al * 0.02) << 8 | (unsigned int)(al * 0.08);
-            }
-        }
-        cairo_surface_mark_dirty(img);
-        pat = cairo_pattern_create_for_surface(img);
-        cairo_pattern_set_filter(pat, CAIRO_FILTER_BILINEAR);
-        cairo_matrix_init_scale(&m, 1.0 / cell, 1.0 / cell);
-        cairo_pattern_set_matrix(pat, &m);
-        cairo_set_source(cr, pat);
-        cairo_paint(cr);
-        cairo_pattern_destroy(pat);
-        cairo_surface_destroy(img);
-
-        /* penumbra edge */
-        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
-        cairo_new_path(cr);
-        contour(cr, g, gw, gh, cell, 0, 0, 0.002, 1, &lx, &ly);
-        cairo_set_source_rgba(cr, 1.0, 0.7, 0.3, 0.75);
-        cairo_set_line_width(cr, fs * 0.13);
-        cairo_stroke(cr);
-        /* obscuration contours with their labels */
-        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-        cairo_set_font_size(cr, fs * 0.8);
-        for (i = 0; i < 4; i++) {
-            cairo_new_path(cr);
-            contour(cr, g, gw, gh, cell, 0, 0, levels[i], 1, &lx, &ly);
-            cairo_set_source_rgba(cr, 1.0, 0.85, 0.6, 0.55);
-            cairo_set_line_width(cr, fs * 0.08);
-            cairo_stroke(cr);
-            if (lx >= fs * 2 && ly >= fs * 2 && lx < width - fs * 3 && ly < height - fs * 2) {
-                snprintf(txt, sizeof(txt), "%d%%", (int)(levels[i] * 100 + 0.5));
-                pic_draw_text_pill(cr, lx, ly, txt, 1.0, 0.85, 0.6, 0.55);
-            }
-        }
-        free(g);
-    }
-
-    /* the umbra / antumbra now */
+    /* the shadow now, as seen from orbit */
+    draw_realistic(cr, e, t, width, height);
     {
         double clat, clon, la[RAYS], lo[RAYS];
         if (pic_ecl_solar_centre(e, t, &clat, &clon) &&
             umbra_outline(e, t, clat, clon, la, lo)) {
             pic_ecl_local_t o;
-            int dur, total;
-            double cx = pic_lon_to_x(clon, width), cy = pic_lat_to_y(clat, height);
+            int k;
+            double base;
             pic_ecl_solar_local(e, t, clat, clon, &o);
-            total = o.central == 1;
-            if (eclipse_style() != 0) {
+            /* the umbra: a black core with a feathered edge; the antumbra
+             * stays grey (a ring of Sun still shines there) */
+            base = o.central == 1 ? 0.9 : 0.45;
+            cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+            for (k = 4; k >= 1; k--) {
                 poly_path(cr, la, lo, RAYS, width, height);
-                cairo_set_source_rgba(cr, 0.0, 0.0, 0.02, 0.92);
-                cairo_fill_preserve(cr);
-                cairo_set_source_rgba(cr, 1.0, total ? 0.35 : 0.75, total ? 0.25 : 0.2, 0.95);
-                cairo_set_line_width(cr, fs * 0.16);
+                cairo_set_source_rgba(cr, 0.0, 0.0, 0.02, base * 0.18);
+                cairo_set_line_width(cr, fs * 0.35 * k);
                 cairo_stroke(cr);
-            } else {
-                /* the umbra: a black core with a feathered edge (it is
-                 * only a few pixels across at world scale); the antumbra
-                 * stays grey, a ring of Sun still shines there */
-                int k;
-                double base = total ? 0.9 : 0.45;
-                cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
-                for (k = 4; k >= 1; k--) {
-                    poly_path(cr, la, lo, RAYS, width, height);
-                    cairo_set_source_rgba(cr, 0.0, 0.0, 0.02, base * 0.18);
-                    cairo_set_line_width(cr, fs * 0.35 * k);
-                    cairo_stroke(cr);
-                }
-                poly_path(cr, la, lo, RAYS, width, height);
-                cairo_set_source_rgba(cr, 0.0, 0.0, 0.02, base);
-                cairo_fill(cr);
             }
-            dur = central_duration(e, t, clat, clon);
-            snprintf(txt, sizeof(txt), "%s %dm %02ds", total ? "TOTALITY" : "ANNULARITY",
-                     dur / 60, dur % 60);
-            pic_draw_text_pill(cr, cx + fs * 0.9, cy + fs * 1.5, txt, 1.0, total ? 0.5 : 0.8, 0.35,
-                               eclipse_style() != 0 ? 0.75 : 0.45);
+            poly_path(cr, la, lo, RAYS, width, height);
+            cairo_set_source_rgba(cr, 0.0, 0.0, 0.02, base);
+            cairo_fill(cr);
         }
     }
 
-    /* from home */
-    pic_ecl_solar_local(e, t, pic_config.qth_lat, pic_config.qth_lon, &ho);
-    if (ho.obscuration > 0) {
-        double hx = pic_lon_to_x(pic_config.qth_lon, width), hy = pic_lat_to_y(pic_config.qth_lat, height);
-        double R = height / 32.0, ix = hx + R * 3.0, iy = hy + R * 2.6;
-        if (ix + R * 2 > width) ix = hx - R * 3.0;
-        if (iy + R * 2.6 > height) iy = hy - R * 2.6;
-        snprintf(txt, sizeof(txt), ho.central == 1 ? "TOTAL" : ho.central == 2 ? "RING" : "%d%% covered",
-                 (int)(ho.obscuration * 100 + 0.5));
-        sun_inset(cr, ix, iy, R, &ho, txt);
-    }
-
     /* legend */
+    pic_ecl_solar_local(e, t, pic_config.qth_lat, pic_config.qth_lon, &ho);
     hm(a, sizeof(a), (double)e->tmax);
-    if (w->replay) {
-        hm(c, sizeof(c), t);
-        snprintf(txt, sizeof(txt), "REPLAY %.0f\xc3\x97 \xc2\xb7 %s of %s \xc2\xb7 shown: %s",
-                 REPLAY_SPEED, solar_name(e->type), e->date, c);
-    } else
-        snprintf(txt, sizeof(txt), "%s \xc2\xb7 greatest at %s \xc2\xb7 the Moon's shadow, darker where more of the Sun is covered",
-                 solar_name(e->type), a);
+    {
+        char ge[80] = "";
+        if (path.ge_ok && path.ge_dur > 0)
+            snprintf(ge, sizeof(ge), " over %.0f\xc2\xb0%c %.0f\xc2\xb0%c (%s %dm %02ds)",
+                     fabs(path.ge_lat), path.ge_lat >= 0 ? 'N' : 'S',
+                     fabs(path.ge_lon), path.ge_lon >= 0 ? 'E' : 'W',
+                     e->type == 'A' ? "annular" : "total", path.ge_dur / 60, path.ge_dur % 60);
+        if (w->replay) {
+            hm(c, sizeof(c), t);
+            snprintf(txt, sizeof(txt), "REPLAY %.0f\xc3\x97 \xc2\xb7 %s of %s \xc2\xb7 greatest%s \xc2\xb7 shown: %s",
+                     REPLAY_SPEED, solar_name(e->type), e->date, ge, c);
+        } else
+            snprintf(txt, sizeof(txt), "%s \xc2\xb7 greatest at %s%s",
+                     solar_name(e->type), a, ge);
+    }
     set_legend(0, txt);
+    pthread_mutex_lock(&mu);
+    snprintf(key_name, sizeof(key_name), "%s", e->type == 'T' ? "Total" : e->type == 'A' ? "Annular"
+             : e->type == 'H' ? "Total/annular" : "");
+    pthread_mutex_unlock(&mu);
     if (home.max_o <= 0)
         snprintf(txt, sizeof(txt), "Not visible from home");
     else {
@@ -937,12 +1082,14 @@ static void eclipse_render(cairo_t *cr, int width, int height, time_t now, void 
 
 static void eclipse_legend(cairo_t *cr, int width, int height, time_t now, void *ud)
 {
-    char a[200], b[200];
+    char a[200], b[200], k[32];
     (void)now; (void)ud;
     pthread_mutex_lock(&mu);
     memcpy(a, legend_txt[0], sizeof(a));
     memcpy(b, legend_txt[1], sizeof(b));
+    memcpy(k, key_name, sizeof(k));
     pthread_mutex_unlock(&mu);
+    if (a[0] && legend_rgb[1] == 0.8) draw_band_key(cr, width, height, k[0] ? k : "Partial");
     if (b[0]) pic_draw_legend_line(cr, width, height, 0, b, 1.0, 0.9, 0.75);
     if (a[0]) pic_draw_legend_line(cr, width, height, 0, a, legend_rgb[0], legend_rgb[1], legend_rgb[2]);
 }

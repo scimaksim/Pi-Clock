@@ -61,7 +61,9 @@ func patternSetting(def string, re *regexp.Regexp) rendererSetting {
 var (
 	noradListRe = regexp.MustCompile(`^[0-9]{1,6}(,[0-9]{1,6}){0,5}$`)
 	tideIDRe    = regexp.MustCompile(`^[A-Za-z0-9]{3,12}$`)
-	buoyListRe  = regexp.MustCompile(`^[A-Za-z0-9]{3,6}(,[A-Za-z0-9]{3,6}){0,3}$`)
+	// An eclipse for the replay picker: S (solar) or L (lunar) + its date
+	eclipsePickRe = regexp.MustCompile(`^[SL](19|20)[0-9]{2}-[01][0-9]-[0-3][0-9]$`)
+	buoyListRe    = regexp.MustCompile(`^[A-Za-z0-9]{3,6}(,[A-Za-z0-9]{3,6}){0,3}$`)
 	// Stored as "Name:lat:lon,Name:lat:lon" with "_" for spaces, so the
 	// value is inert even if an old init script sources the file as
 	// shell (see normalizeSetting). Max 10 sites, 400 characters.
@@ -200,8 +202,8 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"COAST_METRIC":    boolSetting("0"),
 	"PASS_MAP_HOURS":  intSetting("12", 1, 48),
 	"PASS_CLOUD_MAX":  intSetting("50", 0, 100),
-	"ECLIPSE_REPLAY":  intSetting("0", 0, 2),
-	"ECLIPSE_STYLE":   intSetting("0", 0, 1),
+	"ECLIPSE_REPLAY":  intSetting("0", 0, 3),
+	"ECLIPSE_PICK":    patternSetting("", eclipsePickRe),
 	"DARK_SITES":      patternSetting("", darkSitesRe),
 
 	// Home Assistant phone alerts
