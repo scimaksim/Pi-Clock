@@ -615,6 +615,7 @@ static void tile_path(char *out, size_t n, const rover_t *r, int z, int x, int y
 /* ── 5. Fetch thread ───────────────────────────────────────────── */
 
 static unsigned want_mask;        /* bit w: world w is in the cycle     */
+static pic_feature_t worlds_feature;
 static double grs_l2_set = -1;    /* JUPITER_GRS_L2 (System II), -1 = estimate */
 
 static void worlds_reload(pic_feature_t *f)
@@ -629,6 +630,7 @@ static void worlds_reload(pic_feature_t *f)
     pic_conf_str("VIEW_WORLDS", m, sizeof(m));
     for (tok = strtok_r(m, ",", &sp); tok; tok = strtok_r(NULL, ",", &sp))
         if ((k = pic_world_by_name(tok)) != 0) mask |= 1u << k;
+    if (mask & ~want_mask) pic_feature_poke(&worlds_feature);   /* fetch now */
     want_mask = mask;
     grs_l2_set = pic_conf_num("JUPITER_GRS_L2", -1);
 }
@@ -1715,9 +1717,6 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
 
     draw_key(cr, F, w, WORLDS[w].credit);
 
-    /* orbiters fly over everything on the surface, insets included */
-    draw_orbiters(cr, F, w, t, 0);
-
     if (have_sun) draw_sun_mark(cr, F, slon, slat);
     if (have_earth) {
         double x, y, r = 7 * F->s;
@@ -1768,6 +1767,9 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
             draw_inset(cr, F, r, bx[i == 0 ? 1 : 0], by, now_f);
         }
     }
+
+    /* orbiters fly over everything on the surface, insets included */
+    draw_orbiters(cr, F, w, t, 0);
 
 
     /* surface sites: live rovers first, then by list order */
