@@ -195,7 +195,7 @@ static const site_t SITES[] = {
 
 /* ── 3. Bodies with Horizons ephemerides ───────────────────────── */
 
-enum { B_SUNREF, B_ORBITER, B_MOON };
+enum { B_SUNREF, B_ORBITER, B_MOON, B_AUX };
 
 typedef struct {
     int world;
@@ -233,6 +233,10 @@ static body_t BODIES[] = {
     { PIC_WORLD_JUPITER, "jup_ganymede", "Ganymede", "599", "503", 2, B_MOON, PIC_MOON_GANYMEDE, NULL, 2634.1, RT },
     { PIC_WORLD_JUPITER, "jup_callisto", "Callisto", "599", "504", 2, B_MOON, PIC_MOON_CALLISTO, NULL, 2410.3, RT },
     { PIC_WORLD_JUPITER, "jup_juno", "Juno", "599", "-61", 5, B_ORBITER, PIC_CRAFT_JUNO, "juno", 0, RT },
+    /* Juno's orbit 50 days ahead (to find the next close pass), and that
+     * pass at fine steps */
+    { PIC_WORLD_JUPITER, "jup_juno_orbit", "Juno orbit", "599", "-61", 120, B_AUX, 0, NULL, 0, RT },
+    { PIC_WORLD_JUPITER, "jup_juno_pj", "Juno close pass", "599", "-61", 2, B_AUX, 0, NULL, 0, RT },
 };
 #define NBODIES ((int)(sizeof(BODIES) / sizeof(BODIES[0])))
 
@@ -253,6 +257,14 @@ static body_t *body_by_key(const char *key)
 static double world_f(int w)
 {
     return (WORLDS[w].a - WORLDS[w].b) / WORLDS[w].a;
+}
+
+/* Radius of world w's ellipsoid at planetocentric latitude lat (km),
+ * for altitudes above the surface / the 1-bar level */
+static double world_radius(int w, double lat)
+{
+    double a = WORLDS[w].a, b = WORLDS[w].b, c = cos(lat * D2R), s2 = sin(lat * D2R);
+    return a * b / sqrt(b * b * c * c + a * a * s2 * s2);
 }
 
 /* Parse a Horizons reply into b (called with data_lock NOT held) */
@@ -412,6 +424,33 @@ static const char *ROVER_TILES[NROVERS] = {
 };
 
 static struct { int have; double lat, lon, total_km; int flight; } heli;
+
+/* Curiosity's latest published weather (REMS, Centro de Astrobiologia
+ * via mars.nasa.gov): newest sol first in the feed */
+#define MSL_WX_URL "https://mars.nasa.gov/rss/api/?feed=weather&category=msl&feedtype=json"
+static struct {
+    int have, sol;
+    char date[16], tmin[8], tmax[8], pres[8], sky[24];
+} wx;
+
+static int json_str(const char *p, const char *key, char *out, int n);
+
+static void wx_parse(const char *txt)
+{
+    const char *p = txt ? strstr(txt, "\"soles\"") : NULL;
+    char sol[12] = "";
+    if (!p) return;
+    pthread_mutex_lock(&data_lock);
+    json_str(p, "\"sol\"", sol, sizeof(sol));
+    json_str(p, "\"terrestrial_date\"", wx.date, sizeof(wx.date));
+    json_str(p, "\"min_temp\"", wx.tmin, sizeof(wx.tmin));
+    json_str(p, "\"max_temp\"", wx.tmax, sizeof(wx.tmax));
+    json_str(p, "\"pressure\"", wx.pres, sizeof(wx.pres));
+    json_str(p, "\"atmo_opacity\"", wx.sky, sizeof(wx.sky));
+    wx.sol = atoi(sol);
+    wx.have = wx.sol > 0 && wx.date[0];
+    pthread_mutex_unlock(&data_lock);
+}
 
 /* Find "key" (with quotes) after p and read the number after ':' */
 static int json_num(const char *p, const char *key, double *out)
@@ -616,6 +655,7 @@ static void tile_path(char *out, size_t n, const rover_t *r, int z, int x, int y
 
 static unsigned want_mask;        /* bit w: world w is in the cycle     */
 static pic_feature_t worlds_feature;
+static int dust_on = 1;           /* MARS_DUST_CLIM: typical-dust haze   */
 static double grs_l2_set = -1;    /* JUPITER_GRS_L2 (System II), -1 = estimate */
 
 static void worlds_reload(pic_feature_t *f)
@@ -633,6 +673,7 @@ static void worlds_reload(pic_feature_t *f)
     if (mask & ~want_mask) pic_feature_poke(&worlds_feature);   /* fetch now */
     want_mask = mask;
     grs_l2_set = pic_conf_num("JUPITER_GRS_L2", -1);
+    dust_on = pic_conf_int("MARS_DUST_CLIM", 1) != 0;
 }
 
 static int worlds_wanted(pic_feature_t *f)
@@ -677,14 +718,15 @@ static void load_all_cache(void)
     }
     snprintf(path, sizeof(path), "%s/heli_current.json", dir_cache());
     if ((txt = slurp(path, NULL)) != NULL) { heli_parse(txt); free(txt); }
+    snprintf(path, sizeof(path), "%s/msl_weather.json", dir_cache());
+    if ((txt = slurp(path, NULL)) != NULL) { wx_parse(txt); free(txt); }
     for (i = 0; i < NROVERS; i++) rover_tiles_check(&ROVERS[i]);
 }
 
-static int fetch_body(body_t *b, time_t now)
+static int fetch_body_window(body_t *b, time_t now, time_t a, time_t z)
 {
     char url[1024], t0[32], t1[32], path[256];
     char *buf;
-    time_t a = now - HZ_BEFORE, z = now + HZ_AFTER;
     int got;
     strftime(t0, sizeof(t0), "%Y-%m-%d%%20%H:%M", gmtime(&a));
     strftime(t1, sizeof(t1), "%Y-%m-%d%%20%H:%M", gmtime(&z));
@@ -703,6 +745,36 @@ static int fetch_body(body_t *b, time_t now)
     printf("worlds: no ephemeris for %s\n", b->name);
     free(buf);
     return 0;
+}
+
+static int fetch_body(body_t *b, time_t now)
+{
+    return fetch_body_window(b, now, now - HZ_BEFORE, now + HZ_AFTER);
+}
+
+/*
+ * Juno's next close pass (perijove): the lowest range from the fine
+ * series if it covers it, else from the 2-hourly orbit series. Only
+ * passes from 3 h ago on count. Caller holds data_lock.
+ */
+static int juno_next_pj(double now, double *t_pj, pic_subpt_t *at)
+{
+    body_t *o = body_by_key("jup_juno_orbit"), *f = body_by_key("jup_juno_pj");
+    int i, best = -1;
+    if (!o || !o->obs || o->n < 3) return 0;
+    for (i = 1; i + 1 < o->n; i++)
+        if (o->obs[i].t > now - 3 * 3600 && o->obs[i].r <= o->obs[i - 1].r &&
+            o->obs[i].r <= o->obs[i + 1].r) { best = i; break; }
+    if (best < 0) return 0;
+    *t_pj = o->obs[best].t;
+    *at = o->obs[best];
+    if (f && f->obs && f->n > 2 && f->t0 < *t_pj && f->t1 > *t_pj) {
+        int k = 0;
+        for (i = 1; i < f->n; i++) if (f->obs[i].r < f->obs[k].r) k = i;
+        *t_pj = f->obs[k].t;
+        *at = f->obs[k];
+    }
+    return 1;
 }
 
 static int fetch_rover(rover_t *r, time_t now)
@@ -779,6 +851,27 @@ static int worlds_work(pic_feature_t *f)
         body_t *b = &BODIES[i];
         double t1;
         if (!(want_mask & (1u << b->world))) continue;
+        if (b->type == B_AUX) {
+            double tpj = 0, f0 = 0, f1 = 0;
+            pic_subpt_t at;
+            int have_pj;
+            if (now - b->tried < 3600) continue;
+            pthread_mutex_lock(&data_lock);
+            t1 = b->n ? b->t1 : 0;
+            have_pj = juno_next_pj((double)now, &tpj, &at);
+            f0 = b->t0; f1 = b->t1;
+            pthread_mutex_unlock(&data_lock);
+            if (strcmp(b->key, "jup_juno_orbit") == 0) {
+                if (t1 > now + 30 * 86400.0) continue;
+                fetch_body_window(b, now, now - 3600, now + 50 * 86400);
+                did = 1;
+            } else if (have_pj && (!b->n || f0 > tpj - 2 * 3600 || f1 < tpj + 2 * 3600)) {
+                time_t c = (time_t)tpj;
+                fetch_body_window(b, now, c - 3 * 3600, c + 3 * 3600);
+                did = 1;
+            }
+            continue;
+        }
         pthread_mutex_lock(&data_lock);
         t1 = b->n ? b->t1 : 0;
         pthread_mutex_unlock(&data_lock);
@@ -793,6 +886,33 @@ static int worlds_work(pic_feature_t *f)
                 fetch_rover(&ROVERS[i], now);
                 did = 1;
             }
+        if (!did) {
+            /* Curiosity's weather: the feed is ~1.7 MB (every sol since
+             * landing), newest first; keep only its head */
+            static time_t wx_at;
+            if (now - wx_at > 6 * 3600) {
+                char path[256], tmp[300];
+                wx_at = now;
+                snprintf(path, sizeof(path), "%s/msl_weather.json", dir_cache());
+                snprintf(tmp, sizeof(tmp), "%s.dl", path);
+                if (pic_fetch_to_file(MSL_WX_URL, tmp, 90) == 0) {
+                    FILE *f = fopen(tmp, "rb");
+                    char *head = malloc(32768);
+                    size_t n = (f && head) ? fread(head, 1, 32767, f) : 0;
+                    if (f) fclose(f);
+                    if (head && n > 0) {
+                        head[n] = 0;
+                        if (strstr(head, "\"soles\"")) {
+                            wx_parse(head);
+                            write_file(path, head, n);
+                        }
+                    }
+                    free(head);
+                }
+                unlink(tmp);
+                did = 1;
+            }
+        }
         if (!did) {
             static time_t heli_at;
             if (now - heli_at > 86400) {
@@ -1023,6 +1143,87 @@ static void draw_callout(cairo_t *cr, frame_t *F, double px, double py,
     }
 }
 
+/* ── Mars dust climatology ──────────────────────────────────────
+ * Typical column dust for the season: the Mars Climate Database
+ * daily dust scenarios (Montabone et al. 2015, 2020) averaged over
+ * MY 29-33, 35, 36 (years without a global storm), 5-degree Ls bins,
+ * 3x3 degree grid, visible optical depth x 50 as bytes. Not live. */
+static unsigned char *dust;
+static int dust_nb, dust_w, dust_h, dust_tried;
+
+static int dust_load(void)
+{
+    char path[256], *buf;
+    size_t n;
+    if (dust || dust_tried) return dust != NULL;
+    dust_tried = 1;
+    snprintf(path, sizeof(path), "%s/mars_dust_clim.bin", dir_worlds());
+    buf = slurp(path, &n);
+    if (buf && n > 10 && memcmp(buf, "MDST", 4) == 0) {
+        unsigned char *u = (unsigned char *)buf;
+        dust_nb = u[4] | u[5] << 8;
+        dust_w = u[6] | u[7] << 8;
+        dust_h = u[8] | u[9] << 8;
+        if (n == 10 + (size_t)dust_nb * dust_w * dust_h) {
+            dust = malloc(n - 10);
+            if (dust) memcpy(dust, buf + 10, n - 10);
+        }
+    }
+    free(buf);
+    return dust != NULL;
+}
+
+/* Typical visible optical depth at (lon, lat) for Ls; also the mean */
+static double dust_tau(int x, int y, double ls)
+{
+    double fb = ls / (360.0 / dust_nb) - 0.5, f;
+    int b0 = (int)floor(fb), b1;
+    f = fb - b0;
+    b0 = (b0 % dust_nb + dust_nb) % dust_nb;
+    b1 = (b0 + 1) % dust_nb;
+    return ((1 - f) * dust[((size_t)b0 * dust_h + y) * dust_w + x] +
+            f * dust[((size_t)b1 * dust_h + y) * dust_w + x]) / 50.0;
+}
+
+static double draw_dust(cairo_t *cr, frame_t *F, double ls)
+{
+    cairo_surface_t *g;
+    unsigned char *px;
+    int x, y, st;
+    double sum = 0;
+    if (!dust_load()) return -1;
+    g = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, dust_w, dust_h);
+    if (cairo_surface_status(g)) { cairo_surface_destroy(g); return -1; }
+    px = cairo_image_surface_get_data(g);
+    st = cairo_image_surface_get_stride(g);
+    for (y = 0; y < dust_h; y++)
+        for (x = 0; x < dust_w; x++) {
+            double tau = dust_tau(x, y, ls), a;
+            unsigned char *p = px + y * st + x * 4;
+            sum += tau;
+            /* a haze that starts to show above the clear-season floor */
+            a = 0.62 * (1.0 - exp(-fmax(0, tau - 0.2) * 1.4)) * 255.0;
+            p[3] = (unsigned char)a;
+            p[2] = (unsigned char)(a * 0.86);    /* tan: 0.86 0.66 0.46 */
+            p[1] = (unsigned char)(a * 0.66);
+            p[0] = (unsigned char)(a * 0.46);
+        }
+    cairo_surface_mark_dirty(g);
+    cairo_save(cr);
+    cairo_rectangle(cr, F->mx, F->my, F->mw, F->mh);
+    cairo_clip(cr);
+    /* grid cells are centred on 1.5 deg + 3k (lat) and -180 + 3k (lon) */
+    cairo_translate(cr, F->mx - F->mw / dust_w / 2, F->my);
+    cairo_scale(cr, F->mw / dust_w, F->mh / dust_h);
+    cairo_set_source_surface(cr, g, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BILINEAR);
+    cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_PAD);
+    cairo_paint(cr);
+    cairo_restore(cr);
+    cairo_surface_destroy(g);
+    return sum / (dust_w * dust_h);
+}
+
 /* ── 7. The map, day and night ─────────────────────────────────── */
 
 static cairo_surface_t *map_surf;
@@ -1114,16 +1315,16 @@ static void draw_night(cairo_t *cr, frame_t *F, int w, double slon, double slat,
             el = asin(clampd(N[0] * S[0] + N[1] * S[1] + N[2] * S[2], -1, 1)) / D2R;
             if (w == PIC_WORLD_MOON) {
                 double ce = N[0] * E[0] + N[1] * E[1] + N[2] * E[2];
-                lit = clampd((el + 0.3) / 1.2, 0, 1);
-                nb = 0.14 + 0.30 * earth_phase * (ce > 0 ? ce : 0);
+                lit = clampd((el + 0.3) / 0.8, 0, 1);
+                nb = 0.40 + 0.20 * earth_phase * (ce > 0 ? ce : 0);
             } else if (w == PIC_WORLD_MARS) {
-                lit = clampd((el + 7.0) / 10.0, 0, 1);
+                lit = clampd((el + 4.0) / 6.0, 0, 1);
                 lit = lit * lit * (3 - 2 * lit);
-                nb = 0.16;
+                nb = 0.45;
             } else {
-                lit = clampd((el + 3.0) / 6.0, 0, 1);
+                lit = clampd((el + 1.5) / 3.0, 0, 1);
                 lit = lit * lit * (3 - 2 * lit);
-                nb = 0.16;
+                nb = 0.45;
             }
             dark = (1.0 - lit) * (1.0 - nb);
             a = dark * 255.0;
@@ -1261,7 +1462,7 @@ static void draw_orbiters(cairo_t *cr, frame_t *F, int w, double t, int tracks)
         if (w == PIC_WORLD_JUPITER) { before = 5 * 3600; after = 5 * 3600; }
         if (tracks) { draw_track(cr, F, b, t, before, after); continue; }
         map_xy(F, p.lon, p.lat, &x, &y);
-        fmt_alt(alt, sizeof(alt), p.r - WORLDS[w].mean);
+        fmt_alt(alt, sizeof(alt), p.r - world_radius(w, p.lat));
         snprintf(l1, sizeof(l1), "%s", b->name);
         {
             double fs = 11.5 * F->s, tw, tw2;
@@ -1277,6 +1478,59 @@ static void draw_orbiters(cairo_t *cr, frame_t *F, int w, double t, int tracks)
             box_add(F, x - isz / 2, y - isz / 2, x + isz * 0.6 + fmax(tw, tw2) + 2, y + isz / 2);
         }
     }
+}
+
+/* Juno's next close pass: the ground track either side of it, and the
+ * point of closest approach with its time and height. Caller holds
+ * data_lock. */
+static void draw_pj(cairo_t *cr, frame_t *F, double tpj, const pic_subpt_t *at)
+{
+    body_t *f = body_by_key("jup_juno_pj");
+    static const double dot[] = { 2, 4 };
+    double d2[2] = { dot[0] * F->s, dot[1] * F->s }, tt, lastx = 0, x, y;
+    int have = 0;
+    char l1[64], l2[64], h[32];
+    time_t tp = (time_t)tpj;
+    if (f && f->obs && f->t0 <= tpj - 5400 && f->t1 >= tpj + 5400) {
+        cairo_new_path(cr);
+        for (tt = tpj - 5400; tt <= tpj + 5400; tt += 60) {
+            pic_subpt_t p;
+            if (!series_at(f->obs, f->n, tt, &p)) { have = 0; continue; }
+            map_xy(F, p.lon, p.lat, &x, &y);
+            if (have && fabs(x - lastx) < F->mw / 2) cairo_line_to(cr, x, y);
+            else cairo_move_to(cr, x, y);
+            have = 1;
+            lastx = x;
+        }
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_set_dash(cr, d2, 2, 0);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0.5);
+        cairo_set_line_width(cr, 3.6 * F->s);
+        cairo_stroke_preserve(cr);
+        cairo_set_source_rgba(cr, 1.0, 0.65, 0.25, 1);
+        cairo_set_line_width(cr, 2.2 * F->s);
+        cairo_stroke(cr);
+        cairo_set_dash(cr, NULL, 0, 0);
+    }
+    map_xy(F, at->lon, at->lat, &x, &y);
+    cairo_new_path(cr);
+    cairo_arc(cr, x, y, 4.5 * F->s, 0, 2 * M_PI);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.6);
+    cairo_fill(cr);
+    cairo_arc(cr, x, y, 3.2 * F->s, 0, 2 * M_PI);
+    cairo_set_source_rgb(cr, 1.0, 0.65, 0.25);
+    cairo_fill(cr);
+    strftime(h, sizeof(h), "%d %b %H:%M UTC", gmtime(&tp));
+    snprintf(l1, sizeof(l1), "Juno closest %s (predicted)", h);
+    fmt_alt(h, sizeof(h), at->r - world_radius(PIC_WORLD_JUPITER, at->lat));
+    snprintf(l2, sizeof(l2), "%s above the cloud tops", h);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 11 * F->s);
+    text_outline(cr, x + 8 * F->s, y - 2 * F->s, l1, 1.0, 0.75, 0.4, 1);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, 9.5 * F->s);
+    text_outline(cr, x + 8 * F->s, y + 10 * F->s, l2, 0.9, 0.9, 0.9, 0.95);
+    box_add(F, x - 6, y - 14 * F->s, x + 170 * F->s, y + 14 * F->s);
 }
 
 /* Moons over Mars / Jupiter: the moon where it is overhead, and its
@@ -1304,10 +1558,26 @@ static void draw_moons(cairo_t *cr, frame_t *F, int w, double t, double slon, do
             cairo_pattern_add_color_stop_rgba(g, 0, 0, 0, 0, 0.92);
             cairo_pattern_add_color_stop_rgba(g, 0.6, 0, 0, 0, 0.85);
             cairo_pattern_add_color_stop_rgba(g, 1, 0, 0, 0, 0);
-            cairo_save(cr);
-            cairo_translate(cr, sx, sy);
-            cairo_scale(cr, 1.0 / fmax(cos(olat * D2R), 0.2), 1);
-            cairo_translate(cr, -sx, -sy);
+            /* the footprint stretches along the sunlight the lower the
+             * Sun is there (shadows near the terminator are long) */
+            {
+                double N[3], Sd[3], e[3], nn[3], ci, az;
+                unitv(olon, olat, N);
+                unitv(slon, slat, Sd);
+                e[0] = -sin(olon * D2R); e[1] = cos(olon * D2R); e[2] = 0;
+                nn[0] = -sin(olat * D2R) * cos(olon * D2R);
+                nn[1] = -sin(olat * D2R) * sin(olon * D2R);
+                nn[2] = cos(olat * D2R);
+                ci = N[0] * Sd[0] + N[1] * Sd[1] + N[2] * Sd[2];
+                az = atan2(-(Sd[0] * nn[0] + Sd[1] * nn[1] + Sd[2] * nn[2]),
+                           Sd[0] * e[0] + Sd[1] * e[1] + Sd[2] * e[2]);
+                cairo_save(cr);
+                cairo_translate(cr, sx, sy);
+                cairo_scale(cr, 1.0 / fmax(cos(olat * D2R), 0.2), 1);
+                cairo_rotate(cr, az);
+                cairo_scale(cr, 1.0 / fmax(ci, 0.2), 1);
+                cairo_translate(cr, -sx, -sy);
+            }
             cairo_set_source(cr, g);
             cairo_arc(cr, sx, sy, sr * 1.4, 0, 2 * M_PI);
             cairo_fill(cr);
@@ -1326,7 +1596,7 @@ static void draw_moons(cairo_t *cr, frame_t *F, int w, double t, double slon, do
         text_outline(cr, x + rr + 4 * F->s, y - 1 * F->s, b->name, 1, 0.95, 0.85, 1);
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
         cairo_set_font_size(cr, 9.5 * F->s);
-        fmt_alt(l2, sizeof(l2), p.r - WORLDS[w].mean);
+        fmt_alt(l2, sizeof(l2), p.r - world_radius(w, p.lat));
         text_outline(cr, x + rr + 4 * F->s, y + 10 * F->s, l2, 0.9, 0.9, 0.9, 0.9);
         box_add(F, x - rr, y - rr, x + rr + 90 * F->s, y + rr + 4);
     }
@@ -1394,7 +1664,7 @@ static void scale_bar(cairo_t *cr, double x, double y, double m_per_px, double k
 static void draw_inset(cairo_t *cr, frame_t *F, rover_t *r, double bx, double by, double now_f)
 {
     double s = F->s, W = INSET_W * s, H = INSET_H * s, k = s, px, py, rx, ry;
-    double tlh = 38 * s, mpp;
+    double tlh = (wx.have ? 50 : 38) * s, mpp;
     int i;
     char t1[96], t2[128];
 
@@ -1550,6 +1820,12 @@ static void draw_inset(cairo_t *cr, frame_t *F, rover_t *r, double bx, double by
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 9.5 * s);
     text_outline(cr, bx + 56 * s, by + H + 32 * s, t2, 0.85, 0.87, 0.9, 0.95);
+    if (r == &ROVERS[0] && wx.have) {
+        char t3[160];
+        snprintf(t3, sizeof(t3), "Gale weather, sol %d (%s): %s to %s \xc2\xb0" "C \xc2\xb7 %s Pa \xc2\xb7 %s",
+                 wx.sol, wx.date, wx.tmin, wx.tmax, wx.pres, wx.sky);
+        text_outline(cr, bx + 56 * s, by + H + 45 * s, t3, 0.8, 0.85, 1.0, 0.95);
+    }
 }
 
 /* ── 10. Header, key, credits ──────────────────────────────────── */
@@ -1574,7 +1850,7 @@ static void draw_header(cairo_t *cr, frame_t *F, const char *title, const char *
     }
 }
 
-static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit)
+static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit, int dusty, int pjk)
 {
     static const struct { const char *t; int st; } rows[] = {
         { "operating", ST_ACTIVE }, { "mission ended", ST_ENDED },
@@ -1618,6 +1894,28 @@ static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit)
         text_outline(cr, cx + 42 * s, y, w == PIC_WORLD_JUPITER ?
                      "ground track, last / next 5 h" : "ground track, last / next ~45 min",
                      0.92, 0.92, 0.95, 1);
+        cx += 42 * s + text_w(cr, w == PIC_WORLD_JUPITER ? "ground track, last / next 5 h" :
+                              "ground track, last / next ~45 min") + 14 * s;
+    }
+    if (dusty) {
+        const char *t = "tan haze: typical dust for the season (climatology, not live)";
+        cairo_rectangle(cr, cx, y - 8 * s, 16 * s, 9 * s);
+        cairo_set_source_rgba(cr, 0.86, 0.66, 0.46, 0.7);
+        cairo_fill(cr);
+        text_outline(cr, cx + 22 * s, y, t, 0.92, 0.92, 0.95, 1);
+    }
+    if (pjk) {
+        static const double dot[] = { 2, 4 };
+        double d2[2] = { dot[0] * s, dot[1] * s };
+        cairo_move_to(cr, cx, y - 3.5 * s);
+        cairo_line_to(cr, cx + 20 * s, y - 3.5 * s);
+        cairo_set_dash(cr, d2, 2, 0);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_set_source_rgba(cr, 1.0, 0.65, 0.25, 1);
+        cairo_set_line_width(cr, 2.2 * s);
+        cairo_stroke(cr);
+        cairo_set_dash(cr, NULL, 0, 0);
+        text_outline(cr, cx + 26 * s, y, "Juno's next close pass (track \xc2\xb1" "90 min)", 0.92, 0.92, 0.95, 1);
     }
     cairo_set_font_size(cr, 9 * s);
     text_outline(cr, x, y + 15 * s, credit, 0.75, 0.77, 0.8, 0.9);
@@ -1638,7 +1936,9 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
 {
     frame_t *F = calloc(1, sizeof(*F));
     double t = (double)now, slon = 0, slat = 0, elon = 0, elat = 0, ephase = 0, grs_lon = 0;
-    int have_sun, have_earth = 0, i;
+    int have_sun, have_earth = 0, have_pj = 0, i;
+    double dust_mean = -1, t_pj = 0;
+    pic_subpt_t pj;
     char title[64], line[256];
     struct timespec ts;
     double now_f;
@@ -1685,6 +1985,7 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
     }
 
     draw_map(cr, F, w, now, &grs_lon);
+    if (w == PIC_WORLD_MARS && dust_on) dust_mean = draw_dust(cr, F, pic_mars_ls(t));
     if (have_sun) draw_night(cr, F, w, slon, slat, elon, elat, have_earth ? ephase : 0);
     draw_grid(cr, F, w);
 
@@ -1701,21 +2002,41 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
         else snprintf(line, sizeof(line), "waiting for JPL Horizons data");
     } else if (w == PIC_WORLD_MARS) {
         double ls = pic_mars_ls(t), mtc = pic_mars_mtc(t);
-        snprintf(line, sizeof(line), "Ls %.0f\xc2\xb0 (%s) \xc2\xb7 Mars Sol Date %.0f \xc2\xb7 "
-                 "Coordinated Mars Time %02d:%02d \xc2\xb7 Sun overhead at %.1f\xc2\xb0%c %.1f\xc2\xb0%c",
-                 ls, mars_season(ls), floor(pic_mars_msd(t)), (int)mtc, (int)(fmod(mtc, 1) * 60),
+        /* Large dust storms come mostly in southern spring and summer */
+        snprintf(line, sizeof(line), "Ls %.0f\xc2\xb0, %s \xc2\xb7 %s \xc2\xb7 "
+                 "Mars time (MTC) %02d:%02d \xc2\xb7 Sun overhead at %.1f\xc2\xb0%c %.1f\xc2\xb0%c",
+                 ls, mars_season(ls),
+                 ls >= 180 ? "dust-storm season (Ls 180\xe2\x80\x93" "360\xc2\xb0)" :
+                             "quiet dust season (storms mostly Ls 180\xe2\x80\x93" "360\xc2\xb0)",
+                 (int)mtc, (int)(fmod(mtc, 1) * 60),
                  fabs(slat), slat < 0 ? 'S' : 'N', fabs(slon), slon < 0 ? 'W' : 'E');
     } else {
         int est;
         double l2 = grs_l2(now, &est);
-        snprintf(line, sizeof(line), "Great Red Spot at System II %.0f\xc2\xb0%s, System III %.0f\xc2\xb0W "
-                 "\xc2\xb7 bands from Cassini, Dec 2000 \xc2\xb7 Sun overhead at %.1f\xc2\xb0%c %.1f\xc2\xb0W",
-                 l2, est ? " (estimate)" : "", fmod(-grs_lon + 360, 360),
-                 fabs(slat), slat < 0 ? 'S' : 'N', fmod(-slon + 360, 360));
+        char pjs[96] = "";
+        have_pj = juno_next_pj(t, &t_pj, &pj);
+        if (have_pj) {
+            time_t tp = (time_t)t_pj;
+            char when[32];
+            double dt = t_pj - t;
+            strftime(when, sizeof(when), "%d %b %H:%M UTC", gmtime(&tp));
+            if (dt > 86400)
+                snprintf(pjs, sizeof(pjs), " \xc2\xb7 Juno's next close pass in %d d %d h (%s)",
+                         (int)(dt / 86400), (int)fmod(dt / 3600, 24), when);
+            else if (dt > 0)
+                snprintf(pjs, sizeof(pjs), " \xc2\xb7 Juno's close pass in %d h %02d min (%s)",
+                         (int)(dt / 3600), (int)fmod(dt / 60, 60), when);
+            else
+                snprintf(pjs, sizeof(pjs), " \xc2\xb7 Juno's close pass %d min ago", (int)(-dt / 60));
+        }
+        snprintf(line, sizeof(line), "Great Red Spot at System II %.0f\xc2\xb0%s (III %.0f\xc2\xb0W)%s "
+                 "\xc2\xb7 Sun overhead at %.1f\xc2\xb0%c %.1f\xc2\xb0%c",
+                 l2, est ? " est." : "", fmod(-grs_lon + 360, 360), pjs,
+                 fabs(slat), slat < 0 ? 'S' : 'N', fabs(slon), slon < 0 ? 'W' : 'E');
     }
     draw_header(cr, F, title, line);
 
-    draw_key(cr, F, w, WORLDS[w].credit);
+    draw_key(cr, F, w, WORLDS[w].credit, dust_mean >= 0, have_pj);
 
     if (have_sun) draw_sun_mark(cr, F, slon, slat);
     if (have_earth) {
@@ -1750,11 +2071,12 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
     /* moons and orbiters (they move: placed first, callouts avoid them) */
     draw_moons(cr, F, w, t, slon, slat, have_sun);
     draw_orbiters(cr, F, w, t, 1);
+    if (have_pj) draw_pj(cr, F, t_pj, &pj);
 
     /* Mars rover insets: over the orbit tracks, under the callouts
      * (which keep clear of them) */
     if (w == PIC_WORLD_MARS) {
-        double s = F->s, by = F->my + F->mh - (INSET_H + 38 + 12) * s;
+        double s = F->s, by = F->my + F->mh - (INSET_H + 50 + 12) * s;
         double bx[2];
         if (&pic_ticker_bar_top && pic_ticker_bar_top > 0 && pic_ticker_bar_top < F->my + F->mh)
             by -= F->my + F->mh - pic_ticker_bar_top;

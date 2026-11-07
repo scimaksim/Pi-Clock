@@ -184,6 +184,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"VIEW_WORLDS":     patternSetting("", worldsRe),
 	"VIEW_WORLD_MIN":  intSetting("2", 1, 30),
 	"JUPITER_GRS_L2":  intSetting("-1", -1, 359),
+	"MARS_DUST_CLIM":  boolSetting("1"),
 	"LOCAL_ZOOM":      enumSetting("8", "4", "6", "8", "12", "16", "20", "24"),
 	"VIEW_GLOBAL_MIN": intSetting("5", 1, 240),
 	"VIEW_SMART":      boolSetting("1"),

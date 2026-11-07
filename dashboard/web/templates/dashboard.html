@@ -158,6 +158,9 @@
                 <input type="number" id="jupiter_grs" class="form-control" min="-1" max="359" step="1" data-conf="JUPITER_GRS_L2" onchange="saveRendererSettings('view-card', 'Map view')">
                 <p class="text-muted">-1 = estimate it (91&deg; on 1 June 2026, drifting about 1.75&deg; a month). For the current value see Sky &amp; Telescope's GRS transit page or JUPOS.</p>
             </div>
+            <div class="check-row">
+                <label class="checkbox-label"><input type="checkbox" data-conf="MARS_DUST_CLIM" onchange="saveRendererSettings('view-card', 'Map view')"> Mars: tan haze showing the typical dust for the season (Mars Climate Database average of 7 years &mdash; not live; no live Mars dust maps are published)</label>
+            </div>
             <div class="form-group">
                 <label for="local_zoom">Local View Size</label>
                 <select id="local_zoom" class="form-control" data-conf="LOCAL_ZOOM" onchange="saveRendererSettings('view-card', 'Map view')">
