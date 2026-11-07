@@ -201,6 +201,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"PASS_MAP_HOURS":  intSetting("12", 1, 48),
 	"PASS_CLOUD_MAX":  intSetting("50", 0, 100),
 	"ECLIPSE_REPLAY":  intSetting("0", 0, 2),
+	"ECLIPSE_STYLE":   intSetting("0", 0, 1),
 	"DARK_SITES":      patternSetting("", darkSitesRe),
 
 	// Home Assistant phone alerts

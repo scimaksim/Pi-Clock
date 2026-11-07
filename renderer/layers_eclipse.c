@@ -1,12 +1,14 @@
 /*
  * layers_eclipse.c - Solar and lunar eclipses, live
  *
- * Solar eclipse under way: the Moon's shadow on the map, shaded by how
- * much of the Sun is covered there, with 25/50/75/90% contours and the
- * edge of the penumbra; the umbra (totality) or antumbra (annularity)
- * as a black spot with its duration at the centre line; the whole
- * central path as a faint band; and, when the eclipse reaches home, an
- * inset of the Sun as seen from home with the Moon across it.
+ * Solar eclipse under way: the Moon's shadow travelling across the map.
+ * ECLIPSE_STYLE 0 (default) draws it as astronauts see it: daylight
+ * barely dimmed in the outer penumbra, deepening into a dark smudge
+ * around the black umbra. ECLIPSE_STYLE 1 is a chart: shading by how
+ * much of the Sun is covered with 25/50/75/90% contours, the penumbra
+ * edge, the umbra outlined and the whole central path as a band. Both
+ * label the umbra (TOTALITY/ANNULARITY and its duration) and, when the
+ * eclipse reaches home, show the Sun as seen from home.
  *
  * Lunar eclipse under way: the part of the Earth where the Moon is up
  * (where the eclipse can be seen) tinted, the eclipsed Moon over the
@@ -203,21 +205,22 @@ static void contour(cairo_t *cr, const float *g, int gw, int gh, double cell,
 /* Grid of obscuration over the screen (-1 where the Sun is down);
  * returns a malloc'd array */
 static float *solar_grid(const pic_ecl_solar_t *e, double t, int width, int height,
+                         double ox, double oy, double rw, double rh,
                          double cell, int *pgw, int *pgh)
 {
     pic_ecl_state_t s;
-    int gw = (int)(width / cell) + 2, gh = (int)(height / cell) + 2, i, j;
+    int gw = (int)(rw / cell) + 2, gh = (int)(rh / cell) + 2, i, j;
     float *g = malloc(sizeof(float) * (size_t)gw * (size_t)gh);
     double *sh = malloc(sizeof(double) * (size_t)gw * 2), *ch = sh + gw;
     if (!g || !sh) { free(g); free(sh); return NULL; }
     pic_ecl_solar_prep(e, t, &s);
     for (i = 0; i < gw; i++) {
-        double H = (s.mu + pic_x_to_lon(i * cell, width)) * D2R;
+        double H = (s.mu + pic_x_to_lon(ox + i * cell, width)) * D2R;
         sh[i] = sin(H);
         ch[i] = cos(H);
     }
     for (j = 0; j < gh; j++) {
-        double lat = pic_y_to_lat(j * cell, height), rs, rc;
+        double lat = pic_y_to_lat(oy + j * cell, height), rs, rc;
         if (lat > 90) lat = 90;
         if (lat < -90) lat = -90;
         pic_ecl_geocentric(lat, &rs, &rc);
@@ -435,6 +438,86 @@ static void sun_inset(cairo_t *cr, double cx, double cy, double R, const pic_ecl
     cairo_restore(cr);
 }
 
+/* ECLIPSE_STYLE: 0 realistic (the shadow as seen from orbit), 1 chart */
+static int eclipse_style(void)
+{
+    static int style;
+    static time_t read_at;
+    time_t now = time(NULL);
+    if (!read_at || now - read_at >= 15) {
+        read_at = now;
+        style = pic_conf_int("ECLIPSE_STYLE", 0);
+    }
+    return style;
+}
+
+/*
+ * The shadow as astronauts see it: daylight dimmed by exactly the share
+ * of the Sun that is covered, a smooth gradient deepening to the black
+ * umbra, no lines. A coarse pass finds the shadow's footprint; a fine
+ * pass (about 3 px cells, coarser if the footprint is huge) shades it.
+ */
+static void draw_realistic(cairo_t *cr, const pic_ecl_solar_t *e, double t,
+                           int width, int height)
+{
+    double cc = height / 90.0, cell, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, area;
+    int gw, gh, i, j;
+    float *g = solar_grid(e, t, width, height, 0, 0, width, height, cc, &gw, &gh);
+    cairo_surface_t *img;
+    unsigned char *px;
+    int stride;
+    cairo_pattern_t *pat;
+    cairo_matrix_t m;
+
+    if (!g) return;
+    for (j = 0; j < gh; j++)
+        for (i = 0; i < gw; i++)
+            if (g[j * gw + i] > 0) {
+                if (i * cc < x0) x0 = i * cc;
+                if (i * cc > x1) x1 = i * cc;
+                if (j * cc < y0) y0 = j * cc;
+                if (j * cc > y1) y1 = j * cc;
+            }
+    free(g);
+    if (x1 < x0) return;
+    x0 = fmax(0, x0 - 2 * cc); y0 = fmax(0, y0 - 2 * cc);
+    x1 = fmin(width, x1 + 2 * cc); y1 = fmin(height, y1 + 2 * cc);
+    area = (x1 - x0) * (y1 - y0);
+    cell = fmax(height / 360.0, sqrt(area / 60000.0));
+
+    g = solar_grid(e, t, width, height, x0, y0, x1 - x0, y1 - y0, cell, &gw, &gh);
+    if (!g) return;
+    img = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, gw, gh);
+    px = cairo_image_surface_get_data(img);
+    stride = cairo_image_surface_get_stride(img);
+    cairo_surface_flush(img);
+    for (j = 0; j < gh; j++) {
+        unsigned int *row = (unsigned int *)(void *)(px + j * stride);
+        for (i = 0; i < gw; i++) {
+            double o = g[j * gw + i] > 0 ? g[j * gw + i] : 0;
+            /* As seen from orbit: the outer penumbra barely dims the
+             * ground (the eye hardly notices half the Sun gone), the
+             * last 10-20% deepens fast into the umbra's dark smudge */
+            double a = 0.22 * o + 0.75 * o * o * o * o;
+            if (a > 0.96) a = 0.96;
+            unsigned int al = (unsigned int)(255.0 * a + 0.5);
+            row[i] = al << 24 | (unsigned int)(al * 0.01) << 16 |
+                     (unsigned int)(al * 0.015) << 8 | (unsigned int)(al * 0.04);
+        }
+    }
+    cairo_surface_mark_dirty(img);
+    pat = cairo_pattern_create_for_surface(img);
+    cairo_pattern_set_filter(pat, CAIRO_FILTER_BILINEAR);
+    cairo_matrix_init_scale(&m, 1.0 / cell, 1.0 / cell);
+    cairo_matrix_translate(&m, -x0, -y0);
+    cairo_pattern_set_matrix(pat, &m);
+    cairo_set_source(cr, pat);
+    cairo_paint(cr);
+    cairo_pattern_destroy(pat);
+    cairo_surface_destroy(img);
+    free(g);
+}
+
 /* Home circumstances for an eclipse, cached */
 typedef struct {
     const pic_ecl_solar_t *e;
@@ -486,10 +569,14 @@ static void render_solar(cairo_t *cr, int width, int height, const ecl_show_t *w
         return;
     }
 
-    /* the path, then the shadow over it */
-    draw_path(cr, width, height);
+    /* the path (chart style), then the shadow over it */
+    if (eclipse_style() != 0) draw_path(cr, width, height);
 
-    g = solar_grid(e, t, width, height, cell, &gw, &gh);
+    if (eclipse_style() == 0) {
+        draw_realistic(cr, e, t, width, height);
+        g = NULL;
+    } else
+        g = solar_grid(e, t, width, height, 0, 0, width, height, cell, &gw, &gh);
     if (g) {
         cairo_surface_t *img = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, gw, gh);
         unsigned char *px = cairo_image_surface_get_data(img);
@@ -550,16 +637,35 @@ static void render_solar(cairo_t *cr, int width, int height, const ecl_show_t *w
             double cx = pic_lon_to_x(clon, width), cy = pic_lat_to_y(clat, height);
             pic_ecl_solar_local(e, t, clat, clon, &o);
             total = o.central == 1;
-            poly_path(cr, la, lo, RAYS, width, height);
-            cairo_set_source_rgba(cr, 0.0, 0.0, 0.02, 0.92);
-            cairo_fill_preserve(cr);
-            cairo_set_source_rgba(cr, total ? 1.0 : 1.0, total ? 0.35 : 0.75, total ? 0.25 : 0.2, 0.95);
-            cairo_set_line_width(cr, fs * 0.16);
-            cairo_stroke(cr);
+            if (eclipse_style() != 0) {
+                poly_path(cr, la, lo, RAYS, width, height);
+                cairo_set_source_rgba(cr, 0.0, 0.0, 0.02, 0.92);
+                cairo_fill_preserve(cr);
+                cairo_set_source_rgba(cr, 1.0, total ? 0.35 : 0.75, total ? 0.25 : 0.2, 0.95);
+                cairo_set_line_width(cr, fs * 0.16);
+                cairo_stroke(cr);
+            } else {
+                /* the umbra: a black core with a feathered edge (it is
+                 * only a few pixels across at world scale); the antumbra
+                 * stays grey, a ring of Sun still shines there */
+                int k;
+                double base = total ? 0.9 : 0.45;
+                cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+                for (k = 4; k >= 1; k--) {
+                    poly_path(cr, la, lo, RAYS, width, height);
+                    cairo_set_source_rgba(cr, 0.0, 0.0, 0.02, base * 0.18);
+                    cairo_set_line_width(cr, fs * 0.35 * k);
+                    cairo_stroke(cr);
+                }
+                poly_path(cr, la, lo, RAYS, width, height);
+                cairo_set_source_rgba(cr, 0.0, 0.0, 0.02, base);
+                cairo_fill(cr);
+            }
             dur = central_duration(e, t, clat, clon);
             snprintf(txt, sizeof(txt), "%s %dm %02ds", total ? "TOTALITY" : "ANNULARITY",
                      dur / 60, dur % 60);
-            pic_draw_text_pill(cr, cx + fs * 0.9, cy + fs * 1.5, txt, 1.0, total ? 0.5 : 0.8, 0.35, 0.75);
+            pic_draw_text_pill(cr, cx + fs * 0.9, cy + fs * 1.5, txt, 1.0, total ? 0.5 : 0.8, 0.35,
+                               eclipse_style() != 0 ? 0.75 : 0.45);
         }
     }
 
@@ -582,7 +688,7 @@ static void render_solar(cairo_t *cr, int width, int height, const ecl_show_t *w
         snprintf(txt, sizeof(txt), "REPLAY %.0f\xc3\x97 \xc2\xb7 %s of %s \xc2\xb7 shown: %s",
                  REPLAY_SPEED, solar_name(e->type), e->date, c);
     } else
-        snprintf(txt, sizeof(txt), "%s \xc2\xb7 greatest at %s \xc2\xb7 shading = share of the Sun covered",
+        snprintf(txt, sizeof(txt), "%s \xc2\xb7 greatest at %s \xc2\xb7 the Moon's shadow, darker where more of the Sun is covered",
                  solar_name(e->type), a);
     set_legend(0, txt);
     if (home.max_o <= 0)
