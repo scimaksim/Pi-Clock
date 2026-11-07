@@ -39,6 +39,7 @@
 #include "image.h"
 #include "feature.h"
 #include "display.h"
+#include "localview.h"
 #include <cairo/cairo.h>
 #include <math.h>
 #include <pthread.h>
@@ -237,6 +238,9 @@ static body_t BODIES[] = {
      * pass at fine steps */
     { PIC_WORLD_JUPITER, "jup_juno_orbit", "Juno orbit", "599", "-61", 120, B_AUX, 0, NULL, 0, RT },
     { PIC_WORLD_JUPITER, "jup_juno_pj", "Juno close pass", "599", "-61", 2, B_AUX, 0, NULL, 0, RT },
+    /* distance from Earth, for the radio delay */
+    { PIC_WORLD_MARS, "mars_earth", "Earth-Mars", "499", "399", 60, B_AUX, 0, NULL, 0, RT },
+    { PIC_WORLD_JUPITER, "jup_earth", "Earth-Jupiter", "599", "399", 60, B_AUX, 0, NULL, 0, RT },
 };
 #define NBODIES ((int)(sizeof(BODIES) / sizeof(BODIES[0])))
 
@@ -375,8 +379,8 @@ static int sun_at(int w, double t, double *lon, double *lat)
         *lon = p.lon; *lat = p.lat;
         return 1;
     }
-    for (i = 0; i < NBODIES; i++)      /* any other observer of w */
-        if (BODIES[i].world == w && BODIES[i].sun &&
+    for (i = 0; i < NBODIES; i++)      /* any other observer of w (not Earth: light time) */
+        if (BODIES[i].world == w && BODIES[i].sun && strcmp(BODIES[i].center, "399") &&
             series_at(BODIES[i].sun, BODIES[i].n, t, &p)) {
             *lon = p.lon; *lat = p.lat;
             return 1;
@@ -388,7 +392,7 @@ static int sun_at(int w, double t, double *lon, double *lat)
 
 typedef struct {
     const char *key, *name, *mission, *sprite;
-    int kind;
+    int kind, naif;               /* DSN target id (NAIF, no sign)      */
     double land_t, land_lon;      /* for today's mission sol            */
     /* runtime (under data_lock) */
     int have;
@@ -406,15 +410,19 @@ typedef struct {
     double ox, oy;                /* inset origin in zoom-z pixels      */
     int tiles_ready;
     cairo_surface_t *inset;       /* built on the render thread         */
+    /* latest raw image from the rover's cameras */
+    char photo_url[320], photo_cam[40], photo_date[24];
+    int photo_sol, photo_rank, photo_gen, photo_loaded;
+    cairo_surface_t *photo;
     int inset_z, inset_tx0, inset_ty0;
     time_t checked;
 } rover_t;
 
 static rover_t ROVERS[] = {
     { .key = "MSL", .name = "Curiosity", .mission = "MSL", .sprite = "curiosity",
-      .kind = PIC_CRAFT_MSL, .land_t = 1344230277.0, .land_lon = 137.4417 },
+      .kind = PIC_CRAFT_MSL, .naif = 76, .land_t = 1344230277.0, .land_lon = 137.4417 },
     { .key = "M20", .name = "Perseverance", .mission = "M20", .sprite = "perseverance",
-      .kind = PIC_CRAFT_MSL, .land_t = 1613681700.0, .land_lon = 77.4509 },
+      .kind = PIC_CRAFT_MSL, .naif = 168, .land_t = 1613681700.0, .land_lon = 77.4509 },
 };
 #define NROVERS 2
 
@@ -651,6 +659,134 @@ static void tile_path(char *out, size_t n, const rover_t *r, int z, int x, int y
     snprintf(out, n, "%s/tile_%s_%d_%d_%d.png", dir_cache(), r->key, z, x, y);
 }
 
+/* ── Deep Space Network: who is talking to Earth right now ─────────
+ * NASA DSN Now (eyes.nasa.gov/dsn/data/dsn.xml), fetched every minute
+ * while another world is on screen. A dish counts when its up- or
+ * downlink is active; targets are matched by NAIF id. */
+#define DSN_NOW_URL "https://eyes.nasa.gov/dsn/data/dsn.xml"
+#define MAX_LINKS 24
+typedef struct {
+    int id;                /* NAIF id without the sign (74 = MRO)       */
+    char site[12];         /* Goldstone / Madrid / Canberra             */
+    char dish[16];         /* DSS14 -> "DSS-14"                          */
+    double down_bps;
+    int down, up;
+    double rtlt;           /* round-trip light time, s                  */
+} dsn_link_t;
+static dsn_link_t links[MAX_LINKS];
+static int nlinks;
+static time_t links_at;
+
+static int xml_attr(const char *tag, const char *end, const char *name, char *out, int n)
+{
+    char pat[48];
+    const char *p;
+    int i = 0;
+    snprintf(pat, sizeof(pat), " %s=\"", name);
+    p = strstr(tag, pat);
+    if (!p || p > end) return 0;
+    for (p += strlen(pat); *p && *p != '"' && p < end && i < n - 1; p++) out[i++] = *p;
+    out[i] = 0;
+    return 1;
+}
+
+static int dsn_now_parse(const char *xml, dsn_link_t *out, int max)
+{
+    const char *p = xml;
+    char site[12] = "";
+    int n = 0;
+    while ((p = strchr(p, '<')) != NULL && n < max) {
+        const char *e = strchr(p, '>');
+        if (!e) break;
+        if (strncmp(p, "<station ", 9) == 0) {
+            xml_attr(p, e, "friendlyName", site, sizeof(site));
+        } else if (strncmp(p, "<dish ", 6) == 0) {
+            const char *dend = strstr(e, "</dish>"), *c;
+            dsn_link_t L;
+            char b[24], dn[12] = "";
+            int k, have_target = 0;
+            if (!dend) dend = e;
+            memset(&L, 0, sizeof(L));
+            xml_attr(p, e, "name", dn, sizeof(dn));
+            /* "DSS14" -> "DSS-14" */
+            if (strncmp(dn, "DSS", 3) == 0) snprintf(L.dish, sizeof(L.dish), "DSS-%s", dn + 3);
+            else snprintf(L.dish, sizeof(L.dish), "%s", dn);
+            snprintf(L.site, sizeof(L.site), "%s", site);
+            for (c = e; (c = strchr(c + 1, '<')) != NULL && c < dend; c = strchr(c, '>')) {
+                const char *ce = strchr(c, '>');
+                if (!ce) break;
+                if (!strncmp(c, "<downSignal ", 12) && xml_attr(c, ce, "active", b, sizeof(b)) && !strcmp(b, "true")) {
+                    L.down = 1;
+                    if (xml_attr(c, ce, "dataRate", b, sizeof(b))) L.down_bps = fmax(L.down_bps, atof(b));
+                } else if (!strncmp(c, "<upSignal ", 10) && xml_attr(c, ce, "active", b, sizeof(b)) && !strcmp(b, "true")) {
+                    L.up = 1;
+                } else if (!strncmp(c, "<target ", 8) && !have_target && xml_attr(c, ce, "id", b, sizeof(b))) {
+                    L.id = atoi(b);
+                    if (xml_attr(c, ce, "rtlt", b, sizeof(b))) L.rtlt = atof(b);
+                    have_target = L.id > 0;
+                }
+            }
+            if (have_target && (L.down || L.up)) {
+                /* one entry per spacecraft: keep the fastest downlink */
+                for (k = 0; k < n; k++) if (out[k].id == L.id) break;
+                if (k == n) out[n++] = L;
+                else if (L.down_bps > out[k].down_bps) out[k] = L;
+            }
+            p = dend;
+            continue;
+        }
+        p = e;
+    }
+    return n;
+}
+
+static void dsn_fetch(void)
+{
+    char *buf = malloc(256 * 1024);
+    static dsn_link_t tmp[MAX_LINKS];
+    int got, n;
+    if (!buf) return;
+    got = pic_fetch_to_buf(DSN_NOW_URL, buf, 256 * 1024 - 1);
+    if (got > 0) {
+        buf[got] = 0;
+        n = dsn_now_parse(buf, tmp, MAX_LINKS);
+        pthread_mutex_lock(&data_lock);
+        memcpy(links, tmp, sizeof(tmp));
+        nlinks = n;
+        links_at = time(NULL);
+        pthread_mutex_unlock(&data_lock);
+    }
+    free(buf);
+}
+
+/* The link for NAIF id (no sign), if live (caller holds data_lock) */
+static const dsn_link_t *dsn_link(int id)
+{
+    int i;
+    if (time(NULL) - links_at > 300) return NULL;      /* stale: show nothing */
+    for (i = 0; i < nlinks; i++) if (links[i].id == id) return &links[i];
+    return NULL;
+}
+
+static void fmt_bps(char *out, size_t n, double bps)
+{
+    if (bps >= 1e6) snprintf(out, n, "%.1f Mb/s", bps / 1e6);
+    else if (bps >= 1e3) snprintf(out, n, "%.0f kb/s", bps / 1e3);
+    else if (bps > 0) snprintf(out, n, "%.0f b/s", bps);
+    else out[0] = 0;
+}
+
+/* "DSN Canberra DSS-34 \u2193 2.6 Mb/s" */
+static void fmt_link(char *out, size_t n, const dsn_link_t *L)
+{
+    char r[24];
+    fmt_bps(r, sizeof(r), L->down_bps);
+    if (L->down && r[0])
+        snprintf(out, n, "DSN %s %s \xe2\x86\x93 %s", L->site, L->dish, r);
+    else
+        snprintf(out, n, "DSN %s %s %s", L->site, L->dish, L->up && L->down ? "\xe2\x86\x91\xe2\x86\x93 two-way" : L->up ? "\xe2\x86\x91 uplink" : "\xe2\x86\x93 downlink");
+}
+
 /* ── 5. Fetch thread ───────────────────────────────────────────── */
 
 static unsigned want_mask;        /* bit w: world w is in the cycle     */
@@ -703,6 +839,8 @@ static int rover_tiles_check(rover_t *r)
     return all;
 }
 
+static int rover_photo_choose(rover_t *r, const char *txt);
+
 static pthread_once_t cache_once = PTHREAD_ONCE_INIT;
 
 static void load_all_cache(void)
@@ -715,12 +853,22 @@ static void load_all_cache(void)
         if ((txt = slurp(path, NULL)) != NULL) { rover_parse_current(&ROVERS[i], txt); free(txt); }
         snprintf(path, sizeof(path), "%s/%s_traverse.json", dir_cache(), ROVERS[i].key);
         if ((txt = slurp(path, NULL)) != NULL) { rover_parse_traverse(&ROVERS[i], txt); free(txt); }
+        snprintf(path, sizeof(path), "%s/%s_raw.json", dir_cache(), ROVERS[i].key);
+        if ((txt = slurp(path, NULL)) != NULL) { rover_photo_choose(&ROVERS[i], txt); free(txt); }
     }
     snprintf(path, sizeof(path), "%s/heli_current.json", dir_cache());
     if ((txt = slurp(path, NULL)) != NULL) { heli_parse(txt); free(txt); }
     snprintf(path, sizeof(path), "%s/msl_weather.json", dir_cache());
     if ((txt = slurp(path, NULL)) != NULL) { wx_parse(txt); free(txt); }
     for (i = 0; i < NROVERS; i++) rover_tiles_check(&ROVERS[i]);
+    if (getenv("PIC_PV_DSN_FILE")) {            /* tests: a saved dsn.xml */
+        txt = slurp(getenv("PIC_PV_DSN_FILE"), NULL);
+        if (txt) {
+            nlinks = dsn_now_parse(txt, links, MAX_LINKS);
+            links_at = time(NULL);
+            free(txt);
+        }
+    }
 }
 
 static int fetch_body_window(body_t *b, time_t now, time_t a, time_t z)
@@ -777,6 +925,198 @@ static int juno_next_pj(double now, double *t_pj, pic_subpt_t *at)
     return 1;
 }
 
+/*
+ * Latest raw images (NASA/JPL-Caltech raw image feeds, public domain).
+ * The newest sol decides; within 3 sols of it a scenic camera wins
+ * (Mastcam(-Z) > Navcam > Hazcam > arm cameras), else simply the
+ * newest frame (e.g. a SuperCam/ChemCam close-up).
+ */
+#define M20_RAW_URL "https://mars.nasa.gov/rss/api/?feed=raw_images&category=mars2020" \
+    "&feedtype=json&num=100&page=0&order=sol+desc"
+#define MSL_RAW_URL "https://mars.nasa.gov/api/v1/raw_image_items/?order=sol%20desc,date_taken%20desc" \
+    "&per_page=100&page=0&condition_1=msl:mission"
+
+static const struct { const char *pre, *name; int rank; const char *credit; } CAMS[] = {
+    { "MCZ_LEFT", "Mastcam-Z left", 0, "NASA/JPL-Caltech/ASU" }, { "MCZ_RIGHT", "Mastcam-Z right", 0, "NASA/JPL-Caltech/ASU" },
+    { "MAST_LEFT", "Mastcam left", 0, "NASA/JPL-Caltech/MSSS" }, { "MAST_RIGHT", "Mastcam right", 0, "NASA/JPL-Caltech/MSSS" },
+    { "NAVCAM_LEFT", "Navcam left", 1, "NASA/JPL-Caltech" }, { "NAVCAM_RIGHT", "Navcam right", 1, "NASA/JPL-Caltech" },
+    { "NAV_LEFT", "Navcam left", 1, "NASA/JPL-Caltech" }, { "NAV_RIGHT", "Navcam right", 1, "NASA/JPL-Caltech" },
+    { "FRONT_HAZCAM", "Front Hazcam", 2, "NASA/JPL-Caltech" }, { "REAR_HAZCAM", "Rear Hazcam", 2, "NASA/JPL-Caltech" },
+    { "FHAZ", "Front Hazcam", 2, "NASA/JPL-Caltech" }, { "RHAZ", "Rear Hazcam", 2, "NASA/JPL-Caltech" },
+    { "SHERLOC_WATSON", "WATSON", 3, "NASA/JPL-Caltech" }, { "MAHLI", "MAHLI", 3, "NASA/JPL-Caltech/MSSS" },
+    { "SUPERCAM_RMI", "SuperCam close-up", 5, "NASA/JPL-Caltech/LANL/CNES/IRAP" }, { "CHEMCAM_RMI", "ChemCam close-up", 5, "NASA/JPL-Caltech/LANL" },
+    { "SKYCAM", "SkyCam", 6, "NASA/JPL-Caltech" }, { "CACHECAM", "CacheCam", 6, "NASA/JPL-Caltech" }, { "MARDI", "MARDI", 6, "NASA/JPL-Caltech/MSSS" },
+};
+
+static int cam_rank(const char *ins, const char **name)
+{
+    unsigned i;
+    for (i = 0; i < sizeof(CAMS) / sizeof(CAMS[0]); i++)
+        if (strncmp(ins, CAMS[i].pre, strlen(CAMS[i].pre)) == 0) {
+            if (name) *name = CAMS[i].name;
+            return CAMS[i].rank;
+        }
+    if (name) *name = ins;
+    return 7;
+}
+
+static const char *cam_credit(const char *name)
+{
+    unsigned i;
+    for (i = 0; i < sizeof(CAMS) / sizeof(CAMS[0]); i++)
+        if (strcmp(name, CAMS[i].name) == 0) return CAMS[i].credit;
+    return "NASA/JPL-Caltech";
+}
+
+/* Walk the objects of the JSON array after `key`, calling fn on each
+ * (as a NUL-terminated copy) */
+static void json_each(const char *txt, const char *key, void (*fn)(const char *, void *), void *ud)
+{
+    const char *p = strstr(txt, key);
+    char *obj;
+    if (!p || !(p = strchr(p, '['))) return;
+    obj = malloc(16384);
+    if (!obj) return;
+    for (p++; *p && *p != ']';) {
+        const char *st;
+        int depth = 0, instr = 0;
+        while (*p && *p != '{' && *p != ']') p++;
+        if (*p != '{') break;
+        st = p;
+        for (; *p; p++) {
+            if (instr) { if (*p == '\\' && p[1]) p++; else if (*p == '"') instr = 0; continue; }
+            if (*p == '"') instr = 1;
+            else if (*p == '{') depth++;
+            else if (*p == '}' && --depth == 0) { p++; break; }
+        }
+        if ((size_t)(p - st) < 16384) {
+            memcpy(obj, st, (size_t)(p - st));
+            obj[p - st] = 0;
+            fn(obj, ud);
+        }
+    }
+    free(obj);
+}
+
+typedef struct { int msl, best_sol, max_sol, rank; char url[320], ins[40], date[24]; } pick_t;
+
+static void raw_scan_max(const char *o, void *ud)
+{
+    pick_t *k = ud;
+    double sol;
+    if (json_num(o, "\"sol\"", &sol) && sol > k->max_sol) k->max_sol = (int)sol;
+}
+
+static void raw_pick(const char *o, void *ud)
+{
+    pick_t *k = ud;
+    double sol;
+    char ins[40] = "", url[320] = "", date[24] = "", st[16] = "";
+    int rank;
+    if (!json_num(o, "\"sol\"", &sol) || sol < k->max_sol - 3) return;
+    if (k->msl) {
+        char rect[40] = "";
+        int a, b2, w = 0, h = 0;
+        json_str(o, "\"instrument\"", ins, sizeof(ins));
+        json_str(o, "\"url\"", url, sizeof(url));
+        json_str(o, "\"date_taken\"", date, sizeof(date));
+        json_str(o, "\"subframe_rect\"", rect, sizeof(rect));
+        if (sscanf(rect, "(%d,%d,%d,%d)", &a, &b2, &w, &h) != 4 || w < 512 || h < 256) return;
+    } else {
+        const char *f = strstr(o, "\"image_files\"");
+        json_str(o, "\"instrument\"", ins, sizeof(ins));
+        json_str(o, "\"sample_type\"", st, sizeof(st));
+        json_str(o, "\"date_taken_utc\"", date, sizeof(date));
+        if (strcmp(st, "Full") || !f) return;
+        if (!json_str(f, "\"large\"", url, sizeof(url))) json_str(f, "\"medium\"", url, sizeof(url));
+    }
+    if (strncmp(url, "https://", 8) || !ins[0]) return;
+    rank = cam_rank(ins, NULL);
+    /* lower rank wins; then the newer sol; then the later time */
+    if (!k->url[0] || rank < k->rank ||
+        (rank == k->rank && ((int)sol > k->best_sol ||
+                             ((int)sol == k->best_sol && strcmp(date, k->date) > 0)))) {
+        k->rank = rank;
+        k->best_sol = (int)sol;
+        snprintf(k->url, sizeof(k->url), "%s", url);
+        snprintf(k->ins, sizeof(k->ins), "%s", ins);
+        snprintf(k->date, sizeof(k->date), "%s", date);
+    }
+}
+
+/* Choose the picture from a raw-image feed reply into r (no download) */
+static int rover_photo_choose(rover_t *r, const char *txt)
+{
+    pick_t k;
+    const char *name;
+    memset(&k, 0, sizeof(k));
+    k.msl = r == &ROVERS[0];
+    k.max_sol = -1;
+    json_each(txt, k.msl ? "\"items\"" : "\"images\"", raw_scan_max, &k);
+    if (k.max_sol < 0) return 0;
+    json_each(txt, k.msl ? "\"items\"" : "\"images\"", raw_pick, &k);
+    if (!k.url[0]) return 0;
+    cam_rank(k.ins, &name);
+    pthread_mutex_lock(&data_lock);
+    if (strcmp(r->photo_url, k.url)) r->photo_gen++;
+    snprintf(r->photo_url, sizeof(r->photo_url), "%s", k.url);
+    snprintf(r->photo_cam, sizeof(r->photo_cam), "%s", name);
+    {
+        static const char *MON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+        int y, mo, d, hh, mm;
+        if (sscanf(k.date, "%d-%d-%dT%d:%d", &y, &mo, &d, &hh, &mm) == 5 && mo >= 1 && mo <= 12)
+            snprintf(r->photo_date, sizeof(r->photo_date), "%d %s %02d:%02d", d, MON[mo - 1], hh, mm);
+        else
+            snprintf(r->photo_date, sizeof(r->photo_date), "%.16s", k.date);
+    }
+    r->photo_sol = k.best_sol;
+    r->photo_rank = k.rank;
+    pthread_mutex_unlock(&data_lock);
+    return 1;
+}
+
+static void photo_path(char *out, size_t n, const rover_t *r)
+{
+    snprintf(out, n, "%s/%s_photo.jpg", dir_cache(), r->key);
+}
+
+static void fetch_rover_photo(rover_t *r)
+{
+    char path[256], tmp[300], url[320], *txt;
+    snprintf(path, sizeof(path), "%s/%s_raw.json", dir_cache(), r->key);
+    snprintf(tmp, sizeof(tmp), "%s.dl", path);
+    if (pic_fetch_to_file(r == &ROVERS[0] ? MSL_RAW_URL : M20_RAW_URL, tmp, 90) != 0) { unlink(tmp); return; }
+    txt = slurp(tmp, NULL);
+    if (txt && rover_photo_choose(r, txt)) rename(tmp, path);
+    else unlink(tmp);
+    free(txt);
+    /* download the picture when it changed */
+    pthread_mutex_lock(&data_lock);
+    snprintf(url, sizeof(url), "%s", r->photo_url);
+    pthread_mutex_unlock(&data_lock);
+    if (url[0]) {
+        char mark[300], *old;
+        snprintf(mark, sizeof(mark), "%s/%s_photo.url", dir_cache(), r->key);
+        old = slurp(mark, NULL);
+        photo_path(path, sizeof(path), r);
+        if (!old || strcmp(old, url) || access(path, R_OK) != 0) {
+            snprintf(tmp, sizeof(tmp), "%s.dl", path);
+            if (pic_fetch_to_file(url, tmp, 90) == 0) {
+                rename(tmp, path);
+                write_file(mark, url, strlen(url));
+                pthread_mutex_lock(&data_lock);
+                r->photo_gen++;
+                pthread_mutex_unlock(&data_lock);
+                printf("worlds: %s latest image %s\n", r->name, url);
+            } else {
+                unlink(tmp);
+            }
+        }
+        free(old);
+    }
+}
+
 static int fetch_rover(rover_t *r, time_t now)
 {
     char url[300], path[256], *buf;
@@ -815,6 +1155,8 @@ static int fetch_rover(rover_t *r, time_t now)
         }
     }
 
+    fetch_rover_photo(r);
+
     /* Inset tiles */
     pthread_mutex_lock(&data_lock);
     if (r->have) rover_tiles_plan(r);
@@ -847,6 +1189,14 @@ static int worlds_work(pic_feature_t *f)
     mkdir(dir_cache(), 0755);
     pthread_once(&cache_once, load_all_cache);
 
+    if (pic_view_world()) {
+        static time_t dsn_at;
+        if (now - dsn_at >= 60) {
+            dsn_at = now;
+            dsn_fetch();
+        }
+    }
+
     for (i = 0; i < NBODIES && !did; i++) {
         body_t *b = &BODIES[i];
         double t1;
@@ -861,7 +1211,11 @@ static int worlds_work(pic_feature_t *f)
             have_pj = juno_next_pj((double)now, &tpj, &at);
             f0 = b->t0; f1 = b->t1;
             pthread_mutex_unlock(&data_lock);
-            if (strcmp(b->key, "jup_juno_orbit") == 0) {
+            if (strcmp(b->key, "mars_earth") == 0 || strcmp(b->key, "jup_earth") == 0) {
+                if (t1 > now + HZ_MARGIN) continue;
+                fetch_body(b, now);
+                did = 1;
+            } else if (strcmp(b->key, "jup_juno_orbit") == 0) {
                 if (t1 > now + 30 * 86400.0) continue;
                 fetch_body_window(b, now, now - 3600, now + 50 * 86400);
                 did = 1;
@@ -928,7 +1282,7 @@ static int worlds_work(pic_feature_t *f)
             }
         }
     }
-    return did ? 3 : 120;
+    return did ? 3 : pic_view_world() ? 20 : 120;
 }
 
 static pic_feature_t worlds_feature = {
@@ -1449,6 +1803,20 @@ static void fmt_alt(char *out, size_t n, double km)
     else snprintf(out, n, "%.0f km", km);
 }
 
+/* Expanding rings: this craft is in contact with Earth right now */
+static void draw_link_ring(cairo_t *cr, frame_t *F, double x, double y, double r0, double t)
+{
+    int k;
+    for (k = 0; k < 2; k++) {
+        double ph = fmod(t / 4.0 + k * 0.5, 1.0);
+        cairo_new_path(cr);
+        cairo_arc(cr, x, y, r0 + ph * 14 * F->s, 0, 2 * M_PI);
+        cairo_set_source_rgba(cr, 0.5, 1.0, 0.6, 0.75 * (1 - ph));
+        cairo_set_line_width(cr, 1.6 * F->s);
+        cairo_stroke(cr);
+    }
+}
+
 static void draw_orbiters(cairo_t *cr, frame_t *F, int w, double t, int tracks)
 {
     int i;
@@ -1469,13 +1837,23 @@ static void draw_orbiters(cairo_t *cr, frame_t *F, int w, double t, int tracks)
             cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
             cairo_set_font_size(cr, fs);
             tw = text_w(cr, l1);
+            const dsn_link_t *L = dsn_link(-atoi(b->center));
+            if (L) draw_link_ring(cr, F, x, y, isz * 0.62, t);
             draw_thing(cr, b->sprite, b->kind, x, y, isz, 0);
             text_outline(cr, x + isz * 0.6, y - 2 * F->s, l1, 0.6, 0.93, 1.0, 1);
             cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
             cairo_set_font_size(cr, 9.5 * F->s);
             tw2 = text_w(cr, alt);
             text_outline(cr, x + isz * 0.6, y + 10 * F->s, alt, 0.85, 0.9, 0.95, 0.95);
-            box_add(F, x - isz / 2, y - isz / 2, x + isz * 0.6 + fmax(tw, tw2) + 2, y + isz / 2);
+            if (L) {
+                char lk[96];
+                fmt_link(lk, sizeof(lk), L);
+                cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+                cairo_set_font_size(cr, 9.5 * F->s);
+                tw2 = fmax(tw2, text_w(cr, lk));
+                text_outline(cr, x + isz * 0.6, y + 21 * F->s, lk, 0.5, 1.0, 0.6, 1);
+            }
+            box_add(F, x - isz / 2, y - isz / 2, x + isz * 0.6 + fmax(tw, tw2) + 2, y + isz / 2 + (L ? 10 * F->s : 0));
         }
     }
 }
@@ -1665,8 +2043,9 @@ static void draw_inset(cairo_t *cr, frame_t *F, rover_t *r, double bx, double by
 {
     double s = F->s, W = INSET_W * s, H = INSET_H * s, k = s, px, py, rx, ry;
     double tlh = (wx.have ? 50 : 38) * s, mpp;
+    int photo_mode;
     int i;
-    char t1[96], t2[128];
+    char t1[96], t2[192];
 
     /* leader from the rover on the main map to the inset */
     map_xy(F, r->lon, r->lat, &px, &py);
@@ -1687,9 +2066,43 @@ static void draw_inset(cairo_t *cr, frame_t *F, rover_t *r, double bx, double by
     cairo_fill(cr);
     box_add(F, bx - 4 * s, by - 4 * s, bx + W + 4 * s, by + H + tlh + 4 * s);
 
+    /* the latest picture, loaded when a new one arrives */
+    if (r->photo_gen != r->photo_loaded) {
+        char path[256];
+        if (r->photo) cairo_surface_destroy(r->photo);
+        photo_path(path, sizeof(path), r);
+        r->photo = pic_image_load(path);
+        r->photo_loaded = r->photo_gen;
+    }
+    /* map and picture take turns, 12 s each */
+    photo_mode = r->photo && r->photo_url[0] && fmod(now_f + (r == &ROVERS[0] ? 0 : 6), 24.0) >= 12.0;
+
     cairo_save(cr);
     cairo_rectangle(cr, bx, by, W, H);
     cairo_clip(cr);
+    if (photo_mode) {
+        double pw = cairo_image_surface_get_width(r->photo), ph = cairo_image_surface_get_height(r->photo);
+        /* scenic frames fill the box; close-ups are shown whole */
+        double sc = r->photo_rank <= 3 ? fmax(W / pw, H / ph) : fmin(W / pw, H / ph);
+        char lab[96];
+        cairo_set_source_rgb(cr, 0, 0, 0);
+        cairo_paint(cr);
+        cairo_save(cr);
+        cairo_translate(cr, bx + (W - pw * sc) / 2, by + (H - ph * sc) / 2);
+        cairo_scale(cr, sc, sc);
+        cairo_set_source_surface(cr, r->photo, 0, 0);
+        cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+        cairo_paint(cr);
+        cairo_restore(cr);
+        snprintf(lab, sizeof(lab), "LATEST RAW IMAGE \xc2\xb7 %s", r->photo_cam);
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+        cairo_set_font_size(cr, 10 * s);
+        text_outline(cr, bx + 8 * s, by + 15 * s, lab, 1, 1, 1, 0.95);
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 8.5 * s);
+        text_outline(cr, bx + W - text_w(cr, cam_credit(r->photo_cam)) - 7 * s, by + H - 7 * s,
+                     cam_credit(r->photo_cam), 1, 1, 1, 0.85);
+    } else {
     if (r->tiles_ready) inset_build(r);
     if (r->inset) {
         cairo_save(cr);
@@ -1801,13 +2214,17 @@ static void draw_inset(cairo_t *cr, frame_t *F, rover_t *r, double bx, double by
         cairo_set_font_size(cr, 9 * s);
         text_outline(cr, bx + W - text_w(cr, "N \xe2\x86\x91") - 8 * s, ty, "N \xe2\x86\x91", 1, 1, 1, 0.9);
     }
+    }   /* map */
     cairo_restore(cr);
 
     /* sprite + captions under the picture */
     draw_thing(cr, r->sprite, r->kind, bx + 26 * s, by + H + tlh / 2, 46 * s, 0);
     snprintf(t1, sizeof(t1), "%s \xc2\xb7 sol %d \xc2\xb7 %.2f km driven", r->name,
              mission_sol(r, now_f), r->dist_total / 1000.0);
-    if (r->last_sol >= 0)
+    if (photo_mode)
+        snprintf(t2, sizeof(t2), "Picture: %s \xc2\xb7 sol %d \xc2\xb7 taken %s UTC \xc2\xb7 raw, unprocessed",
+                 r->photo_cam, r->photo_sol, r->photo_date);
+    else if (r->last_sol >= 0)
         snprintf(t2, sizeof(t2), "Position: end of sol %d drive (%.0f m) \xc2\xb7 %.4f\xc2\xb0%c %.4f\xc2\xb0" "E",
                  r->last_sol > r->sol ? r->last_sol : r->sol, r->last_len,
                  fabs(r->lat), r->lat < 0 ? 'S' : 'N', r->lon);
@@ -1817,6 +2234,17 @@ static void draw_inset(cairo_t *cr, frame_t *F, rover_t *r, double bx, double by
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, 12.5 * s);
     text_outline(cr, bx + 56 * s, by + H + 17 * s, t1, 0.55, 1, 0.62, 1);
+    {
+        const dsn_link_t *L = dsn_link(r->naif);
+        if (L) {
+            char lk[96];
+            double tx = bx + 56 * s + text_w(cr, t1) + 10 * s;
+            fmt_link(lk, sizeof(lk), L);
+            cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+            cairo_set_font_size(cr, 9.5 * s);
+            if (tx + text_w(cr, lk) < bx + W) text_outline(cr, tx, by + H + 17 * s, lk, 0.5, 1.0, 0.6, 1);
+        }
+    }
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 9.5 * s);
     text_outline(cr, bx + 56 * s, by + H + 32 * s, t2, 0.85, 0.87, 0.9, 0.95);
@@ -1852,6 +2280,7 @@ static void draw_header(cairo_t *cr, frame_t *F, const char *title, const char *
 
 static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit, int dusty, int pjk)
 {
+    double xlim, y_first;
     static const struct { const char *t; int st; } rows[] = {
         { "operating", ST_ACTIVE }, { "mission ended", ST_ENDED },
         { "status unconfirmed", ST_UNKNOWN }, { "crash / impact", ST_CRASH } };
@@ -1860,6 +2289,7 @@ static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit, int dus
     int i;
     if (&pic_ticker_bar_top && pic_ticker_bar_top > 0 && pic_ticker_bar_top < bottom) bottom = pic_ticker_bar_top;
     y = bottom - 30 * s;
+    y_first = y;
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, fs);
     cx = x;
@@ -1897,8 +2327,21 @@ static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit, int dus
         cx += 42 * s + text_w(cr, w == PIC_WORLD_JUPITER ? "ground track, last / next 5 h" :
                               "ground track, last / next ~45 min") + 14 * s;
     }
+    xlim = w == PIC_WORLD_MARS ? F->mx + F->mw - (2 * INSET_W + 50) * s : F->mx + F->mw - 20 * s;
+    if (time(NULL) - links_at < 300 && nlinks > 0) {
+        const char *t = "talking to Earth now (NASA DSN Now)";
+        if (cx + 16 * s + text_w(cr, t) > xlim) { cx = x; y -= 15 * s; }
+        cairo_new_path(cr);
+        cairo_arc(cr, cx + 6 * s, y - 3.5 * s, 5 * s, 0, 2 * M_PI);
+        cairo_set_source_rgba(cr, 0.5, 1.0, 0.6, 0.9);
+        cairo_set_line_width(cr, 1.6 * s);
+        cairo_stroke(cr);
+        text_outline(cr, cx + 16 * s, y, t, 0.92, 0.92, 0.95, 1);
+        cx += 16 * s + text_w(cr, t) + 14 * s;
+    }
     if (dusty) {
         const char *t = "tan haze: typical dust for the season (climatology, not live)";
+        if (cx + 22 * s + text_w(cr, t) > xlim) { cx = x; y -= 15 * s; }
         cairo_rectangle(cr, cx, y - 8 * s, 16 * s, 9 * s);
         cairo_set_source_rgba(cr, 0.86, 0.66, 0.46, 0.7);
         cairo_fill(cr);
@@ -1918,8 +2361,8 @@ static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit, int dus
         text_outline(cr, cx + 26 * s, y, "Juno's next close pass (track \xc2\xb1" "90 min)", 0.92, 0.92, 0.95, 1);
     }
     cairo_set_font_size(cr, 9 * s);
-    text_outline(cr, x, y + 15 * s, credit, 0.75, 0.77, 0.8, 0.9);
-    box_add(F, x - 4, y - 14 * s, x + 900 * s, y + 18 * s);
+    text_outline(cr, x, y_first + 15 * s, credit, 0.75, 0.77, 0.8, 0.9);
+    box_add(F, x - 4, y - 14 * s, x + 900 * s, y_first + 18 * s);
 }
 
 /* ── 11. The view ──────────────────────────────────────────────── */
@@ -1996,7 +2439,7 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
     if (w == PIC_WORLD_MOON) {
         if (have_earth)
             snprintf(line, sizeof(line), "Moon %.0f%% lit from Earth \xc2\xb7 Earth overhead at "
-                     "%.1f\xc2\xb0%c %.1f\xc2\xb0%c (libration) \xc2\xb7 Sun overhead at %.1f\xc2\xb0%c %.1f\xc2\xb0%c",
+                     "%.1f\xc2\xb0%c %.1f\xc2\xb0%c \xc2\xb7 Sun overhead at %.1f\xc2\xb0%c %.1f\xc2\xb0%c",
                      (1 - ephase) * 100, fabs(elat), elat < 0 ? 'S' : 'N', fabs(elon), elon < 0 ? 'W' : 'E',
                      fabs(slat), slat < 0 ? 'S' : 'N', fabs(slon), slon < 0 ? 'W' : 'E');
         else snprintf(line, sizeof(line), "waiting for JPL Horizons data");
@@ -2033,6 +2476,21 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
                  "\xc2\xb7 Sun overhead at %.1f\xc2\xb0%c %.1f\xc2\xb0%c",
                  l2, est ? " est." : "", fmod(-grs_lon + 360, 360), pjs,
                  fabs(slat), slat < 0 ? 'S' : 'N', fabs(slon), slon < 0 ? 'W' : 'E');
+    }
+    /* one-way radio delay from Earth, from JPL's geocentric range */
+    {
+        body_t *e = body_by_key(w == PIC_WORLD_MOON ? "moon_earth" :
+                                w == PIC_WORLD_MARS ? "mars_earth" : "jup_earth");
+        pic_subpt_t p;
+        if (e && e->obs && series_at(e->obs, e->n, t, &p) && p.r > 0) {
+            double lt = p.r / 299792.458;
+            size_t n = strlen(line);
+            if (lt < 60)
+                snprintf(line + n, sizeof(line) - n, " \xc2\xb7 radio delay %.2f s", lt);
+            else
+                snprintf(line + n, sizeof(line) - n, " \xc2\xb7 radio delay %d min %02d s",
+                         (int)(lt / 60), (int)fmod(lt, 60));
+        }
     }
     draw_header(cr, F, title, line);
 
@@ -2102,7 +2560,8 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
             char l2[48];
             if (!r->have) continue;
             map_xy(F, r->lon, r->lat, &x, &y);
-            snprintf(l2, sizeof(l2), "sol %d \xc2\xb7 operating", mission_sol(r, t));
+            snprintf(l2, sizeof(l2), "sol %d \xc2\xb7 %s", mission_sol(r, t),
+                     dsn_link(r->naif) ? "talking to Earth now" : "operating");
             draw_callout(cr, F, x, y, r->sprite, r->kind, -1, r->name, l2, ST_ACTIVE, 40 * F->s);
         }
         if (heli.have) {
