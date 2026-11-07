@@ -547,8 +547,10 @@ static void add_feature_layer(pic_layer_stack_t *stack, pic_feature_t *f)
     register_feature(f);
     if (f->layer &&
         pic_layer_stack_add(stack, f->name, f->layer, f->interval,
-                            1.0, f->data) == 0)
+                            1.0, f->data) == 0) {
         stack->layers[stack->count - 1].enabled = f->default_on;
+        stack->layers[stack->count - 1].idle = f->idle;
+    }
 }
 
 static void sync_features(pic_layer_stack_t *stack,
@@ -1760,6 +1762,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_layer_stack_add(&stack, "moon",
                         pic_layer_render_moon, 60, 1.0, NULL);
     add_feature_layer(&stack, pic_feature_planets());
+    add_feature_layer(&stack, pic_feature_eclipse());
 
     /* ── HUD (always on top) ──────────────────────────────── */
     pic_layer_stack_add(&stack, "ticker",

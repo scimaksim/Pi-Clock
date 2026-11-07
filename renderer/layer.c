@@ -157,6 +157,17 @@ int pic_layer_stack_update(pic_layer_stack_t *stack, time_t now)
             layer->last_rendered = now;
             continue;
         }
+        /* Nothing to draw: drop the surface (once) and skip */
+        if (layer->idle && layer->idle(now, layer->user_data)) {
+            layer->last_rendered = now;
+            if (layer->surface) {
+                cairo_surface_destroy(layer->surface);
+                layer->surface = NULL;
+                layer->dirty = 1;
+                dirty_count++;
+            }
+            continue;
+        }
         /* Allocate surface on first render (lazy allocation) */
         if (!ensure_surface(layer, stack->width, stack->height)) {
             continue; /* Allocation failed — skip this frame */
@@ -233,6 +244,14 @@ void pic_layer_stack_composite(pic_layer_stack_t *stack, cairo_t *cr)
  * are always readable. Only enabled layers with a render_legend
  * callback are processed.
  */
+void pic_layer_set_idle(pic_layer_stack_t *stack, const char *name,
+                        int (*idle)(time_t now, void *user_data))
+{
+    int i;
+    for (i = 0; i < stack->count; i++)
+        if (strcmp(stack->layers[i].name, name) == 0) stack->layers[i].idle = idle;
+}
+
 void pic_layer_render_none(cairo_t *cr, int width, int height, time_t now, void *ud)
 {
     (void)cr; (void)width; (void)height; (void)now; (void)ud;

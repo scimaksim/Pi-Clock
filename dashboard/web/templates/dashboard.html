@@ -878,6 +878,20 @@
             </div>
         </div>
 
+        <!-- Eclipses (hidden when the eclipse layer is off) -->
+        <div class="card" id="eclipse-card" style="display:none">
+            <div class="card-title card-title-row">Eclipses <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">While a solar eclipse is under way the map shows the Moon's shadow live: shaded by how much of the Sun is covered, the path of totality, and the Sun as seen from home. During a lunar eclipse it tints where the Moon is up and shows the Moon passing through Earth's shadow. Eclipses starting within 12 hours get a preview. Nothing is drawn between eclipses.</p>
+            <div class="form-group">
+                <label for="eclipse_replay">Replay</label>
+                <select id="eclipse_replay" class="form-control" data-conf="ECLIPSE_REPLAY"><option value="0">Off: live eclipses only (default)</option><option value="1">Replay the next eclipse at 60&times; speed</option><option value="2">Replay the last eclipse at 60&times; speed</option></select>
+                <p class="text-muted mt-4">A preview loop: a whole eclipse in a few minutes. Turn it off again to get the live view back.</p>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('eclipse-card', 'Eclipses')">Save</button>
+            </div>
+        </div>
+
         <!-- Ticker Sources (hidden when ticker layer is off) -->
         <div class="card" id="ticker-sources-card" style="display:none">
             <div class="card-title card-title-row">News Ticker <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>

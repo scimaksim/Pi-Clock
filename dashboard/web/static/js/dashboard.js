@@ -43,6 +43,7 @@ var layerExtraMb = {
     'dsn':            1,
     'ships':          2,
     'planets':        0,
+    'eclipse':        1,
     'satclouds':      12,
     'aurorawatch':    2,
     'lightpollution': 8,
@@ -80,7 +81,8 @@ var rendererSettingCards = {
     'rivers':    'rivers-card',
     'ebird':     'ebird-card',
     'darksites': 'darksites-card',
-    'passes':    'passtracks-card'
+    'passes':    'passtracks-card',
+    'eclipse':   'eclipse-card'
 };
 
 /* Calculate total memory cost of all enabled layers */

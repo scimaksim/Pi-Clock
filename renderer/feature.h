@@ -29,6 +29,7 @@ struct pic_feature {
     /* Layer registration */
     pic_layer_render_fn layer;
     pic_layer_render_fn legend; /* Optional, drawn at full opacity       */
+    int (*idle)(time_t now, void *data); /* Optional: nothing to draw now */
     int         interval;       /* Seconds between re-renders            */
     int         extra_mb;       /* RAM budget beyond the surface         */
     int         default_on;     /* Layer on for fresh installs           */

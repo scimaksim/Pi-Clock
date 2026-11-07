@@ -15,7 +15,8 @@ pic_feature_t *pic_feature_passes(void);    /* Visible ISS/CSS passes  */
 pic_feature_t *pic_feature_satclouds(void); /* GOES/Himawari IR clouds */
 pic_feature_t *pic_feature_fires(void);     /* Fire hotspots + smoke   */
 pic_feature_t *pic_feature_tides(void);     /* NOAA tide predictions   */
-pic_feature_t *pic_feature_planets(void);   /* Planets + sky events    */
+pic_feature_t *pic_feature_planets(void);
+pic_feature_t *pic_feature_eclipse(void);   /* Live eclipse shadows    */
 pic_feature_t *pic_feature_ships(void);     /* AIS vessel positions    */
 pic_feature_t *pic_feature_aurorawatch(void);    /* Aurora view line   */
 pic_feature_t *pic_feature_hanotify(void);       /* Home Assistant alerts */

@@ -85,6 +85,11 @@ typedef struct {
     volatile int        view_hidden;    /* Enabled, but not shown in the
                                          * current global/local view        */
     int                 update_interval;/* Seconds between re-renders       */
+    int               (*idle)(time_t now, void *user_data);
+                                        /* Optional: non-zero when the layer
+                                         * would draw nothing; it is then
+                                         * not rendered and its surface is
+                                         * freed (pic_layer_set_idle)      */
     time_t              last_rendered;  /* Timestamp of last render (UTC)   */
     int                 dirty;          /* Set by update() when re-rendered */
 } pic_layer_t;
@@ -200,6 +205,10 @@ void pic_layer_stack_composite(pic_layer_stack_t *stack, cairo_t *cr);
 /* A render function for layers that draw nothing on the map (legend
  * only): no surface is allocated for them and they're never composited */
 void pic_layer_render_none(cairo_t *cr, int width, int height, time_t now, void *ud);
+
+/* Give layer `name` an idle test (see pic_layer_t.idle) */
+void pic_layer_set_idle(pic_layer_stack_t *stack, const char *name,
+                        int (*idle)(time_t now, void *user_data));
 
 #define PIC_LAYER_FAST_S 5
 void pic_layer_stack_composite_cached(pic_layer_stack_t *stack, cairo_t *cr,
