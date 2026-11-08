@@ -8,10 +8,14 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -226,5 +230,51 @@ func PutSpaceTrack() http.HandlerFunc {
 		}
 		signalRenderer()
 		jsonResponse(w, http.StatusOK, map[string]string{"status": "saved"})
+	}
+}
+
+var spaceTrackLoginURL = "https://www.space-track.org/ajaxauth/login"
+
+var stTestMu sync.Mutex
+var stTestLast time.Time
+
+// TestSpaceTrack signs in once with the saved account and says whether
+// Space-Track accepted it (at most once a minute; repeated failed
+// sign-ins can lock a Space-Track account).
+func TestSpaceTrack() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		stTestMu.Lock()
+		if time.Since(stTestLast) < time.Minute {
+			stTestMu.Unlock()
+			jsonResponse(w, http.StatusTooManyRequests, map[string]string{"error": "wait a minute between tests"})
+			return
+		}
+		stTestLast = time.Now()
+		stTestMu.Unlock()
+
+		data, err := os.ReadFile(spaceTrackPath)
+		lines := strings.SplitN(string(data), "\n", 3)
+		if err != nil || len(lines) < 2 || lines[0] == "" || lines[1] == "" {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "no account saved"})
+			return
+		}
+		form := url.Values{"identity": {lines[0]}, "password": {lines[1]}}
+		jar, _ := cookiejar.New(nil)
+		client := &http.Client{Timeout: 20 * time.Second, Jar: jar}
+		resp, err := client.PostForm(spaceTrackLoginURL, form)
+		if err != nil {
+			jsonResponse(w, http.StatusBadGateway, map[string]string{"error": "couldn't reach Space-Track"})
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || strings.Contains(string(body), "Failed") {
+			jsonResponse(w, http.StatusBadGateway, map[string]string{"error": "Space-Track refused the sign-in: check the username and password"})
+			return
+		}
+		if lo, err := client.Get(strings.Replace(spaceTrackLoginURL, "/login", "/logout", 1)); err == nil {
+			lo.Body.Close()
+		}
+		jsonResponse(w, http.StatusOK, map[string]string{"status": "signed in"})
 	}
 }

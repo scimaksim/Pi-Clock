@@ -292,12 +292,25 @@ static void *sl_thread_func(void *arg)
     time_t next_fetch = 0;
     (void)arg;
 
+    time_t st_seen = pic_spacetrack_stamp();
+
     if (!pic_wait_for_network("starlink", &sl_running))
         return NULL;
 
     while (sl_running) {
         time_t now = time(NULL);
         int i, n, age;
+
+        /* A Space-Track account was just saved: try now rather than
+         * after the CelesTrak retry wait */
+        if (pic_spacetrack_stamp() != st_seen) {
+            st_seen = pic_spacetrack_stamp();
+            if (st_seen && next_fetch > now) {
+                unlink(SL_CACHE ".fail");
+                next_fetch = 0;
+                printf("starlink: Space-Track account saved, fetching now\n");
+            }
+        }
 
         if (now >= next_fetch) {
             struct stat st;
@@ -387,8 +400,10 @@ static void *sl_thread_func(void *arg)
         }
         pthread_mutex_unlock(&cfg_data->mutex);
 
-        for (i = 0; i < PREDICT_INTERVAL && sl_running; i++)
+        for (i = 0; i < PREDICT_INTERVAL && sl_running; i++) {
+            if (pic_spacetrack_stamp() != st_seen) break;   /* account saved */
             sleep(1);
+        }
     }
     return NULL;
 }

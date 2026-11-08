@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSpaceTrackAccount(t *testing.T) {
@@ -55,5 +56,36 @@ func TestSpaceTrackAccount(t *testing.T) {
 	}
 	if put(`{"identity":"","password":""}`) != http.StatusOK || get()["configured"] != false {
 		t.Fatal("remove")
+	}
+}
+
+func TestSpaceTrackSignIn(t *testing.T) {
+	spaceTrackPath = filepath.Join(t.TempDir(), "st.cred")
+	os.WriteFile(spaceTrackPath, []byte("me@example.com\ngood\n"), 0600)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.URL.Path == "/ajaxauth/login" && r.Form.Get("password") == "good" {
+			w.Write([]byte(`""`))
+			return
+		}
+		w.Write([]byte(`{"Login":"Failed"}`))
+	}))
+	defer srv.Close()
+	spaceTrackLoginURL = srv.URL + "/ajaxauth/login"
+	run := func() int {
+		rec := httptest.NewRecorder()
+		TestSpaceTrack()(rec, httptest.NewRequest(http.MethodPost, "/", nil))
+		return rec.Code
+	}
+	if c := run(); c != http.StatusOK {
+		t.Fatalf("good account: %d", c)
+	}
+	if c := run(); c != http.StatusTooManyRequests {
+		t.Fatalf("second test within a minute: %d", c)
+	}
+	stTestLast = time.Time{}
+	os.WriteFile(spaceTrackPath, []byte("me@example.com\nbad\n"), 0600)
+	if c := run(); c != http.StatusBadGateway {
+		t.Fatalf("refused account: %d", c)
 	}
 }

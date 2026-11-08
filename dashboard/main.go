@@ -131,6 +131,7 @@ func main() {
 		r.Put("/aisstream-key", api.PutAISKey())
 		r.Get("/spacetrack", api.GetSpaceTrack())
 		r.Put("/spacetrack", api.PutSpaceTrack())
+		r.Post("/spacetrack/test", api.TestSpaceTrack())
 		r.Get("/ebird-key", api.GetEBirdKey())
 		r.Put("/ebird-key", api.PutEBirdKey())
 		r.Get("/ha-webhook", api.GetHAWebhook())

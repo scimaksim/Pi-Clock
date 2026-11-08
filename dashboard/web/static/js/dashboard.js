@@ -1419,6 +1419,13 @@ function saveSpaceTrack() {
     }).catch(function(e) { toast(e.message, 'error'); });
 }
 
+function testSpaceTrack() {
+    toast('Signing in to Space-Track\u2026');
+    apiCall('POST', '/api/spacetrack/test', {}).then(function() {
+        toast('Space-Track accepted the account');
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
 function removeSpaceTrack() {
     apiCall('PUT', '/api/spacetrack', {identity: '', password: ''}).then(function() {
         toast('Space-Track account removed');

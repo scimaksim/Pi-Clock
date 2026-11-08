@@ -16,6 +16,11 @@
 #define ST_Q_INTDES "/basicspacedata/query/class/gp/OBJECT_ID/~~%s/DECAY_DATE/null-val/format/3le"
 #define ST_Q_IDS    "/basicspacedata/query/class/gp/NORAD_CAT_ID/%s/format/3le"
 
+/* When the saved account last changed (0: none). Features compare it
+ * to retry straight away when an account is added or changed. */
+#include <time.h>
+time_t pic_spacetrack_stamp(void);
+
 /* 1 when an account is saved */
 int pic_spacetrack_configured(void);
 

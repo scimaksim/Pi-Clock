@@ -100,6 +100,12 @@ static int read_cred(char *id, size_t idn, char *pw, size_t pwn)
     return ok;
 }
 
+time_t pic_spacetrack_stamp(void)
+{
+    struct stat st;
+    return stat(cred_path(), &st) == 0 && st.st_size > 0 ? st.st_mtime : 0;
+}
+
 int pic_spacetrack_configured(void)
 {
     char id[160], pw[160];
