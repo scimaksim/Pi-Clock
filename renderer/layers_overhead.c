@@ -241,6 +241,24 @@ static void save_visual_ids(void)
     else unlink(OV_VISUAL_IDS ".new");
 }
 
+/* Bright naked-eye satellites when CelesTrak's list isn't available:
+ * Jay Respler's visual list (satobs.org/britelst.html, the source of
+ * CelesTrak's group) plus Envisat, Tianhe and BlueWalker 3. Objects
+ * that have since re-entered simply return nothing. */
+static const char BRIGHT_IDS[] =
+    "694,733,877,1843,2802,3019,3230,3597,3669,3835,4119,4327,4393,4813,4814,4849"
+    ",5118,5282,5328,5560,5730,6073,6153,6155,6212,7004,7338,8063,8128,8459,8745,"
+    "10114,10363,10561,10861,10967,11056,11155,11156,11267,11285,11286,11332,1157"
+    "4,11672,11849,11933,12054,12139,12389,12465,12585,12904,13068,13154,13402,13"
+    "403,13819,14207,14208,14372,14484,14699,14819,14820,15354,15483,15772,15945,"
+    "16111,16182,16496,16792,16882,17295,17567,17589,17590,17912,17973,18153,1818"
+    "7,18749,18958,19046,19120,19210,19257,19573,19574,19650,19764,20261,20262,20"
+    "323,20390,20453,20465,20466,20511,20580,20625,20663,20666,20775,20967,21088,"
+    "21397,21422,21423,21574,21610,21701,21819,21820,21867,21876,21938,22220,2228"
+    "5,22286,22566,22626,22803,22830,23087,23088,23343,23405,23560,23561,23705,24"
+    "298,24883,25018,25400,25407,25544,25723,25732,25860,25861,25887,26775,26873,"
+    "26874,27386,48274,53807";
+
 static int refresh_visual(void)
 {
     char tmp[128], ids[1600] = "", q[1800];
@@ -257,6 +275,7 @@ static int refresh_visual(void)
         fclose(f);
         ids[strcspn(ids, "\r\n")] = 0;
     }
+    if (!ids[0]) snprintf(ids, sizeof(ids), "%s", BRIGHT_IDS);
     if (ids[0] && strlen(ids) < sizeof(ids) - 2) {
         snprintf(q, sizeof(q), ST_Q_IDS, ids);
         if (pic_spacetrack_fetch(q, tmp) == 0 && rename(tmp, OV_VISUAL) == 0) return 0;

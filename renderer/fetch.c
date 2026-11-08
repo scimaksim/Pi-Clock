@@ -258,7 +258,8 @@ static void ct_save(void)
     rename(tmp, ct_path());
 }
 
-/* 0: go ahead (the request is counted); otherwise why not, in why */
+/* 0: go ahead (the request is counted); 1: held back; 2: CelesTrak not
+ * used at all (orbits come from elsewhere). Why not, in why. */
 static int ct_hold(const char *url, char *why, size_t n)
 {
     time_t now = time(NULL);
@@ -268,7 +269,12 @@ static int ct_hold(const char *url, char *why, size_t n)
     if (pic_orbit_share(share, sizeof(share))) {
         /* one machine fetches orbits for the house: never CelesTrak here */
         snprintf(why, n, "not used: orbits come from %s", share);
-        return 1;
+        return 2;
+    }
+    if (pic_spacetrack_configured()) {
+        /* Space-Track supplies every orbit: CelesTrak isn't needed */
+        snprintf(why, n, "not used: orbits come from Space-Track");
+        return 2;
     }
     pthread_mutex_lock(&ct_mu);
     ct_load();
@@ -324,9 +330,10 @@ static int fetch_impl(const char *url, const char *header, char *buf,
     int n;
     char err[256];
 
-    if (ct_hold(url, err, sizeof(err))) {
-        pic_status_report(url, 0, err);
-        return -1;
+    {
+        int h = ct_hold(url, err, sizeof(err));
+        if (h == 1) pic_status_report(url, 0, err);   /* 2: not used, not a failure */
+        if (h) return -1;
     }
     if (cpipe(pipefd) < 0) return -1;
     if (cpipe(errfd) < 0) {
@@ -416,9 +423,10 @@ int pic_fetch_to_file_rc(const char *url, const char *path, int timeout)
 
     snprintf(timeout_str, sizeof(timeout_str), "--timeout=%d", timeout);
 
-    if (ct_hold(url, err, sizeof(err))) {
-        pic_status_report(url, 0, err);
-        return -1;
+    {
+        int h = ct_hold(url, err, sizeof(err));
+        if (h == 1) pic_status_report(url, 0, err);   /* 2: not used, not a failure */
+        if (h) return -1;
     }
     if (cpipe(errfd) < 0) return -1;
     pid = fork();
