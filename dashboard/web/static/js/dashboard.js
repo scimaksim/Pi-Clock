@@ -1429,10 +1429,17 @@ function saveSpaceTrack() {
 }
 
 function testSpaceTrack() {
+    var el = document.getElementById('st_status');
+    var at = function() { return new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); };
+    if (el) el.textContent = 'Signing in to Space-Track\u2026';
     toast('Signing in to Space-Track\u2026');
     apiCall('POST', '/api/spacetrack/test', {}).then(function() {
+        if (el) el.textContent = '\u2713 Space-Track accepted the account (' + at() + ').';
         toast('Space-Track accepted the account');
-    }).catch(function(e) { toast(e.message, 'error'); });
+    }).catch(function(e) {
+        if (el) el.textContent = '\u2717 ' + e.message + ' (' + at() + ')';
+        toast(e.message, 'error');
+    });
 }
 
 function removeSpaceTrack() {
