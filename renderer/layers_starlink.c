@@ -59,7 +59,8 @@ void pic_layer_render_starlink(cairo_t *cr, int width, int height,
         char l1[64], l2[80];
         int days;
 
-        if (t->nsats == 0) continue;
+        /* Only trains you could see from home in the next 48 h */
+        if (t->nsats == 0 || !t->pass_start) continue;
 
         /* Connecting line, then dots */
         cairo_set_line_width(cr, r * 0.6);

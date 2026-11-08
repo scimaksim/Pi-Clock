@@ -2286,6 +2286,7 @@ static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit, int dus
         { "status unconfirmed", ST_UNKNOWN }, { "crash / impact", ST_CRASH } };
     double s = F->s, x = F->mx + 12 * s, y, fs = 10 * s, cx;
     double bottom = F->my + F->mh;
+    if (w == PIC_WORLD_MARS) x = F->mx + (2 * INSET_W + 50) * s;   /* right of the rover insets */
     int i;
     if (&pic_ticker_bar_top && pic_ticker_bar_top > 0 && pic_ticker_bar_top < bottom) bottom = pic_ticker_bar_top;
     y = bottom - 30 * s;
@@ -2327,7 +2328,7 @@ static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit, int dus
         cx += 42 * s + text_w(cr, w == PIC_WORLD_JUPITER ? "ground track, last / next 5 h" :
                               "ground track, last / next ~45 min") + 14 * s;
     }
-    xlim = w == PIC_WORLD_MARS ? F->mx + F->mw - (2 * INSET_W + 50) * s : F->mx + F->mw - 20 * s;
+    xlim = F->mx + F->mw - 20 * s;
     if (time(NULL) - links_at < 300 && nlinks > 0) {
         const char *t = "talking to Earth now (NASA DSN Now)";
         if (cx + 16 * s + text_w(cr, t) > xlim) { cx = x; y -= 15 * s; }
@@ -2538,8 +2539,10 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
         double bx[2];
         if (&pic_ticker_bar_top && pic_ticker_bar_top > 0 && pic_ticker_bar_top < F->my + F->mh)
             by -= F->my + F->mh - pic_ticker_bar_top;
-        bx[1] = F->mx + F->mw - (INSET_W + 14) * s;            /* Curiosity, 137E */
-        bx[0] = bx[1] - (INSET_W + 22) * s;                    /* Perseverance, 77E */
+        /* bottom left, over the plains of the far west (Amazonis,
+         * Tharsis' southern flank) rather than Elysium and Hellas */
+        bx[0] = F->mx + 14 * s;                                /* Perseverance, 77E */
+        bx[1] = bx[0] + (INSET_W + 22) * s;                    /* Curiosity, 137E */
         for (i = 0; i < NROVERS; i++) {
             rover_t *r = &ROVERS[i];
             if (!r->have) continue;
