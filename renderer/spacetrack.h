@@ -31,4 +31,12 @@ int pic_spacetrack_configured(void);
  */
 int pic_spacetrack_fetch(const char *query, const char *path);
 
+/* For tests: replace the HTTPS request (NULL restores it). Returns the
+ * HTTP status; writes the body to `out`, Set-Cookie values to `cookies`. */
+#include <stdio.h>
+typedef int (*pic_spacetrack_transport)(const char *method, const char *path,
+                                        const char *cookie, const char *body,
+                                        FILE *out, char *cookies, size_t cn);
+void pic_spacetrack_set_transport(pic_spacetrack_transport fn);
+
 #endif

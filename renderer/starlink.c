@@ -14,6 +14,7 @@
 #include "config.h"
 #include "fetch.h"
 #include "spacetrack.h"
+#include "satellite.h"
 #include "math_utils.h"
 #include "solar.h"
 #include <math.h>
@@ -255,7 +256,7 @@ int pic_sl_build_trains(const char *text, pic_sl_train_t *out, int max,
             memset(s, 0, sizeof(*s));
             if (pic_sat_parse_tle(s, l1, l2) != 0) continue;
             snprintf(s->name, sizeof(s->name), "%.31s", l0);
-            s->norad_id = atoi(l1 + 2);
+            s->norad_id = pic_tle_catnr(l1);
             s->enabled = 1;
             t->nsats++;
         }

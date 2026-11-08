@@ -135,7 +135,7 @@ static int load_tles(const char *path, ov_sat_t *list, int n, int max)
         if (!l1[0]) continue;
         memset(e, 0, sizeof(*e));
         if (pic_sat_parse_tle(&e->sat, l1, line) != 0) { l1[0] = '\0'; continue; }
-        e->sat.norad_id = atoi(l1 + 2);
+        e->sat.norad_id = pic_tle_catnr(l1);
         tidy_name(name[0] ? name : "Satellite", e->label, sizeof(e->label));
         /* Not yet identified pieces of a rideshare launch are catalogued
          * as "OBJECT A", "OBJECT B"...: add the launch's COSPAR ID

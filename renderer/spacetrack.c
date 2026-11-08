@@ -5,11 +5,11 @@
  * Space-Track (US Space Force, free account) for the same data. The
  * account is entered in the dashboard and stored root-only in
  * SPACETRACK_CRED ("identity\npassword\n"); it is never logged, never
- * put on a command line (the form goes to wget in a 0600 temp file),
- * and only sent to www.space-track.org.
+ * put on a command line, and only sent to www.space-track.org.
  *
- * Each request is one POST to /ajaxauth/login with the query included,
- * so there is no session to keep. Space-Track's guidelines: under 30
+ * Each fetch signs in (POST /ajaxauth/login), runs the query with the
+ * session cookie and signs out, over OpenSSL directly so neither the
+ * password nor the cookie ever appears on a command line. Space-Track's guidelines: under 30
  * requests a minute and 300 an hour, and don't fetch the same GP data
  * more than about once an hour. This stays far inside that: at most
  * 12 requests an hour, and a failed sign-in stops all requests for a
@@ -34,8 +34,12 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 
-#define ST_LOGIN    "https://www.space-track.org/ajaxauth/login"
 #define ST_BASE     "https://www.space-track.org"
 #define ST_STATE    "/data/cache/pi-clock-spacetrack.state"
 #define ST_PER_HOUR 12
@@ -156,12 +160,122 @@ static int tidy_tle(const char *path)
     return n;
 }
 
+#define ST_HOST "www.space-track.org"
+
+/*
+ * One HTTPS request to Space-Track (HTTP/1.0, so no chunking and the
+ * server closes the connection). The certificate and host name are
+ * verified. Reply body goes to `out` (if given); cookies from the
+ * reply are collected into `cookies` as "a=b; c=d". Returns the HTTP
+ * status, or -1. Headers and body may hold the password or the
+ * session cookie: they live only in this process's memory.
+ */
+static int st_https(const char *method, const char *path, const char *cookie,
+                    const char *body, FILE *out, char *cookies, size_t cn)
+{
+    struct addrinfo hints, *ai = NULL, *a;
+    SSL_CTX *ctx = NULL;
+    SSL *ssl = NULL;
+    int fd = -1, status = -1, n, inhdr = 1;
+    char req[2048], buf[8192], hdr[8192];
+    size_t hl = 0;
+    struct timeval tv = { 30, 0 };
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(ST_HOST, "443", &hints, &ai) != 0) return -1;
+    for (a = ai; a; a = a->ai_next) {
+        fd = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
+        if (fd < 0) continue;
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        if (connect(fd, a->ai_addr, a->ai_addrlen) == 0) break;
+        close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(ai);
+    if (fd < 0) return -1;
+
+    ctx = SSL_CTX_new(TLS_client_method());
+    if (!ctx) goto done;
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+    if (SSL_CTX_set_default_verify_paths(ctx) != 1) goto done;
+    ssl = SSL_new(ctx);
+    if (!ssl) goto done;
+    SSL_set_fd(ssl, fd);
+    SSL_set_tlsext_host_name(ssl, ST_HOST);
+    SSL_set1_host(ssl, ST_HOST);
+    if (SSL_connect(ssl) != 1) goto done;
+
+    {
+        char extra[1200] = "";
+        if (cookie && *cookie)
+            snprintf(extra, sizeof(extra), "Cookie: %s\r\n", cookie);
+        if (body) {
+            size_t el = strlen(extra);
+            snprintf(extra + el, sizeof(extra) - el,
+                     "Content-Type: application/x-www-form-urlencoded\r\n"
+                     "Content-Length: %zu\r\n", strlen(body));
+        }
+        n = snprintf(req, sizeof(req),
+                     "%s %s HTTP/1.0\r\nHost: " ST_HOST "\r\nUser-Agent: %s\r\n%s\r\n",
+                     method, path, pic_fetch_get_useragent(), extra);
+        memset(extra, 0, sizeof(extra));
+    }
+    if (n <= 0 || (size_t)n >= sizeof(req)) goto done;
+    if (SSL_write(ssl, req, n) != n) goto done;
+    if (body && SSL_write(ssl, body, (int)strlen(body)) != (int)strlen(body)) goto done;
+    memset(req, 0, sizeof(req));
+
+    if (cookies && cn) cookies[0] = 0;
+    while ((n = SSL_read(ssl, buf, sizeof(buf))) > 0) {
+        int off = 0;
+        if (inhdr) {
+            char *end;
+            size_t take = (size_t)n < sizeof(hdr) - 1 - hl ? (size_t)n : sizeof(hdr) - 1 - hl;
+            memcpy(hdr + hl, buf, take);
+            hl += take;
+            hdr[hl] = 0;
+            end = strstr(hdr, "\r\n\r\n");
+            if (!end) continue;
+            inhdr = 0;
+            off = (int)((end + 4 - hdr) - (hl - take));
+            {
+                char *line, *sp;
+                if (sscanf(hdr, "HTTP/%*s %d", &status) != 1) status = -1;
+                for (line = strtok_r(hdr, "\r\n", &sp); line; line = strtok_r(NULL, "\r\n", &sp)) {
+                    if (cookies && strncasecmp(line, "Set-Cookie:", 11) == 0) {
+                        char *v = line + 11;
+                        size_t used = strlen(cookies);
+                        while (*v == ' ') v++;
+                        v[strcspn(v, ";")] = 0;
+                        snprintf(cookies + used, cn - used, "%s%s", used ? "; " : "", v);
+                    }
+                }
+            }
+            memset(hdr, 0, sizeof(hdr));
+        }
+        if (out && n > off) fwrite(buf + off, 1, (size_t)(n - off), out);
+    }
+done:
+    if (ssl) { SSL_shutdown(ssl); SSL_free(ssl); }
+    if (ctx) SSL_CTX_free(ctx);
+    if (fd >= 0) close(fd);
+    return status;
+}
+
+static pic_spacetrack_transport st_req = st_https;
+
+void pic_spacetrack_set_transport(pic_spacetrack_transport fn)
+{
+    st_req = fn ? fn : st_https;
+}
+
 int pic_spacetrack_fetch(const char *query, const char *path)
 {
-    char id[160], pw[160], body[6400], eid[480], epw[480], q[2400], eq[4800];
+    char id[160], pw[160], body[1100], eid[480], epw[480];
     time_t now = time(NULL);
-    int i, oldest = 0, rc, n;
-    FILE *f;
+    int i, oldest = 0, n;
     char head[64] = "";
 
     if (!read_cred(id, sizeof(id), pw, sizeof(pw))) return -1;
@@ -185,39 +299,62 @@ int pic_spacetrack_fetch(const char *query, const char *path)
     save();
     pthread_mutex_unlock(&mu);
 
-    snprintf(q, sizeof(q), "%s%s", ST_BASE, query);
-    urlenc(eid, sizeof(eid), id);
-    urlenc(epw, sizeof(epw), pw);
-    urlenc(eq, sizeof(eq), q);
-    snprintf(body, sizeof(body), "identity=%s&password=%s&query=%s", eid, epw, eq);
-    memset(pw, 0, sizeof(pw));
-    memset(epw, 0, sizeof(epw));
-
-    rc = pic_fetch_post_form_to_file(ST_LOGIN, body, path, 90);
-    memset(body, 0, sizeof(body));
-    if (rc != 0) { unlink(path); return -1; }
-
-    /* A refused sign-in still answers 200: {"Login":"Failed"} */
-    if ((f = fopen(path, "r")) != NULL) {
-        if (!fgets(head, sizeof(head), f)) head[0] = 0;
-        fclose(f);
-    }
-    if (strstr(head, "Login") && strstr(head, "Failed")) {
-        pthread_mutex_lock(&mu);
-        pause_until = now + 86400;
-        save();
-        pthread_mutex_unlock(&mu);
-        unlink(path);
-        printf("spacetrack: sign-in refused, check the account in the dashboard (no requests for 24 h)\n");
-        pic_status_report(ST_BASE, 0, "sign-in refused");
-        return -1;
+    {
+        char cookies[1024] = "";
+        FILE *f2;
+        int st;
+        urlenc(eid, sizeof(eid), id);
+        urlenc(epw, sizeof(epw), pw);
+        snprintf(body, sizeof(body), "identity=%s&password=%s", eid, epw);
+        memset(pw, 0, sizeof(pw));
+        memset(epw, 0, sizeof(epw));
+        /* sign in: "" means yes, {"Login":"Failed"} means no */
+        f2 = tmpfile();
+        st = st_req("POST", "/ajaxauth/login", NULL, body, f2, cookies, sizeof(cookies));
+        memset(body, 0, sizeof(body));
+        head[0] = 0;
+        if (f2) {
+            rewind(f2);
+            if (!fgets(head, sizeof(head), f2)) head[0] = 0;
+            fclose(f2);
+        }
+        if (st == 200 && strstr(head, "Failed")) {
+            pthread_mutex_lock(&mu);
+            pause_until = now + 86400;
+            save();
+            pthread_mutex_unlock(&mu);
+            printf("spacetrack: sign-in refused, check the account in the dashboard (no requests for 24 h)\n");
+            pic_status_report(ST_BASE, 0, "sign-in refused");
+            return -1;
+        }
+        if (st != 200 || !cookies[0]) {
+            printf("spacetrack: sign-in failed (HTTP %d)\n", st);
+            pic_status_report(ST_BASE, 0, st < 0 ? "can't connect" : "sign-in failed");
+            return -1;
+        }
+        /* the query */
+        f2 = fopen(path, "w");
+        if (!f2) return -1;
+        st = st_req("GET", query, cookies, NULL, f2, NULL, 0);
+        fclose(f2);
+        /* sign out */
+        st_req("GET", "/ajaxauth/logout", cookies, NULL, NULL, NULL, 0);
+        memset(cookies, 0, sizeof(cookies));
+        if (st != 200) {
+            printf("spacetrack: query failed (HTTP %d)\n", st);
+            pic_status_report(ST_BASE, 0, "query failed");
+            unlink(path);
+            return -1;
+        }
     }
     n = tidy_tle(path);
     if (n <= 0) {
+        printf("spacetrack: no satellites in the reply\n");
         /* "[]" or an error page: nothing usable */
         unlink(path);
         return -1;
     }
-    printf("spacetrack: %d satellites (%s)\n", n, query);
+    printf("spacetrack: %d satellites\n", n);
+    pic_status_report(ST_BASE, 1, NULL);
     return 0;
 }

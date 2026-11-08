@@ -982,3 +982,19 @@ void pic_sat_position_at(const pic_sat_t *sat, time_t t,
     double jd = 2440587.5 + (double)t / 86400.0;
     sgp4_at_time(sat, jd, lat, lon, alt_km);
 }
+
+int pic_tle_catnr(const char *line1)
+{
+    static const char *L = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    const char *p;
+    char c;
+    if (!line1 || strlen(line1) < 7) return 0;
+    c = line1[2];
+    if (c >= 'A' && c <= 'Z' && (p = strchr(L, c)) != NULL) {
+        char digits[5];
+        memcpy(digits, line1 + 3, 4);
+        digits[4] = 0;
+        return (int)(p - L + 10) * 10000 + atoi(digits);
+    }
+    return atoi(line1 + 2);
+}

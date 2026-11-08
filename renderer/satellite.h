@@ -107,6 +107,13 @@ void pic_sat_load_config(pic_satlist_t *list);
 int pic_sat_parse_tle(pic_sat_t *sat, const char *line1, const char *line2);
 
 /*
+ * Catalog number from TLE line 1 (columns 3-7). Handles Alpha-5, used
+ * since the 5-digit numbers ran out: "A0983" = 100983 (A=10, B=11 ...
+ * Z=33, skipping I and O).
+ */
+int pic_tle_catnr(const char *line1);
+
+/*
  * pic_sat_position_at - Sub-satellite point and altitude at time t,
  * using the same simplified SGP4 as the tracker.
  */
