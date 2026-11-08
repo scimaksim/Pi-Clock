@@ -417,6 +417,21 @@ typedef struct {
     cairo_surface_t *photo;
     int inset_z, inset_tx0, inset_ty0;
     time_t checked;
+    /* the picture's camera model (CAHV, rover frame) and the rover's
+     * attitude (quaternion rover -> site: north, east, down) */
+    int geom;
+    double cC[3], cA[3], cH[3], cV[3], q[4];
+    double sub_x0, sub_y0, sub_w, sub_h, img_scale;   /* subframe, downsampling */
+    /* zoomed view: tiles at ZOOM_Z around the rover */
+    int ztx0, zty0, ztw, zth, ztiles_ready;
+    double zox, zoy;
+    cairo_surface_t *zoom;
+    double zoom_ox, zoom_oy;
+    /* elevation patch around the rover (tools/dem_patch.py) */
+    float *dem;
+    int dem_w, dem_h;
+    double dem_lat, dem_lon, dem_step;
+    time_t dem_mtime;
 } rover_t;
 
 static rover_t ROVERS[] = {
@@ -793,8 +808,9 @@ static void fmt_link(char *out, size_t n, const dsn_link_t *L)
 static unsigned want_mask;        /* bit w: world w is in the cycle     */
 static pic_feature_t worlds_feature;
 static int dust_on = 1;           /* MARS_DUST_CLIM: typical-dust haze   */
-static int labels_on = 1;
-static int relief_on = 1;         /* VIEW_WORLD_RELIEF: shaded relief */         /* VIEW_WORLD_LABELS: feature names */
+static int labels_on = 1;         /* VIEW_WORLD_LABELS: feature names */
+static int relief_on = 1;         /* VIEW_WORLD_RELIEF: shaded relief */
+static int zoom_on = 1;           /* VIEW_MARS_ZOOM: rover close-ups */
 static double grs_l2_set = -1;    /* JUPITER_GRS_L2 (System II), -1 = estimate */
 
 static void worlds_reload(pic_feature_t *f)
@@ -815,6 +831,7 @@ static void worlds_reload(pic_feature_t *f)
     dust_on = pic_conf_int("MARS_DUST_CLIM", 1) != 0;
     labels_on = pic_conf_int("VIEW_WORLD_LABELS", 1) != 0;
     relief_on = pic_conf_int("VIEW_WORLD_RELIEF", 1) != 0;
+    zoom_on = pic_conf_int("VIEW_MARS_ZOOM", 1) != 0;
 }
 
 static int worlds_wanted(pic_feature_t *f)
@@ -848,6 +865,9 @@ static int rover_photo_choose(rover_t *r, const char *txt);
 
 static pthread_once_t cache_once = PTHREAD_ONCE_INIT;
 
+static void fetch_zoom_tiles(rover_t *r);
+static void zoom_tiles_check(rover_t *r);
+
 static void load_all_cache(void)
 {
     int i;
@@ -866,6 +886,7 @@ static void load_all_cache(void)
     snprintf(path, sizeof(path), "%s/msl_weather.json", dir_cache());
     if ((txt = slurp(path, NULL)) != NULL) { wx_parse(txt); free(txt); }
     for (i = 0; i < NROVERS; i++) rover_tiles_check(&ROVERS[i]);
+    for (i = 0; i < NROVERS; i++) zoom_tiles_check(&ROVERS[i]);
     if (getenv("PIC_PV_DSN_FILE")) {            /* tests: a saved dsn.xml */
         txt = slurp(getenv("PIC_PV_DSN_FILE"), NULL);
         if (txt) {
@@ -1003,7 +1024,7 @@ static void json_each(const char *txt, const char *key, void (*fn)(const char *,
     free(obj);
 }
 
-typedef struct { int msl, best_sol, max_sol, rank; char url[320], ins[40], date[24]; } pick_t;
+typedef struct { int msl, best_sol, max_sol, rank; char url[320], ins[40], date[24], cahv[600], att[96], sub[48], dim[48]; } pick_t;
 
 static void raw_scan_max(const char *o, void *ud)
 {
@@ -1046,7 +1067,34 @@ static void raw_pick(const char *o, void *ud)
         snprintf(k->url, sizeof(k->url), "%s", url);
         snprintf(k->ins, sizeof(k->ins), "%s", ins);
         snprintf(k->date, sizeof(k->date), "%s", date);
+        /* pointing: camera model, attitude, subframe (both feeds) */
+        k->cahv[0] = k->att[0] = k->sub[0] = k->dim[0] = 0;
+        json_str(o, "\"camera_model_component_list\"", k->cahv, sizeof(k->cahv));
+        json_str(o, "\"attitude\"", k->att, sizeof(k->att));
+        if (k->msl) {
+            json_str(o, "\"subframe_rect\"", k->sub, sizeof(k->sub));
+        } else {
+            json_str(o, "\"subframeRect\"", k->sub, sizeof(k->sub));
+            json_str(o, "\"dimension\"", k->dim, sizeof(k->dim));
+        }
     }
+}
+
+/* "(a,b,c);(d,e,f);..." -> the first four vectors (CAHV) */
+static int parse_cahv(const char *s, double C[3], double A[3], double H[3], double V[3])
+{
+    double v[12];
+    int i = 0;
+    const char *p = s;
+    while (i < 12 && (p = strchr(p, '(')) != NULL) {
+        if (sscanf(p, "(%lf,%lf,%lf)", &v[i], &v[i + 1], &v[i + 2]) != 3) return 0;
+        i += 3;
+        p++;
+    }
+    if (i < 12) return 0;
+    memcpy(C, v, sizeof(double) * 3); memcpy(A, v + 3, sizeof(double) * 3);
+    memcpy(H, v + 6, sizeof(double) * 3); memcpy(V, v + 9, sizeof(double) * 3);
+    return 1;
 }
 
 /* Choose the picture from a raw-image feed reply into r (no download) */
@@ -1077,6 +1125,17 @@ static int rover_photo_choose(rover_t *r, const char *txt)
     }
     r->photo_sol = k.best_sol;
     r->photo_rank = k.rank;
+    {
+        double x0, y0, w, h, dw = 0, dh = 0;
+        r->geom = parse_cahv(k.cahv, r->cC, r->cA, r->cH, r->cV) &&
+                  sscanf(k.att, "(%lf,%lf,%lf,%lf)", &r->q[0], &r->q[1], &r->q[2], &r->q[3]) == 4 &&
+                  sscanf(k.sub, "(%lf,%lf,%lf,%lf)", &x0, &y0, &w, &h) == 4 && w > 0 && h > 0;
+        if (r->geom) {
+            r->sub_x0 = x0 - 1; r->sub_y0 = y0 - 1; r->sub_w = w; r->sub_h = h;
+            r->img_scale = 1;
+            if (sscanf(k.dim, "(%lf,%lf)", &dw, &dh) == 2 && dw > 0 && dw < w) r->img_scale = dw / w;
+        }
+    }
     pthread_mutex_unlock(&data_lock);
     return 1;
 }
@@ -1121,6 +1180,7 @@ static void fetch_rover_photo(rover_t *r)
         free(old);
     }
 }
+
 
 static int fetch_rover(rover_t *r, time_t now)
 {
@@ -1182,6 +1242,7 @@ static int fetch_rover(rover_t *r, time_t now)
         r->tiles_ready = all;
         pthread_mutex_unlock(&data_lock);
     }
+    if (zoom_on) fetch_zoom_tiles(r);
     return fetched;
 }
 
@@ -2346,7 +2407,7 @@ static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit, int dus
         { "status unconfirmed", ST_UNKNOWN }, { "crash / impact", ST_CRASH } };
     double s = F->s, x = F->mx + 12 * s, y, fs = 10 * s, cx;
     double bottom = F->my + F->mh;
-    if (w == PIC_WORLD_MARS) x = F->mx + (2 * INSET_W + 50) * s;   /* right of the rover insets */
+    if (w == PIC_WORLD_MARS && !zoom_on) x = F->mx + (2 * INSET_W + 50) * s;   /* right of the rover insets */
     int i;
     if (&pic_ticker_bar_top && pic_ticker_bar_top > 0 && pic_ticker_bar_top < bottom) bottom = pic_ticker_bar_top;
     y = bottom - 30 * s;
@@ -2657,6 +2718,613 @@ static void draw_labels(cairo_t *cr, frame_t *F, int w, int tier)
         }
 }
 
+
+/* ── 10c. Mars: zoomed-in rover views ──────────────────────────── */
+
+/*
+ * In the Mars slot the view takes turns: the whole planet, then each
+ * rover's surroundings close up (HiRISE colour at ZOOM_Z) with its
+ * latest picture. The camera model and rover attitude published with
+ * the picture give the direction and width of the view (the wedge);
+ * with an elevation patch around the rover (tools/dem_patch.py: USGS
+ * 1 m Gale / 20 m Jezero models) each image column is traced over the
+ * terrain to outline the ground actually in the picture, and the
+ * skyline band ("A") is marked on both the map and the picture.
+ */
+#define ZOOM_Z   16
+#define ZOOM_W   1920
+#define ZOOM_H   960
+#define ZOOM_RX  0.38          /* rover at 38% of the width, mid-height */
+#define FP_COLS  48
+#define R_MARS_EQ 3396190.0    /* sphere used by the elevation models */
+
+
+static void zoom_tiles_plan(rover_t *r)
+{
+    double cx, cy;
+    merc_px(r->lon, r->lat, ZOOM_Z, &cx, &cy);
+    r->zox = floor(cx - ZOOM_W * ZOOM_RX);
+    r->zoy = floor(cy - ZOOM_H / 2.0);
+    r->ztx0 = (int)floor(r->zox / 256.0);
+    r->zty0 = (int)floor(r->zoy / 256.0);
+    r->ztw = (int)floor((r->zox + ZOOM_W - 1) / 256.0) - r->ztx0 + 1;
+    r->zth = (int)floor((r->zoy + ZOOM_H - 1) / 256.0) - r->zty0 + 1;
+}
+
+/* Are all the zoomed view's tiles on disk? (at start-up) */
+static void zoom_tiles_check(rover_t *r)
+{
+    int x, y, all = 1;
+    char path[256];
+    struct stat st;
+    if (!r->have) return;
+    zoom_tiles_plan(r);
+    for (y = r->zty0; y < r->zty0 + r->zth; y++)
+        for (x = r->ztx0; x < r->ztx0 + r->ztw; x++) {
+            tile_path(path, sizeof(path), r, ZOOM_Z, x, y);
+            if (stat(path, &st) != 0 || st.st_size <= 100) all = 0;
+        }
+    r->ztiles_ready = all;
+}
+
+/* Fetch thread: download the zoomed view's tiles (once per rover move) */
+static void fetch_zoom_tiles(rover_t *r)
+{
+    int x, y, all = 1, nt = 1 << ZOOM_Z, tx0, ty0, tw, th;
+    char path[256], url[320];
+    struct stat st;
+    pthread_mutex_lock(&data_lock);
+    if (!r->have) { pthread_mutex_unlock(&data_lock); return; }
+    zoom_tiles_plan(r);
+    tx0 = r->ztx0; ty0 = r->zty0; tw = r->ztw; th = r->zth;
+    pthread_mutex_unlock(&data_lock);
+    for (y = ty0; y < ty0 + th; y++)
+        for (x = tx0; x < tx0 + tw; x++) {
+            tile_path(path, sizeof(path), r, ZOOM_Z, x, y);
+            if (stat(path, &st) == 0 && st.st_size > 100) continue;
+            snprintf(url, sizeof(url), "%s/%d/%d/%d.png", ROVER_TILES[r - ROVERS], ZOOM_Z, x, nt - 1 - y);
+            if (pic_fetch_to_file(url, path, 60) != 0) { unlink(path); all = 0; }
+        }
+    pthread_mutex_lock(&data_lock);
+    r->ztiles_ready = all;
+    pthread_mutex_unlock(&data_lock);
+}
+
+/* Render thread: compose the tiles once per rover position */
+static cairo_surface_t *zoom_get(rover_t *r)
+{
+    int x, y;
+    cairo_t *c;
+    if (!r->ztiles_ready) return NULL;
+    if (r->zoom && r->zoom_ox == r->zox && r->zoom_oy == r->zoy) return r->zoom;
+    if (r->zoom) cairo_surface_destroy(r->zoom);
+    r->zoom = cairo_image_surface_create(CAIRO_FORMAT_RGB24, ZOOM_W, ZOOM_H);
+    c = cairo_create(r->zoom);
+    cairo_set_source_rgb(c, 0.1, 0.07, 0.05);
+    cairo_paint(c);
+    for (y = r->zty0; y < r->zty0 + r->zth; y++)
+        for (x = r->ztx0; x < r->ztx0 + r->ztw; x++) {
+            char path[256];
+            cairo_surface_t *t;
+            tile_path(path, sizeof(path), r, ZOOM_Z, x, y);
+            t = pic_image_load(path);
+            if (!t) continue;
+            cairo_set_source_surface(c, t, x * 256.0 - r->zox, y * 256.0 - r->zoy);
+            cairo_paint(c);
+            cairo_surface_destroy(t);
+        }
+    cairo_destroy(c);
+    r->zoom_ox = r->zox;
+    r->zoom_oy = r->zoy;
+    return r->zoom;
+}
+
+/* Elevation patch: "PDEM", int32 w, h, double lat, lon (centre),
+ * step (m), then w*h float32 metres, row 0 = north edge */
+static void dem_load(rover_t *r)
+{
+    char path[256];
+    struct stat st;
+    FILE *f;
+    char mg[4];
+    int32_t wh[2];
+    double hd[3];
+    snprintf(path, sizeof(path), "%s/%s_dem.bin", dir_cache(), r->key);
+    if (stat(path, &st) != 0) return;
+    if (r->dem && st.st_mtime == r->dem_mtime) return;
+    f = fopen(path, "rb");
+    if (!f) return;
+    if (fread(mg, 1, 4, f) == 4 && !memcmp(mg, "PDEM", 4) && fread(wh, 4, 2, f) == 2 &&
+        fread(hd, 8, 3, f) == 3 && wh[0] > 10 && wh[1] > 10 && wh[0] < 8000 && wh[1] < 8000) {
+        float *d = malloc((size_t)wh[0] * wh[1] * sizeof(float));
+        if (d && fread(d, sizeof(float), (size_t)wh[0] * wh[1], f) == (size_t)wh[0] * wh[1]) {
+            free(r->dem);
+            r->dem = d;
+            r->dem_w = wh[0]; r->dem_h = wh[1];
+            r->dem_lat = hd[0]; r->dem_lon = hd[1]; r->dem_step = hd[2];
+            r->dem_mtime = st.st_mtime;
+        } else {
+            free(d);
+        }
+    }
+    fclose(f);
+}
+
+static void qrot(const double q[4], const double v[3], double out[3])
+{
+    double w = q[0], x = q[1], y = q[2], z = q[3];
+    double t[3] = { 2 * (y * v[2] - z * v[1]), 2 * (z * v[0] - x * v[2]), 2 * (x * v[1] - y * v[0]) };
+    out[0] = v[0] + w * t[0] + (y * t[2] - z * t[1]);
+    out[1] = v[1] + w * t[1] + (z * t[0] - x * t[2]);
+    out[2] = v[2] + w * t[2] + (x * t[1] - y * t[0]);
+}
+
+static double vdot(const double a[3], const double b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+/* Ray through full-frame pixel (px, py), in the site frame (N, E, down) */
+static void pixel_ray(const rover_t *r, double px, double py, double out[3])
+{
+    double a[3], b[3], v[3], n;
+    int i;
+    for (i = 0; i < 3; i++) { a[i] = r->cV[i] - py * r->cA[i]; b[i] = r->cH[i] - px * r->cA[i]; }
+    v[0] = a[1] * b[2] - a[2] * b[1];
+    v[1] = a[2] * b[0] - a[0] * b[2];
+    v[2] = a[0] * b[1] - a[1] * b[0];
+    if (vdot(v, r->cA) < 0) { v[0] = -v[0]; v[1] = -v[1]; v[2] = -v[2]; }
+    n = sqrt(vdot(v, v));
+    for (i = 0; i < 3; i++) v[i] /= n;
+    qrot(r->q, v, out);
+}
+
+/* Elevation (m) at north/east offset (m) from the rover; NAN outside */
+static double dem_at(const rover_t *r, double n_m, double e_m)
+{
+    double coslat = cos(r->dem_lat * D2R);
+    double dn = (r->lat - r->dem_lat) * D2R * R_MARS_EQ + n_m;
+    double de = (r->lon - r->dem_lon) * D2R * R_MARS_EQ * coslat + e_m;
+    double row = r->dem_h / 2.0 - dn / r->dem_step - 0.5, col = r->dem_w / 2.0 + de / r->dem_step - 0.5;
+    int i = (int)floor(row), j = (int)floor(col);
+    double fr = row - i, fc = col - j;
+    const float *p;
+    if (i < 0 || j < 0 || i >= r->dem_h - 1 || j >= r->dem_w - 1) return NAN;
+    p = r->dem + (size_t)i * r->dem_w + j;                 /* bilinear */
+    return (p[0] * (1 - fc) + p[1] * fc) * (1 - fr) + (p[r->dem_w] * (1 - fc) + p[r->dem_w + 1] * fc) * fr;
+}
+
+typedef struct {
+    int ok, n;
+    double near_d[FP_COLS + 1], far_d[FP_COLS + 1], az[FP_COLS + 1];
+    double band_px[FP_COLS + 1], band_top[FP_COLS + 1], band_bot[FP_COLS + 1];
+    int band_ok[FP_COLS + 1];
+    double dmin, dmax, nmin, az_c, el_c, fov, el_top, hcam;
+    int sky;                   /* the picture reaches the skyline        */
+} footprint_t;
+
+/* Trace each image column over the terrain */
+static void footprint_calc(const rover_t *r, footprint_t *fp)
+{
+    double C_site[3], hcam, z0, g0;
+    int k;
+    memset(fp, 0, sizeof(*fp));
+    if (!r->geom) return;
+    {   /* centre direction and width (edge columns at mid-height) */
+        double c[3], lft[3], rgt[3], my = r->sub_y0 + r->sub_h / 2;
+        pixel_ray(r, r->sub_x0 + r->sub_w / 2, my, c);
+        pixel_ray(r, r->sub_x0, my, lft);
+        pixel_ray(r, r->sub_x0 + r->sub_w - 1, my, rgt);
+        fp->az_c = fmod(atan2(c[1], c[0]) / D2R + 360, 360);
+        fp->el_c = -asin(c[2]) / D2R;
+        fp->fov = acos(fmax(-1, fmin(1, vdot(lft, rgt)))) / D2R;
+        pixel_ray(r, r->sub_x0 + r->sub_w / 2, r->sub_y0, c);
+        fp->el_top = -asin(c[2]) / D2R;
+    }
+    qrot(r->q, r->cC, C_site);
+    hcam = fmax(0.5, fmin(3.0, -C_site[2]));
+    fp->hcam = hcam;
+    fp->ok = 1;
+    if (!r->dem) return;
+    g0 = dem_at(r, 0, 0);
+    if (isnan(g0)) return;
+    z0 = g0 + hcam;
+    fp->dmin = 1e9; fp->dmax = 0; fp->nmin = 1e9;
+    for (k = 0; k <= FP_COLS; k++) {
+        double px = r->sub_x0 + r->sub_w * k / FP_COLS, bot[3], top[3], tb, tt, dn, de, d, best = -1e9;
+        double first = 0, last = 0;
+        pixel_ray(r, px, r->sub_y0 + r->sub_h - 1, bot);
+        pixel_ray(r, px, r->sub_y0, top);
+        fp->az[k] = atan2(bot[1], bot[0]);
+        dn = cos(fp->az[k]); de = sin(fp->az[k]);
+        tb = -asin(bot[2]); tt = -asin(top[2]);
+        for (d = 0.25; d < 6000; d += d < 10 ? 0.1 : d < 50 ? 1 : d < 300 ? 2 : d < 1500 ? 4 : 8) {
+            double g = dem_at(r, dn * d, de * d), ang;
+            if (isnan(g)) break;
+            ang = atan2(g - z0, d);
+            if (ang > best) {                 /* visible from the camera */
+                best = ang;
+                if (ang >= tb && ang <= tt) { if (!first) first = d; last = d; }
+            }
+        }
+        fp->near_d[k] = first;
+        fp->far_d[k] = last;
+        if (last > 0) {
+            fp->n++;
+            if (last < fp->dmin) fp->dmin = last;
+            if (last > fp->dmax) fp->dmax = last;
+            if (first < fp->nmin) fp->nmin = first;
+        }
+    }
+    if (!fp->n) return;
+    /* the band just below the far edge, projected into the picture */
+    for (k = 0; k <= FP_COLS; k++) {
+        double d, top = 1e9, botm = -1e9, sumx = 0;
+        int cnt = 0;
+        double qi[4] = { r->q[0], -r->q[1], -r->q[2], -r->q[3] };
+        if (fp->far_d[k] <= 0) continue;
+        for (d = fp->far_d[k] * 0.8; d <= fp->far_d[k] + 0.5; d += fmax(1.0, fp->far_d[k] / 60)) {
+            double g = dem_at(r, cos(fp->az[k]) * d, sin(fp->az[k]) * d), v[3], P[3], pa;
+            int i;
+            if (isnan(g)) continue;
+            /* site frame, origin at the rover's ground point (z down) */
+            v[0] = cos(fp->az[k]) * d; v[1] = sin(fp->az[k]) * d; v[2] = -(g - g0);
+            qrot(qi, v, P);                                 /* rover frame */
+            for (i = 0; i < 3; i++) P[i] -= r->cC[i];
+            pa = vdot(P, r->cA);
+            if (pa <= 0) continue;
+            {
+                double x = vdot(P, r->cH) / pa - r->sub_x0, y = vdot(P, r->cV) / pa - r->sub_y0;
+                sumx += x; cnt++;
+                if (y < top) top = y;
+                if (y > botm) botm = y;
+            }
+        }
+        if (cnt) {
+            fp->band_ok[k] = 1;
+            fp->band_px[k] = sumx / cnt;
+            fp->band_top[k] = top;
+            fp->band_bot[k] = botm;
+        }
+    }
+    fp->sky = fp->dmax > 50;
+    if (!fp->sky) fp->dmin = fp->nmin;     /* close-up: from its nearest ground */
+}
+
+static const char *compass16(double az)
+{
+    static const char *N[] = { "north", "north-northeast", "northeast", "east-northeast", "east",
+        "east-southeast", "southeast", "south-southeast", "south", "south-southwest", "southwest",
+        "west-southwest", "west", "west-northwest", "northwest", "north-northwest" };
+    return N[(int)floor(fmod(az + 11.25 + 360, 360) / 22.5) % 16];
+}
+
+static void zoom_xy(const rover_t *r, double lon, double lat, double sc, double *x, double *y)
+{
+    double px, py;
+    merc_px(lon, lat, ZOOM_Z, &px, &py);
+    *x = (px - r->zoom_ox) * sc;
+    *y = (py - r->zoom_oy) * sc;
+}
+
+/* offset (m north, m east) from the rover -> lon, lat */
+static void off_ll(const rover_t *r, double n_m, double e_m, double *lon, double *lat)
+{
+    *lat = r->lat + n_m / (R_MARS_EQ * D2R);
+    *lon = r->lon + e_m / (R_MARS_EQ * D2R * cos(r->lat * D2R));
+}
+
+
+/* The zoomed view of one rover. Returns 0 when it isn't ready. */
+static int render_zoom(cairo_t *cr, frame_t *F, rover_t *r, double t)
+{
+    cairo_surface_t *map = zoom_get(r);
+    double s = F->s, sc = F->mw / (double)ZOOM_W, rx, ry, mpp;
+    footprint_t fp;
+    char title[64], line[256];
+    int k;
+    const int A_R = 90, A_G = 230, A_B = 255;     /* box A colour */
+    if (!map || !r->have) return 0;
+    dem_load(r);
+    footprint_calc(r, &fp);
+    mpp = 2 * M_PI * R_MARS_EQ * cos(r->lat * D2R) / (256.0 * (1 << ZOOM_Z)) / sc;   /* m per screen px */
+
+    cairo_save(cr);
+    cairo_translate(cr, F->mx, F->my);
+    cairo_rectangle(cr, 0, 0, F->mw, F->mh);
+    cairo_clip(cr);
+    cairo_save(cr);
+    cairo_scale(cr, sc, sc);
+    cairo_set_source_surface(cr, map, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+    cairo_paint(cr);
+    cairo_restore(cr);
+    zoom_xy(r, r->lon, r->lat, sc, &rx, &ry);
+
+    /* route of the last drives */
+    if (r->pts && r->nfeat > 0) {
+        int i0 = r->feat_start[r->nfeat > 12 ? r->nfeat - 12 : 0], i;
+        for (i = i0; i < r->npts; i++) {
+            double x, y;
+            zoom_xy(r, r->pts[2 * i], r->pts[2 * i + 1], sc, &x, &y);
+            if (i == i0) cairo_move_to(cr, x, y); else cairo_line_to(cr, x, y);
+        }
+        cairo_set_source_rgba(cr, 1.0, 0.8, 0.24, 0.9);
+        cairo_set_line_width(cr, 3 * s);
+        cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+        cairo_stroke(cr);
+    }
+
+    /* the rover */
+    draw_thing(cr, r->sprite, r->kind, rx, ry, 56 * s, 0);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 15 * s);
+    text_outline(cr, rx + 34 * s, ry - 6 * s, r->name, 0.5, 1.0, 0.6, 1);
+    {
+        char l2[96];
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 11 * s);
+        snprintf(l2, sizeof(l2), "sol %d \xc2\xb7 %.2f km driven", mission_sol(r, t), r->dist_total / 1000);
+        text_outline(cr, rx + 34 * s, ry + 10 * s, l2, 0.9, 0.92, 0.95, 1);
+    }
+
+    /* the wedge: direction and width of the picture */
+    if (fp.ok) {
+        double reach = 1100 / mpp, a0 = fp.az[0], a1 = fp.az[FP_COLS];
+        /* aimed at the ground: the wedge ends where the top of the
+         * picture meets it (the traced ground, else flat ground) */
+        if (fp.n && !fp.sky) reach = fmax(fp.dmax * 1.3, 12 * s * mpp) / mpp;
+        else if (!fp.n && fp.el_top < -2) reach = fmin(1100, fp.hcam / tan(-fp.el_top * D2R) * 1.3) / mpp;
+        if (reach < 14 * s) reach = 14 * s;
+        cairo_pattern_t *g = cairo_pattern_create_radial(rx, ry, 0, rx, ry, reach);
+        cairo_pattern_add_color_stop_rgba(g, 0, 1, 0.69, 0.2, 0.32);
+        cairo_pattern_add_color_stop_rgba(g, 1, 1, 0.69, 0.2, 0.04);
+        cairo_move_to(cr, rx, ry);
+        for (k = 0; k <= 30; k++) {
+            double a = a0 + (a1 - a0) * k / 30.0;   /* screen: x east, y south */
+            if (fabs(a1 - a0) > M_PI) a = a0 + (a1 - a0 - (a1 > a0 ? 2 * M_PI : -2 * M_PI)) * k / 30.0;
+            cairo_line_to(cr, rx + reach * sin(a), ry - reach * cos(a));
+        }
+        cairo_close_path(cr);
+        cairo_set_source(cr, g);
+        cairo_fill_preserve(cr);
+        cairo_pattern_destroy(g);
+        cairo_set_source_rgba(cr, 1, 0.75, 0.3, 0.85);
+        cairo_set_line_width(cr, 1.6 * s);
+        cairo_stroke(cr);
+    }
+
+    /* the ground in the picture, and the band A below its far edge */
+    if (fp.n) {
+        double bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
+        int first = 1;
+        for (k = 0; k <= FP_COLS; k++) {
+            double lon, lat, x, y;
+            if (fp.near_d[k] <= 0) continue;
+            off_ll(r, cos(fp.az[k]) * fp.near_d[k], sin(fp.az[k]) * fp.near_d[k], &lon, &lat);
+            zoom_xy(r, lon, lat, sc, &x, &y);
+            if (first) cairo_move_to(cr, x, y); else cairo_line_to(cr, x, y);
+            first = 0;
+        }
+        for (k = FP_COLS; k >= 0; k--) {
+            double lon, lat, x, y;
+            if (fp.far_d[k] <= 0) continue;
+            off_ll(r, cos(fp.az[k]) * fp.far_d[k], sin(fp.az[k]) * fp.far_d[k], &lon, &lat);
+            zoom_xy(r, lon, lat, sc, &x, &y);
+            cairo_line_to(cr, x, y);
+        }
+        cairo_close_path(cr);
+        cairo_set_source_rgba(cr, 1, 1, 1, 0.95);
+        cairo_set_line_width(cr, 2.4 * s);
+        cairo_stroke(cr);
+        for (k = 0; k <= FP_COLS; k++) {
+            double f;
+            if (fp.far_d[k] <= 0) continue;
+            for (f = 0.8; f <= 1.001; f += 0.2) {
+                double lon, lat, x, y, d = fp.far_d[k] * f;
+                off_ll(r, cos(fp.az[k]) * d, sin(fp.az[k]) * d, &lon, &lat);
+                zoom_xy(r, lon, lat, sc, &x, &y);
+                bx0 = fmin(bx0, x); bx1 = fmax(bx1, x); by0 = fmin(by0, y); by1 = fmax(by1, y);
+            }
+        }
+        if (!fp.sky) {             /* a close-up: box the ground patch itself */
+            bx0 = 1e9; by0 = 1e9; bx1 = -1e9; by1 = -1e9;
+            for (k = 0; k <= FP_COLS; k++) {
+                double f;
+                if (fp.far_d[k] <= 0) continue;
+                for (f = 0; f <= 1.001; f += 0.5) {
+                    double lon, lat, x, y, d = fp.near_d[k] + (fp.far_d[k] - fp.near_d[k]) * f;
+                    off_ll(r, cos(fp.az[k]) * d, sin(fp.az[k]) * d, &lon, &lat);
+                    zoom_xy(r, lon, lat, sc, &x, &y);
+                    bx0 = fmin(bx0, x); bx1 = fmax(bx1, x); by0 = fmin(by0, y); by1 = fmax(by1, y);
+                }
+            }
+            if (bx1 - bx0 < 20 * s) { double c = (bx0 + bx1) / 2; bx0 = c - 10 * s; bx1 = c + 10 * s; }
+            if (by1 - by0 < 20 * s) { double c = (by0 + by1) / 2; by0 = c - 10 * s; by1 = c + 10 * s; }
+        }
+        if (bx1 > bx0) {
+            char lab[120];
+            bx0 -= 8 * s; by0 -= 8 * s; bx1 += 8 * s; by1 += 8 * s;
+            cairo_rectangle(cr, bx0, by0, bx1 - bx0, by1 - by0);
+            cairo_set_source_rgba(cr, A_R / 255.0, A_G / 255.0, A_B / 255.0, 1);
+            cairo_set_line_width(cr, 2.6 * s);
+            cairo_stroke(cr);
+            if (fp.sky)
+                snprintf(lab, sizeof(lab), "A  the skyline in the picture, %.0f\xe2\x80\x93%.0f m %s",
+                         floor(fp.dmin / 10) * 10, ceil(fp.dmax / 10) * 10, compass16(fp.az_c));
+            else
+                snprintf(lab, sizeof(lab), "A  the ground in the picture, %.0f\xe2\x80\x93%.0f m %s of the rover",
+                         fmax(0, floor(fp.dmin)), ceil(fp.dmax), compass16(fp.az_c));
+            cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+            cairo_set_font_size(cr, 13 * s);
+            text_outline(cr, bx0, by1 + 16 * s, lab, A_R / 255.0, A_G / 255.0, A_B / 255.0, 1);
+        }
+    }
+
+    /* north arrow and scale bar */
+    cairo_move_to(cr, 40 * s, 30 * s);
+    cairo_line_to(cr, 48 * s, 52 * s);
+    cairo_line_to(cr, 40 * s, 47 * s);
+    cairo_line_to(cr, 32 * s, 52 * s);
+    cairo_close_path(cr);
+    cairo_set_source_rgba(cr, 1, 1, 1, 0.9);
+    cairo_fill(cr);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 12 * s);
+    text_outline(cr, 35 * s, 66 * s, "N", 1, 1, 1, 1);
+    {
+        double L = 500 / mpp, y = F->mh - 66 * s;
+        cairo_rectangle(cr, 24 * s, y, L, 5 * s);
+        cairo_set_source_rgba(cr, 1, 1, 1, 0.9);
+        cairo_fill(cr);
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 11 * s);
+        text_outline(cr, 24 * s, y + 18 * s, "500 m", 1, 1, 1, 1);
+    }
+
+    /* the picture */
+    if (r->photo_gen != r->photo_loaded) {
+        char path[256];
+        if (r->photo) cairo_surface_destroy(r->photo);
+        photo_path(path, sizeof(path), r);
+        r->photo = pic_image_load(path);
+        r->photo_loaded = r->photo_gen;
+    }
+    if (r->photo) {
+        double iw = cairo_image_surface_get_width(r->photo), ih = cairo_image_surface_get_height(r->photo);
+        double PW = 860 * s, PH = PW * ih / iw, px, py, k2, cap_x;
+        char c1[160], c2[200];
+        if (PH > 560 * s) { PH = 560 * s; PW = PH * iw / ih; }
+        px = F->mw - PW - 24 * s; py = 24 * s;
+        k2 = PW / iw;
+        {   /* the caption panel is at least as wide as its text */
+            double cw;
+            cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+            cairo_set_font_size(cr, 11 * s);
+            cw = fmax(PW, 760 * s);
+            cairo_rectangle(cr, F->mw - 24 * s - cw - 4 * s, py + PH, cw + 8 * s, 58 * s);
+            cairo_set_source_rgba(cr, 0.04, 0.04, 0.055, 0.92);
+            cairo_fill(cr);
+            cap_x = F->mw - 24 * s - cw;
+        }
+        cairo_rectangle(cr, px - 4 * s, py - 4 * s, PW + 8 * s, PH + 8 * s);
+        cairo_set_source_rgba(cr, 0.04, 0.04, 0.055, 0.92);
+        cairo_fill_preserve(cr);
+        cairo_set_source_rgba(cr, 1, 0.7, 0.24, 1);
+        cairo_set_line_width(cr, 3 * s);
+        cairo_stroke(cr);
+        cairo_save(cr);
+        cairo_translate(cr, px, py);
+        cairo_scale(cr, k2, k2);
+        cairo_set_source_surface(cr, r->photo, 0, 0);
+        cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+        cairo_paint(cr);
+        cairo_restore(cr);
+        /* A on the picture (the image may be a reduced copy of the frame) */
+        if (fp.sky && r->geom) {
+            double pk = iw / r->sub_w, x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+            int any = 0;
+            for (k = 0; k <= FP_COLS; k++) {
+                if (!fp.band_ok[k] || fp.band_px[k] < 0 || fp.band_px[k] > r->sub_w) continue;
+                any = 1;
+                x0 = fmin(x0, fp.band_px[k]); x1 = fmax(x1, fp.band_px[k]);
+                y0 = fmin(y0, fp.band_top[k]); y1 = fmax(y1, fp.band_bot[k]);
+            }
+            if (any) {
+                y0 = fmax(y0, 0); y1 = fmin(y1, r->sub_h);
+                cairo_rectangle(cr, px + x0 * pk * k2 + 2 * s, py + y0 * pk * k2 - 6 * s,
+                                (x1 - x0) * pk * k2 - 4 * s, (y1 - y0) * pk * k2 + 12 * s);
+                cairo_set_source_rgba(cr, A_R / 255.0, A_G / 255.0, A_B / 255.0, 1);
+                cairo_set_line_width(cr, 2.6 * s);
+                cairo_stroke(cr);
+                cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+                cairo_set_font_size(cr, 15 * s);
+                text_outline(cr, px + x0 * pk * k2 + 6 * s, py + y1 * pk * k2 + 22 * s, "A",
+                             A_R / 255.0, A_G / 255.0, A_B / 255.0, 1);
+            }
+        }
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+        cairo_set_font_size(cr, 12 * s);
+        text_outline(cr, px + 10 * s, py + 18 * s, "LATEST PICTURE", 1, 1, 1, 1);
+        if (fp.ok) {
+            char tilt[48];
+            if (fabs(fp.el_c) < 3) snprintf(tilt, sizeof(tilt), "aimed level");
+            else snprintf(tilt, sizeof(tilt), "aimed %.0f\xc2\xb0 %s level", fabs(fp.el_c), fp.el_c > 0 ? "above" : "below");
+            snprintf(c1, sizeof(c1), "Looking %s (%.0f\xc2\xb0), %s \xc2\xb7 %.0f\xc2\xb0 wide%s",
+                     compass16(fp.az_c), fp.az_c, tilt, fp.fov,
+                     fp.n ? (fp.sky ? " \xc2\xb7 box A = the same skyline on the map" :
+                                      " \xc2\xb7 box A on the map = this patch of ground") : "");
+        } else {
+            snprintf(c1, sizeof(c1), "Pointing not published for this picture");
+        }
+        snprintf(c2, sizeof(c2), "%s \xc2\xb7 sol %d \xc2\xb7 taken %s UTC \xc2\xb7 raw, unprocessed \xc2\xb7 %s",
+                 r->photo_cam, r->photo_sol, r->photo_date, cam_credit(r->photo_cam));
+        cairo_set_font_size(cr, 13 * s);
+        text_outline(cr, cap_x + 4 * s, py + PH + 24 * s, c1, 1, 0.78, 0.36, 1);
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 11 * s);
+        text_outline(cr, cap_x + 4 * s, py + PH + 44 * s, c2, 0.86, 0.88, 0.92, 1);
+    }
+
+    /* where on Mars */
+    {
+        cairo_surface_t *g = map_get(PIC_WORLD_MARS, 1920, 960);
+        double LW = 300 * s, LH = 150 * s, lx = F->mw - LW - 24 * s, ly = F->mh - LH - 60 * s, x, y;
+        if (g) {
+            cairo_save(cr);
+            cairo_translate(cr, lx, ly);
+            cairo_scale(cr, LW / cairo_image_surface_get_width(g), LH / cairo_image_surface_get_height(g));
+            cairo_set_source_surface(cr, g, 0, 0);
+            cairo_paint(cr);
+            cairo_restore(cr);
+            cairo_rectangle(cr, lx, ly, LW, LH);
+            cairo_set_source_rgba(cr, 1, 1, 1, 0.5);
+            cairo_set_line_width(cr, 1);
+            cairo_stroke(cr);
+            x = lx + (r->lon + 180) / 360 * LW;
+            y = ly + (90 - r->lat) / 180 * LH;
+            cairo_rectangle(cr, x - 4 * s, y - 4 * s, 8 * s, 8 * s);
+            cairo_set_source_rgba(cr, 1, 0.8, 0.3, 1);
+            cairo_set_line_width(cr, 2 * s);
+            cairo_stroke(cr);
+            cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+            cairo_set_font_size(cr, 10 * s);
+            snprintf(line, sizeof(line), "%s, %.1f\xc2\xb0%c %.1f\xc2\xb0%c", r == &ROVERS[0] ? "Gale crater" : "near Jezero crater",
+                     fabs(r->lat), r->lat < 0 ? 'S' : 'N', fabs(r->lon), r->lon < 0 ? 'W' : 'E');
+            text_outline(cr, lx + 6 * s, ly + 14 * s, line, 1, 1, 1, 1);
+        }
+    }
+
+    /* key and credits */
+    {
+        double y = F->mh - 30 * s, x = 350 * s;
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 10 * s);
+        cairo_move_to(cr, x, y - 3 * s); cairo_line_to(cr, x + 22 * s, y - 3 * s);
+        cairo_set_source_rgba(cr, 1.0, 0.8, 0.24, 1); cairo_set_line_width(cr, 3 * s); cairo_stroke(cr);
+        text_outline(cr, x + 28 * s, y, "route of the last 12 drives", 0.9, 0.92, 0.95, 1);
+        x += 180 * s;
+        cairo_move_to(cr, x, y - 3 * s); cairo_line_to(cr, x + 18 * s, y - 9 * s); cairo_line_to(cr, x + 18 * s, y + 3 * s);
+        cairo_close_path(cr); cairo_set_source_rgba(cr, 1, 0.69, 0.2, 0.7); cairo_fill(cr);
+        text_outline(cr, x + 24 * s, y, "camera direction and width (from its pointing data)", 0.9, 0.92, 0.95, 1);
+        x += 290 * s;
+        if (fp.n) {
+            cairo_rectangle(cr, x, y - 8 * s, 16 * s, 10 * s);
+            cairo_set_source_rgba(cr, 1, 1, 1, 1); cairo_set_line_width(cr, 2 * s); cairo_stroke(cr);
+            text_outline(cr, x + 22 * s, y, "ground in the picture, traced over the elevation model", 0.9, 0.92, 0.95, 1);
+        }
+        cairo_set_font_size(cr, 9 * s);
+        snprintf(line, sizeof(line), "Map: NASA/JPL-Caltech/UArizona HiRISE via MMGIS \xc2\xb7 %s \xc2\xb7 Picture, position & route: NASA/JPL-Caltech",
+                 r == &ROVERS[0] ? "Elevation: USGS/JPL MSL Gale merged DEM 1 m" : "Elevation: USGS/JPL Mars 2020 Jezero CTX DEM 20 m");
+        text_outline(cr, 350 * s, y + 15 * s, line, 0.72, 0.74, 0.78, 1);
+    }
+    cairo_restore(cr);
+
+    snprintf(title, sizeof(title), "MARS \xc2\xb7 %s", r == &ROVERS[0] ? "CURIOSITY" : "PERSEVERANCE");
+    snprintf(line, sizeof(line), "%s \xc2\xb7 sol %d \xc2\xb7 map: HiRISE colour, 25 cm per pixel",
+             r == &ROVERS[0] ? "Gale crater, on Mount Sharp" : "near Jezero crater",
+             mission_sol(r, t));
+    draw_header(cr, F, title, line);
+    return 1;
+}
+
 /* ── 11. The view ──────────────────────────────────────────────── */
 
 static const char *mars_season(double ls)
@@ -2699,6 +3367,17 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
     cairo_paint(cr);
 
     pthread_mutex_lock(&data_lock);
+    /* Mars: the whole planet, then each rover close up, 40 s each */
+    if (w == PIC_WORLD_MARS && zoom_on) {
+        int phase = (int)(((long long)t / 40) % 3);
+        if (getenv("PIC_PV_ZOOM")) phase = atoi(getenv("PIC_PV_ZOOM"));
+        if (phase > 0 && render_zoom(cr, F, phase == 1 ? &ROVERS[1] : &ROVERS[0], t)) {
+            pthread_mutex_unlock(&data_lock);
+            cairo_restore(cr);
+            free(F);
+            return;
+        }
+    }
     have_sun = sun_at(w, t, &slon, &slat);
     if (w == PIC_WORLD_MOON) {
         body_t *e = body_by_key("moon_earth");
@@ -2823,9 +3502,9 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
     draw_orbiters(cr, F, w, t, 1);
     if (have_pj) draw_pj(cr, F, t_pj, &pj);
 
-    /* Mars rover insets: over the orbit tracks, under the callouts
-     * (which keep clear of them) */
-    if (w == PIC_WORLD_MARS) {
+    /* Mars rover insets (when the close-up views are off): over the
+     * orbit tracks, under the callouts (which keep clear of them) */
+    if (w == PIC_WORLD_MARS && !zoom_on) {
         double s = F->s, by = F->my + F->mh - (INSET_H + 50 + 12) * s;
         double bx[2];
         if (&pic_ticker_bar_top && pic_ticker_bar_top > 0 && pic_ticker_bar_top < F->my + F->mh)

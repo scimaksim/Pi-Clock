@@ -187,6 +187,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"MARS_DUST_CLIM":    boolSetting("1"),
 	"VIEW_WORLD_LABELS": boolSetting("1"),
 	"VIEW_WORLD_RELIEF": boolSetting("1"),
+	"VIEW_MARS_ZOOM":    boolSetting("1"),
 	"LOCAL_ZOOM":        enumSetting("8", "4", "6", "8", "12", "16", "20", "24"),
 	"VIEW_GLOBAL_MIN":   intSetting("5", 1, 240),
 	"VIEW_SMART":        boolSetting("1"),
