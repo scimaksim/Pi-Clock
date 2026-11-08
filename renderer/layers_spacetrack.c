@@ -785,24 +785,9 @@ static void render_debris(cairo_t *cr, int w, int h, time_t now, void *ud)
         double la, lo, alt;
         pic_sat_position_at(&st.pc[i].sat, now, &la, &lo, &alt);
         if (alt < 80) continue;
-        shard(cr, px_x(lo, w), px_y(la, h), 2.4 * s, (st.pc[i].sat.norad_id % 63) / 10.0,
+        shard(cr, px_x(lo, w), px_y(la, h), 3.2 * s, (st.pc[i].sat.norad_id % 63) / 10.0,
               .85, .87, .9, .95);
     }
-    /* one label per group, at its newest piece */
-    for (i = st.npc - 1; i >= 0; i--) {
-        sl_piece_t *p = &st.pc[i];
-        double la, lo, alt;
-        char l1[64], l2[64], nm[40];
-        if (labelled[p->group] || p->sat.norad_id != st.grp[p->group].newest) continue;
-        pic_sat_position_at(&p->sat, now, &la, &lo, &alt);
-        if (alt < 80) continue;
-        labelled[p->group] = 1;
-        sl_tidy_name(st.grp[p->group].name, nm, sizeof(nm));
-        snprintf(l1, sizeof(l1), "%s debris", nm);
-        snprintf(l2, sizeof(l2), "%d pieces \xc2\xb7 %.0f km up", st.grp[p->group].count, alt);
-        label2(cr, w, h, P_DEB, px_x(lo, w), px_y(la, h), l1, c1, l2, c2);
-    }
-
     /* panel beside the left panels, above the strips at the bottom */
     if (st.ngrp > 0) {
         double pw = 420 * s, row = fs * 1.5, ph = fs * 2.4 + row * st.ngrp, x, y, r = 6 * s;
@@ -850,6 +835,21 @@ static void render_debris(cairo_t *cr, int w, int h, time_t now, void *ud)
             cairo_show_text(cr, t);
         }
     }
+    /* one label per group, at its newest piece */
+    for (i = st.npc - 1; i >= 0; i--) {
+        sl_piece_t *p = &st.pc[i];
+        double la, lo, alt;
+        char l1[64], l2[64], nm[40];
+        if (labelled[p->group] || p->sat.norad_id != st.grp[p->group].newest) continue;
+        pic_sat_position_at(&p->sat, now, &la, &lo, &alt);
+        if (alt < 80) continue;
+        labelled[p->group] = 1;
+        sl_tidy_name(st.grp[p->group].name, nm, sizeof(nm));
+        snprintf(l1, sizeof(l1), "%s debris", nm);
+        snprintf(l2, sizeof(l2), "%d pieces \xc2\xb7 %.0f km up", st.grp[p->group].count, alt);
+        label2(cr, w, h, P_DEB, px_x(lo, w), px_y(la, h), l1, c1, l2, c2);
+    }
+
     pthread_mutex_unlock(&st.mutex);
 }
 
