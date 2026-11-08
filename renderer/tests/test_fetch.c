@@ -5,9 +5,11 @@
 #include "../fetch.h"
 #include "../spacetrack.h"
 #include "../satellite.h"
+#include "../spacedata.h"
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
+#include <sys/time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -178,6 +180,24 @@ int main(void)
         st_log[0] = 0;
         CHECK(pic_spacetrack_fetch("/x", "/tmp/pic_fake_wget/st.out") != 0 && !st_log[0],
               "no request while paused");
+        /* a changed account lifts the pause; several queries share one sign-in */
+        c = fopen("/tmp/pic_fake_wget/st.cred", "w");
+        fputs("me@example.com\ns3cret\n", c);
+        fclose(c);
+        {
+            struct timeval tv[2] = { { time(NULL) + 5, 0 }, { time(NULL) + 5, 0 } };
+            utimes("/tmp/pic_fake_wget/st.cred", tv);
+        }
+        st_log[0] = 0;
+        {
+            const char *q[2] = { "/basicspacedata/query/class/tip/format/json",
+                                 "/basicspacedata/query/class/boxscore/format/json" };
+            const char *p2[2] = { "/tmp/pic_fake_wget/a.json", "/tmp/pic_fake_wget/b.json" };
+            CHECK(pic_spacetrack_fetch_raw(q, p2, 2) == 2, "two raw queries");
+            CHECK(strncmp(st_log, "POST /ajaxauth/login|GET /basicspacedata/query/class/tip", 56) == 0 &&
+                  strstr(st_log, "boxscore") && strstr(st_log, "logout") &&
+                  strstr(st_log + 25, "login") == NULL, "one sign-in for both: %s", st_log);
+        }
         pic_spacetrack_set_transport(NULL);
     }
 
@@ -198,6 +218,14 @@ int main(void)
         setenv("PIC_ORBIT_SHARE", "", 1);
         CHECK(!pic_orbit_share(share, sizeof(share)), "empty share address is off");
         unsetenv("PIC_ORBIT_SHARE");
+    }
+
+    {   /* ids from Space-Track JSON */
+        char ids[256] = "";
+        pic_spacedata_ids("[{\"NORAD_CAT_ID\":\"25544\"},{\"NORAD_CAT_ID\":\"100983\"},"
+                          "{\"NORAD_CAT_ID\":\"25544\"}]", "NORAD_CAT_ID", ids, sizeof(ids));
+        pic_spacedata_ids("{\"SAT_1_ID\":\"44713\",\"SAT_2_ID\":\"25544\"}", "SAT_1_ID", ids, sizeof(ids));
+        CHECK(strcmp(ids, "25544,100983,44713") == 0, "ids: %s", ids);
     }
 
     /* Alpha-5 catalog numbers */

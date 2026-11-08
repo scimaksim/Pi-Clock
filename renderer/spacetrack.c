@@ -47,7 +47,7 @@
 
 static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
 static int loaded;
-static time_t pause_until, recent[ST_PER_HOUR];
+static time_t pause_until, pause_stamp, recent[ST_PER_HOUR];
 
 static const char *cred_path(void)
 {
@@ -72,6 +72,7 @@ static void load(void)
     if (fscanf(f, "%ld", (long *)&pause_until) != 1) pause_until = 0;
     for (i = 0; i < ST_PER_HOUR; i++)
         if (fscanf(f, "%ld", (long *)&recent[i]) != 1) recent[i] = 0;
+    if (fscanf(f, "%ld", (long *)&pause_stamp) != 1) pause_stamp = 0;
     fclose(f);
 }
 
@@ -86,6 +87,7 @@ static void save(void)
     if (!f) return;
     fprintf(f, "%ld\n", (long)pause_until);
     for (i = 0; i < ST_PER_HOUR; i++) fprintf(f, "%ld\n", (long)recent[i]);
+    fprintf(f, "%ld\n", (long)pause_stamp);
     fclose(f);
     rename(tmp, state_path());
 }
@@ -291,43 +293,61 @@ void pic_spacetrack_set_transport(pic_spacetrack_transport fn)
     st_req = fn ? fn : st_https;
 }
 
-int pic_spacetrack_fetch(const char *query, const char *path)
+/* One session: sign in, run each query into its path, sign out.
+ * tidy: convert 3LE replies to CelesTrak layout (0 sats = failure).
+ * Returns how many queries succeeded, or -1 if none could run. */
+static int st_session(const char *const *query, const char *const *path, int nq, int tidy)
 {
     char id[160], pw[160], body[1100], eid[480], epw[480];
     time_t now = time(NULL);
-    int i, oldest = 0, n;
+    int i, oldest = 0, n, good = 0;
     char head[64] = "";
     char share[300];
 
     /* Orbits shared by a PC on the network: ask it, never Space-Track.
      * The PC caches every answer and keeps its own request cap. */
     if (pic_orbit_share(share, sizeof(share))) {
-        char url[1400], eq[1000];
-        if (strcmp(query, ST_Q_LAST30) == 0) {
-            snprintf(url, sizeof(url), "%s/api/tle_last30", share);
-        } else {
-            urlenc(eq, sizeof(eq), query);
-            snprintf(url, sizeof(url), "%s/api/spacetrack?q=%s", share, eq);
+        for (i = 0; i < nq; i++) {
+            size_t ql = strlen(query[i]);
+            char *eq = malloc(3 * ql + 1), *url = malloc(3 * ql + 400);
+            if (!eq || !url) { free(eq); free(url); continue; }
+            if (strcmp(query[i], ST_Q_LAST30) == 0) {
+                snprintf(url, 3 * ql + 400, "%s/api/tle_last30", share);
+            } else {
+                urlenc(eq, 3 * ql + 1, query[i]);
+                snprintf(url, 3 * ql + 400, "%s/api/spacetrack?q=%s", share, eq);
+            }
+            n = pic_fetch_to_file(url, path[i], 60);
+            free(eq);
+            free(url);
+            if (n != 0) {
+                unlink(path[i]);
+                printf("spacetrack: the shared copy from %s isn't available\n", share);
+                continue;
+            }
+            if (tidy) {
+                n = tidy_tle(path[i]);
+                if (n <= 0) {
+                    unlink(path[i]);
+                    printf("spacetrack: no satellites in the shared copy\n");
+                    continue;
+                }
+                printf("spacetrack: %d satellites (shared copy from the PC)\n", n);
+            }
+            good++;
         }
-        if (pic_fetch_to_file(url, path, 60) != 0) {
-            unlink(path);
-            printf("spacetrack: the shared copy from %s isn't available\n", share);
-            return -1;
-        }
-        n = tidy_tle(path);
-        if (n <= 0) {
-            unlink(path);
-            printf("spacetrack: no satellites in the shared copy\n");
-            return -1;
-        }
-        printf("spacetrack: %d satellites (shared copy from the PC)\n", n);
-        return 0;
+        return good ? good : -1;
     }
 
     if (!read_cred(id, sizeof(id), pw, sizeof(pw))) return -1;
 
     pthread_mutex_lock(&mu);
     load();
+    if (now < pause_until && pic_spacetrack_stamp() != pause_stamp) {
+        /* the account was changed since it was refused: try it */
+        pause_until = 0;
+        save();
+    }
     if (now < pause_until) {
         pthread_mutex_unlock(&mu);
         memset(pw, 0, sizeof(pw));
@@ -338,7 +358,7 @@ int pic_spacetrack_fetch(const char *query, const char *path)
     if (now - recent[oldest] < 3600 && recent[oldest] <= now) {
         pthread_mutex_unlock(&mu);
         memset(pw, 0, sizeof(pw));
-        pic_status_report(ST_BASE, 0, "held back (12 requests an hour max)");
+        pic_status_report(ST_BASE, 0, "held back (12 sessions an hour max)");
         return -1;
     }
     recent[oldest] = now;
@@ -367,6 +387,7 @@ int pic_spacetrack_fetch(const char *query, const char *path)
         if (st == 200 && strstr(head, "Failed")) {
             pthread_mutex_lock(&mu);
             pause_until = now + 86400;
+            pause_stamp = pic_spacetrack_stamp();
             save();
             pthread_mutex_unlock(&mu);
             printf("spacetrack: sign-in refused, check the account in the dashboard (no requests for 24 h)\n");
@@ -378,29 +399,42 @@ int pic_spacetrack_fetch(const char *query, const char *path)
             pic_status_report(ST_BASE, 0, st < 0 ? "can't connect" : "sign-in failed");
             return -1;
         }
-        /* the query */
-        f2 = fopen(path, "w");
-        if (!f2) return -1;
-        st = st_req("GET", query, cookies, NULL, f2, NULL, 0);
-        fclose(f2);
+        for (i = 0; i < nq; i++) {
+            f2 = fopen(path[i], "w");
+            if (!f2) continue;
+            st = st_req("GET", query[i], cookies, NULL, f2, NULL, 0);
+            fclose(f2);
+            if (st != 200) {
+                printf("spacetrack: query failed (HTTP %d)\n", st);
+                unlink(path[i]);
+                continue;
+            }
+            if (tidy) {
+                n = tidy_tle(path[i]);
+                if (n <= 0) {
+                    printf("spacetrack: no satellites in the reply\n");
+                    unlink(path[i]);
+                    continue;
+                }
+                printf("spacetrack: %d satellites\n", n);
+            }
+            good++;
+        }
         /* sign out */
         st_req("GET", "/ajaxauth/logout", cookies, NULL, NULL, NULL, 0);
         memset(cookies, 0, sizeof(cookies));
-        if (st != 200) {
-            printf("spacetrack: query failed (HTTP %d)\n", st);
-            pic_status_report(ST_BASE, 0, "query failed");
-            unlink(path);
-            return -1;
-        }
     }
-    n = tidy_tle(path);
-    if (n <= 0) {
-        printf("spacetrack: no satellites in the reply\n");
-        /* "[]" or an error page: nothing usable */
-        unlink(path);
-        return -1;
-    }
-    printf("spacetrack: %d satellites\n", n);
-    pic_status_report(ST_BASE, 1, NULL);
-    return 0;
+    if (good) pic_status_report(ST_BASE, 1, NULL);
+    else pic_status_report(ST_BASE, 0, "query failed");
+    return good;
+}
+
+int pic_spacetrack_fetch(const char *query, const char *path)
+{
+    return st_session(&query, &path, 1, 1) == 1 ? 0 : -1;
+}
+
+int pic_spacetrack_fetch_raw(const char *const *query, const char *const *path, int n)
+{
+    return st_session(query, path, n, 0);
 }

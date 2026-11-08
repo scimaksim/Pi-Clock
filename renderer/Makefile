@@ -31,7 +31,7 @@ ALL_CFLAGS  = $(CFLAGS) $(CAIRO_CFLAGS) $(SDL2_CFLAGS) $(DRM_CFLAGS) -DVERSION=\
 ALL_LDFLAGS = $(LDFLAGS) $(CAIRO_LIBS) $(SDL2_LIBS) -lm -lpthread -lssl -lcrypto -ldrm
 
 # Source files and corresponding object files
-SOURCES = main.c display.c layer.c spacetrack.c planetview.c planetmath.c craft_icons.c solar.c lunar.c image.c config.c borders.c \
+SOURCES = main.c display.c layer.c spacetrack.c spacedata.c planetview.c planetmath.c craft_icons.c solar.c lunar.c image.c config.c borders.c \
           ctydat.c callsign_districts.c dxspot.c dxcluster.c \
           layers_base.c layers_daylight.c layers_grid.c \
           layers_borders.c layers_timezone.c layers_cqzone.c layers_ituzone.c \

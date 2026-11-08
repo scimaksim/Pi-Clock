@@ -42,6 +42,13 @@ int pic_spacetrack_configured(void);
  */
 int pic_spacetrack_fetch(const char *query, const char *path);
 
+/*
+ * Run several queries in one session (one sign-in) and save each
+ * reply as is (JSON etc.). Returns how many succeeded, -1 if the
+ * session could not start (no account, cap, pause, sign-in).
+ */
+int pic_spacetrack_fetch_raw(const char *const *query, const char *const *path, int n);
+
 /* For tests: replace the HTTPS request (NULL restores it). Returns the
  * HTTP status; writes the body to `out`, Set-Cookie values to `cookies`. */
 #include <stdio.h>

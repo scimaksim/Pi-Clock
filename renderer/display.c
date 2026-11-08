@@ -59,6 +59,7 @@
 #include "features_all.h"
 #include "localview.h"
 #include "planetview.h"
+#include "spacedata.h"
 #include "season.h"
 #include "sprites.h"
 #include "airquality.h"
@@ -1995,6 +1996,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     register_feature(pic_feature_health());     /* vital-signs log */
     register_feature(pic_feature_crew());       /* people aboard the stations */
     register_feature(pic_feature_worlds());     /* Moon / Mars / Jupiter data */
+    register_feature(pic_feature_spacedata());  /* Space-Track: reentries, close approaches... */
     /* Legends of features added after the first pass above */
     {
         int fi;
