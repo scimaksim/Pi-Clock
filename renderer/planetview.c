@@ -2754,7 +2754,7 @@ static void zoom_tiles_plan(rover_t *r)
 /* Are all the zoomed view's tiles on disk? (at start-up) */
 static void zoom_tiles_check(rover_t *r)
 {
-    int x, y, all = 1;
+    int x, y, have = 0;
     char path[256];
     struct stat st;
     if (!r->have) return;
@@ -2762,15 +2762,16 @@ static void zoom_tiles_check(rover_t *r)
     for (y = r->zty0; y < r->zty0 + r->zth; y++)
         for (x = r->ztx0; x < r->ztx0 + r->ztw; x++) {
             tile_path(path, sizeof(path), r, ZOOM_Z, x, y);
-            if (stat(path, &st) != 0 || st.st_size <= 100) all = 0;
+            if (stat(path, &st) == 0 && st.st_size > 100) have++;
         }
-    r->ztiles_ready = all;
+    /* the HiRISE mosaic may not cover every corner */
+    r->ztiles_ready = have >= r->ztw * r->zth * 8 / 10;
 }
 
 /* Fetch thread: download the zoomed view's tiles (once per rover move) */
 static void fetch_zoom_tiles(rover_t *r)
 {
-    int x, y, all = 1, nt = 1 << ZOOM_Z, tx0, ty0, tw, th;
+    int x, y, have = 0, nt = 1 << ZOOM_Z, tx0, ty0, tw, th;
     char path[256], url[320];
     struct stat st;
     pthread_mutex_lock(&data_lock);
@@ -2781,12 +2782,14 @@ static void fetch_zoom_tiles(rover_t *r)
     for (y = ty0; y < ty0 + th; y++)
         for (x = tx0; x < tx0 + tw; x++) {
             tile_path(path, sizeof(path), r, ZOOM_Z, x, y);
-            if (stat(path, &st) == 0 && st.st_size > 100) continue;
+            if (stat(path, &st) == 0 && st.st_size > 100) { have++; continue; }
             snprintf(url, sizeof(url), "%s/%d/%d/%d.png", ROVER_TILES[r - ROVERS], ZOOM_Z, x, nt - 1 - y);
-            if (pic_fetch_to_file(url, path, 60) != 0) { unlink(path); all = 0; }
+            if (pic_fetch_to_file(url, path, 60) != 0) unlink(path);
+            else have++;
         }
     pthread_mutex_lock(&data_lock);
-    r->ztiles_ready = all;
+    /* the HiRISE mosaic may not cover every corner */
+    r->ztiles_ready = have >= tw * th * 8 / 10;
     pthread_mutex_unlock(&data_lock);
 }
 
