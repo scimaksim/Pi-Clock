@@ -13,6 +13,7 @@
 #include "astro.h"
 #include "config.h"
 #include "fetch.h"
+#include "spacetrack.h"
 #include "math_utils.h"
 #include "solar.h"
 #include <math.h>
@@ -317,7 +318,10 @@ static void *sl_thread_func(void *arg)
             }
             /* Slow TLS on single-core Pis: allow a generous timeout.
              * Download beside the cache so a failure keeps the old copy. */
-            if (cached || (pic_fetch_to_file(SL_URL, SL_CACHE ".new", 60) == 0 &&
+            /* CelesTrak first; Space-Track (if an account is saved)
+             * has the same "launched in the last 30 days" set */
+            if (cached || ((pic_fetch_to_file(SL_URL, SL_CACHE ".new", 60) == 0 ||
+                            pic_spacetrack_fetch(ST_Q_LAST30, SL_CACHE ".new") == 0) &&
                            rename(SL_CACHE ".new", SL_CACHE) == 0)) {
                 char *text = read_file(SL_CACHE);
                 /* Don't come straight back if the file can't be read */

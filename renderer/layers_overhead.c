@@ -36,6 +36,7 @@
 #include "solar.h"
 #include "config.h"
 #include "fetch.h"
+#include "spacetrack.h"
 #include <ctype.h>
 #include <time.h>
 #include <math.h>
@@ -213,6 +214,57 @@ static int refresh(const char *url, const char *path)
     return keep_stale(path);
 }
 
+/*
+ * CelesTrak's brightest-satellites list. Its NORAD numbers are kept in
+ * /data/cache each time it downloads, so when CelesTrak can't be
+ * reached the same satellites can come from Space-Track instead.
+ */
+#define OV_VISUAL_IDS "/data/cache/pi-clock-visual-ids.txt"
+
+static void save_visual_ids(void)
+{
+    FILE *in = fopen(OV_VISUAL, "r"), *out;
+    char line[160];
+    int n = 0;
+    if (!in) return;
+    mkdir("/data/cache", 0755);
+    out = fopen(OV_VISUAL_IDS ".new", "w");
+    if (!out) { fclose(in); return; }
+    while (fgets(line, sizeof(line), in))
+        if (line[0] == '1' && line[1] == ' ') {
+            int id = atoi(line + 2);
+            if (id > 0) fprintf(out, "%s%d", n++ ? "," : "", id);
+        }
+    fclose(in);
+    fclose(out);
+    if (n > 0) rename(OV_VISUAL_IDS ".new", OV_VISUAL_IDS);
+    else unlink(OV_VISUAL_IDS ".new");
+}
+
+static int refresh_visual(void)
+{
+    char tmp[128], ids[1600] = "", q[1800];
+    FILE *f;
+    if (fresh(OV_VISUAL, OV_REFRESH)) return 0;
+    snprintf(tmp, sizeof(tmp), "%s.new", OV_VISUAL);
+    if (pic_fetch_to_file(URL_VISUAL, tmp, 60) == 0 && rename(tmp, OV_VISUAL) == 0) {
+        save_visual_ids();
+        return 0;
+    }
+    unlink(tmp);
+    if ((f = fopen(OV_VISUAL_IDS, "r")) != NULL) {
+        if (!fgets(ids, sizeof(ids), f)) ids[0] = 0;
+        fclose(f);
+        ids[strcspn(ids, "\r\n")] = 0;
+    }
+    if (ids[0] && strlen(ids) < sizeof(ids) - 2) {
+        snprintf(q, sizeof(q), ST_Q_IDS, ids);
+        if (pic_spacetrack_fetch(q, tmp) == 0 && rename(tmp, OV_VISUAL) == 0) return 0;
+        unlink(tmp);
+    }
+    return keep_stale(OV_VISUAL);
+}
+
 /* SatNOGS JSON -> 3-line TLE file. Returns 0 when a copy exists. */
 static int refresh_satnogs(void)
 {
@@ -284,7 +336,7 @@ static int overhead_work(pic_feature_t *f)
     (void)f;
     pic_skycover_refresh(time(NULL));
     mkdir(OV_DIR, 0755);
-    if (refresh(URL_VISUAL, OV_VISUAL) == 0) got++;
+    if (refresh_visual() == 0) got++;
     if (refresh_satnogs() == 0) got++;
     if (refresh(URL_AMSAT, OV_AMSAT) == 0) got++;
     list = calloc(OV_MAX, sizeof(*list));

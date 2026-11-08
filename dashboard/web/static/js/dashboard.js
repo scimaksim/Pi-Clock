@@ -1397,6 +1397,35 @@ function savePCHelper() {
     }).catch(function(e) { toast(e.message, 'error'); });
 }
 
+// ── Space-Track account (write-only) ───────────────────────
+function loadSpaceTrack() {
+    apiCall('GET', '/api/spacetrack').then(function(st) {
+        var el = document.getElementById('st_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? 'Account saved (' + st.user + '). Stored only on this Pi, never shown again.'
+            : 'No account saved. Create a free one at space-track.org.';
+    });
+}
+
+function saveSpaceTrack() {
+    var u = document.getElementById('st_user'), p = document.getElementById('st_pass');
+    if (!u.value.trim() || !p.value) { toast('Enter the username and password', 'error'); return; }
+    apiCall('PUT', '/api/spacetrack', {identity: u.value.trim(), password: p.value}).then(function() {
+        u.value = '';
+        p.value = '';
+        toast('Space-Track account saved');
+        loadSpaceTrack();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function removeSpaceTrack() {
+    apiCall('PUT', '/api/spacetrack', {identity: '', password: ''}).then(function() {
+        toast('Space-Track account removed');
+        loadSpaceTrack();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
 // ── Astrospheric key (write-only) ──────────────────────────
 function loadAstroKey() {
     apiCall('GET', '/api/astrospheric-key').then(function(st) {
@@ -2115,6 +2144,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     setupMapZoom();
+    loadSpaceTrack();
     loadAstroKey();
     loadAISKey();
     loadRendererSettings('panels-card');

@@ -156,3 +156,75 @@ func GetEBirdKey() http.HandlerFunc { return ebirdKey.get() }
 
 // PutEBirdKey saves or removes the eBird key.
 func PutEBirdKey() http.HandlerFunc { return ebirdKey.put() }
+
+// Space-Track.org account (back-up source of satellite orbits when
+// CelesTrak can't be reached). Stored root-only as "identity\npassword\n";
+// never read back: GET says only whether one is saved, with a masked
+// username.
+var spaceTrackPath = "/data/etc/pi-clock-spacetrack.cred"
+
+var stIdentityRe = regexp.MustCompile(`^[^\s\x00-\x1f]{3,128}$`)
+
+func maskIdentity(id string) string {
+	if at := strings.Index(id, "@"); at > 0 {
+		return id[:1] + "…" + id[at:]
+	}
+	if len(id) > 2 {
+		return id[:2] + "…"
+	}
+	return "…"
+}
+
+// GetSpaceTrack reports whether a Space-Track account is saved.
+func GetSpaceTrack() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := os.ReadFile(spaceTrackPath)
+		lines := strings.SplitN(string(data), "\n", 3)
+		if err != nil || len(lines) < 2 || strings.TrimSpace(lines[0]) == "" {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"configured": false})
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"configured": true,
+			"user":       maskIdentity(strings.TrimSpace(lines[0])),
+		})
+	}
+}
+
+// PutSpaceTrack saves the account, or removes it when both are empty.
+func PutSpaceTrack() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Identity string `json:"identity"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			return
+		}
+		id := strings.TrimSpace(req.Identity)
+		if id == "" && req.Password == "" {
+			if err := os.Remove(spaceTrackPath); err != nil && !os.IsNotExist(err) {
+				internalError(w, "remove Space-Track account", err)
+				return
+			}
+			signalRenderer()
+			jsonResponse(w, http.StatusOK, map[string]string{"status": "removed"})
+			return
+		}
+		if !stIdentityRe.MatchString(id) {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "enter your Space-Track username (email)"})
+			return
+		}
+		if len(req.Password) < 1 || len(req.Password) > 128 || strings.ContainsAny(req.Password, "\r\n\x00") {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "enter your Space-Track password"})
+			return
+		}
+		if err := atomicWriteFile(spaceTrackPath, []byte(id+"\n"+req.Password+"\n"), 0600); err != nil {
+			internalError(w, "save Space-Track account", err)
+			return
+		}
+		signalRenderer()
+		jsonResponse(w, http.StatusOK, map[string]string{"status": "saved"})
+	}
+}

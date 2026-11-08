@@ -525,3 +525,53 @@ int pic_fetch_post_json(const char *url, const char *json,
     if (n > 0) return n;
     return (WIFEXITED(status_out) && WEXITSTATUS(status_out) == 0) ? 0 : -1;
 }
+
+/*
+ * pic_fetch_post_form_to_file - POST an urlencoded form (body in a
+ * private 0600 temp file, never on a command line) and save the reply
+ * to path. Returns 0 on success, -1 on failure. The body may hold
+ * credentials: it is deleted as soon as wget has finished.
+ */
+int pic_fetch_post_form_to_file(const char *url, const char *body,
+                                const char *path, int timeout)
+{
+    char tmp[] = "/tmp/pi-clock-post-XXXXXX", timeout_str[16], err[256];
+    size_t len = strlen(body);
+    int fd, status = -1, errfd[2], killed;
+    pid_t pid;
+
+    fd = mkstemp(tmp);
+    if (fd < 0) return -1;
+    if (write(fd, body, len) != (ssize_t)len) {
+        close(fd);
+        unlink(tmp);
+        return -1;
+    }
+    close(fd);
+    snprintf(timeout_str, sizeof(timeout_str), "--timeout=%d", timeout);
+    if (cpipe(errfd) < 0) { unlink(tmp); return -1; }
+    pid = fork();
+    if (pid < 0) {
+        close(errfd[0]);
+        close(errfd[1]);
+        unlink(tmp);
+        return -1;
+    }
+    if (pid == 0) {
+        child_setup();
+        close(errfd[0]);
+        dup2(errfd[1], STDERR_FILENO);
+        close(errfd[1]);
+        execlp("wget", "wget", "-q", "-O", path, timeout_str, "-U", g_useragent,
+               "--header", "Content-Type: application/x-www-form-urlencoded",
+               "--post-file", tmp, url, NULL);
+        _exit(127);
+    }
+    close(errfd[1]);
+    killed = finish_child(pid, 1200, 100000, &status);
+    read_err(errfd[0], err, sizeof(err));
+    unlink(tmp);
+    report(url, !killed && WIFEXITED(status) && WEXITSTATUS(status) == 0, err, killed,
+           WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+    return !killed && WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
+}

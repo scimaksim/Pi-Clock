@@ -20,6 +20,7 @@
 #include "sat_icons.h"
 #include "config.h"
 #include "fetch.h"
+#include "spacetrack.h"
 #include "json.h"
 #include "nwsalert.h"   /* pic_nws_parse_time */
 #include "launchvis.h"
@@ -201,7 +202,12 @@ static double launch_inclination(const char *des, int *n)
     if (access(path, R_OK) != 0 && intdes_budget > 0) {
         intdes_budget--;
         snprintf(url, sizeof(url), INTDES_URL, des);
-        if (pic_fetch_to_file(url, path, 30) != 0) unlink(path);
+        if (pic_fetch_to_file(url, path, 30) != 0) {
+            char q[200];
+            unlink(path);
+            snprintf(q, sizeof(q), ST_Q_INTDES, des);
+            if (pic_spacetrack_fetch(q, path) != 0) unlink(path);
+        }
     }
     inc = file_inclination(path, des, n);
     if (*n) return inc;

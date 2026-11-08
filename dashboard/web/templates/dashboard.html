@@ -372,6 +372,25 @@
             </div>
         </div>
 
+        <!-- Space-Track account: back-up source of satellite orbits -->
+        <div class="card" id="spacetrack-card">
+            <div class="card-title">Space-Track Account (Satellite Orbits Back-up)</div>
+            <p class="text-muted mb-8">Satellite orbits come from CelesTrak. When CelesTrak can't be reached, the brightest satellites, Starlink trains, launch tracking and passes use your free <strong>Space-Track.org</strong> account instead (US Space Force). At most 12 requests an hour; a refused sign-in pauses it for a day so the account can't be locked.</p>
+            <div class="form-group">
+                <label for="st_user">Username (Email)</label>
+                <input type="text" id="st_user" class="form-control" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="form-group">
+                <label for="st_pass">Password</label>
+                <input type="password" id="st_pass" class="form-control" autocomplete="new-password">
+                <div class="hint" id="st_status">Stored only on this Pi (root-only file), never shown again.</div>
+            </div>
+            <div class="mt-8">
+                <button class="btn btn-primary btn-sm" onclick="saveSpaceTrack()">Save Account</button>
+                <button class="btn btn-outline btn-sm" onclick="removeSpaceTrack()">Remove</button>
+            </div>
+        </div>
+
         <!-- Tonight's Sky (Astronomy applet) settings -->
         <div class="card" id="astro-card">
             <div class="card-title">Tonight's Sky (Astronomy)</div>

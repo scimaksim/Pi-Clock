@@ -63,4 +63,9 @@ int pic_fetch_post_json(const char *url, const char *json,
  */
 const char *pic_fetch_get_useragent(void);
 
+/* POST an urlencoded form (via a private temp file) and save the reply
+ * to path; 0 on success. */
+int pic_fetch_post_form_to_file(const char *url, const char *body,
+                                const char *path, int timeout);
+
 #endif /* PIC_FETCH_H */

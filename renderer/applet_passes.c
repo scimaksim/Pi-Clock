@@ -23,6 +23,8 @@
 #include "astro.h"
 #include "config.h"
 #include "fetch.h"
+#include "spacetrack.h"
+#include <unistd.h>
 #include "math_utils.h"
 #include "satellite.h"
 #include "skycover.h"
@@ -241,6 +243,26 @@ static int fetch_tle_net(int id, char *l1, char *l2)
             snprintf(l1, 96, "%.*s", (int)strcspn(a + 1, "\r\n"), a + 1);
             snprintf(l2, 96, "%.*s", (int)strcspn(b + 1, "\r\n"), b + 1);
             return 0;
+        }
+    }
+    /* Space-Track, when an account is saved */
+    {
+        char q[128], path[] = "/tmp/pi-clock-cache/st-tle.txt";
+        FILE *f;
+        snprintf(q, sizeof(q), ST_Q_CATNR, id);
+        mkdir("/tmp/pi-clock-cache", 0755);
+        if (pic_spacetrack_configured() && pic_spacetrack_fetch(q, path) == 0 &&
+            (f = fopen(path, "r")) != NULL) {
+            char line[160];
+            int got = 0;
+            while (fgets(line, sizeof(line), f)) {
+                line[strcspn(line, "\r\n")] = 0;
+                if (line[0] == '1' && line[1] == ' ') { snprintf(l1, 96, "%s", line); got |= 1; }
+                if (line[0] == '2' && line[1] == ' ') { snprintf(l2, 96, "%s", line); got |= 2; }
+            }
+            fclose(f);
+            unlink(path);
+            if (got == 3) return 0;
         }
     }
     snprintf(url, sizeof(url), "https://tle.ivanstanojevic.me/api/tle/%d", id);

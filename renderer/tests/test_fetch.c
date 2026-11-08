@@ -3,6 +3,7 @@
  * leaking into another thread's wget */
 #include "check.h"
 #include "../fetch.h"
+#include "../spacetrack.h"
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -44,6 +45,11 @@ int main(void)
           "for a; do u=$a; done\n"
           "case $u in\n"
           "  */ok) printf hello ;;\n"
+          "  https://www.space-track.org/ajaxauth/login) echo \"$*\" >> /tmp/pic_fake_wget/st.args;"
+          " o=; pf=; prev=; for a; do [ \"$prev\" = -O ] && o=$a; [ \"$prev\" = --post-file ] && pf=$a; prev=$a; done;"
+          " cp \"$pf\" /tmp/pic_fake_wget/st.body;"
+          " if grep -q wrongpw \"$pf\"; then printf '{\"Login\":\"Failed\"}' > \"$o\";"
+          " else printf '0 ISS (ZARYA)\\n1 25544U line\\n2 25544 line\\n' > \"$o\"; fi ;;\n"
           "  https://celestrak.org/*) echo x >> /tmp/pic_fake_wget/ct.count;"
           " case $u in *fail*) exit 4 ;; *) printf '1 x\\n2 y\\n' ;; esac ;;\n"
           "  */orphan) printf data; sleep 30 & echo $! > /tmp/pic_fake_wget/orphan.pid ;;\n"
@@ -122,6 +128,45 @@ int main(void)
         calls = 0;
         if (c) { while (fgets(buf, sizeof(buf), c)) calls++; fclose(c); }
         CHECK(calls == 2, "wget ran %d times for CelesTrak, want 2", calls);
+    }
+
+    /* Space-Track: credentials only in the private POST body (deleted
+     * afterwards), never in wget's arguments; 3LE tidied; a refused
+     * sign-in stops further requests */
+    {
+        FILE *c = fopen("/tmp/pic_fake_wget/st.cred", "w"), *r;
+        char line[256], args[2048] = "";
+        int ok;
+        fputs("me@example.com\ns3cret pw&x\n", c);
+        fclose(c);
+        setenv("PIC_SPACETRACK_CRED", "/tmp/pic_fake_wget/st.cred", 1);
+        setenv("PIC_SPACETRACK_STATE", "/tmp/pic_fake_wget/st.state", 1);
+        CHECK(pic_spacetrack_configured(), "account read");
+        ok = pic_spacetrack_fetch("/basicspacedata/query/class/gp/NORAD_CAT_ID/25544/format/3le",
+                                  "/tmp/pic_fake_wget/st.out") == 0;
+        CHECK(ok, "space-track fetch");
+        r = fopen("/tmp/pic_fake_wget/st.out", "r");
+        CHECK(r && fgets(line, sizeof(line), r) && strncmp(line, "ISS (ZARYA)", 11) == 0, "name line tidied");
+        if (r) fclose(r);
+        r = fopen("/tmp/pic_fake_wget/st.args", "r");
+        if (r) { size_t k = fread(args, 1, sizeof(args) - 1, r); args[k] = 0; fclose(r); }
+        CHECK(!strstr(args, "s3cret") && !strstr(args, "me@example"), "no credentials on the command line");
+        r = fopen("/tmp/pic_fake_wget/st.body", "r");
+        CHECK(r && fgets(line, sizeof(line), r) && strstr(line, "password=s3cret%20pw%26x") &&
+              strstr(line, "identity=me%40example.com"), "form body encoded");
+        if (r) fclose(r);
+        {   /* the temp body file is gone */
+            char cmdl[128];
+            snprintf(cmdl, sizeof(cmdl), "ls /tmp/pi-clock-post-* >/dev/null 2>&1");
+            CHECK(system(cmdl) != 0, "post body deleted");
+        }
+        c = fopen("/tmp/pic_fake_wget/st.cred", "w");
+        fputs("me@example.com\nwrongpw\n", c);
+        fclose(c);
+        CHECK(pic_spacetrack_fetch("/x", "/tmp/pic_fake_wget/st.out") != 0, "refused sign-in fails");
+        unlink("/tmp/pic_fake_wget/st.args");
+        CHECK(pic_spacetrack_fetch("/x", "/tmp/pic_fake_wget/st.out") != 0 &&
+              access("/tmp/pic_fake_wget/st.args", F_OK) != 0, "no request after a refused sign-in");
     }
 
     snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
