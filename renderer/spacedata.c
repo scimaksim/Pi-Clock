@@ -8,7 +8,7 @@
  *   every 4 h  reentry predictions (TIP), decay predictions, public
  *              close approaches, then TLEs for the objects they name
  *   every 24 h geostationary payloads, newest debris in the catalogue,
- *              catalogue counts
+ *              catalogue counts, then TLEs for the newest debris groups
  * Replies are cached in SPACEDATA_DIR for the layers to read.
  *
  * SPDX-License-Identifier: GPL-2.0-only
@@ -24,6 +24,7 @@
 #include "feature.h"
 #include "spacetrack.h"
 #include "spacedata.h"
+#include "spacelayers.h"
 
 #define FAST (4 * 3600)
 #define SLOW (24 * 3600)
@@ -152,6 +153,31 @@ static int fetch_fast(void)
     return 0;
 }
 
+static time_t debris_tried;
+
+static void fetch_debris_tles(void)
+{
+    debris_tried = time(NULL);
+    /* Orbits of the pieces in the newest debris groups, for the map */
+    {
+        static char ids[8 * 1024];
+        sl_group_t g[SL_MAX_GRP];
+        char *d = slurp("debris.json"), *qq;
+        int ng = sl_debris_groups(d, 4, g, SL_MAX_GRP);
+        sl_debris_ids(d, g, ng, ids, sizeof(ids));
+        free(d);
+        if (ids[0] && asprintf(&qq, BASE "gp/NORAD_CAT_ID/%s/format/3le", ids) > 0) {
+            char tp[256];
+            const char *qa[1], *pa[1];
+            path_of(tp, sizeof(tp), "debris.tle.new");
+            qa[0] = qq;
+            pa[0] = tp;
+            if (pic_spacetrack_fetch_raw(qa, pa, 1) == 1) finish("debris.tle.new", "debris.tle");
+            free(qq);
+        }
+    }
+}
+
 static int fetch_slow(void)
 {
     char p[3][256];
@@ -173,6 +199,8 @@ static int fetch_slow(void)
     if (access(p[0], F_OK) == 0) finish("geo.tle.new", "geo.tle");
     if (access(p[1], F_OK) == 0) finish("debris.json.new", "debris.json");
     if (access(p[2], F_OK) == 0) finish("boxscore.json.new", "boxscore.json");
+
+    fetch_debris_tles();
     return 0;
 }
 
@@ -195,6 +223,8 @@ static int spacedata_work(pic_feature_t *f)
         return 900;
     }
     if (age_of("tip.json") >= FAST - 60) fetch_fast();
+    else if (age_of("debris.tle") > SLOW + 3600 && age_of("debris.json") < SLOW &&
+             time(NULL) - debris_tried > 6 * 3600) fetch_debris_tles();
     else if (age_of("geo.tle") >= SLOW - 60) fetch_slow();
     return 900;
 }

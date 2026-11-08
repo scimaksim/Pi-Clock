@@ -630,6 +630,10 @@ static const struct {
     {"radar",         10},  /* Up to 2400x1062 ARGB mosaic           */
     {"airquality",     1},  /* 17x11 AQI grid + 512KB fetch buffer   */
     {"starlink",       2},  /* TLE catalogue + up to 3x32 elements   */
+    {"reentries",      1},  /* Space-Track re-entry predictions       */
+    {"conjunctions",   1},  /* Space-Track close approaches           */
+    {"geobelt",        4},  /* ~1,100 geostationary element sets      */
+    {"debris",         2},  /* newest debris pieces' elements         */
     {"aircraft",       4},  /* 3MB JSON buffer + tokens + 1500 slots */
     {"spc",            3},  /* GeoJSON buffer + polygon pool         */
     {"fires",          3},  /* FIRMS CSV + smoke KML + point pool    */
@@ -1754,6 +1758,10 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_satellite, 5, 1.0, &satellites);
     pic_layer_stack_add(&stack, "starlink",
                         pic_layer_render_starlink, 10, 1.0, &starlink);
+    add_feature_layer(&stack, pic_feature_geobelt());
+    add_feature_layer(&stack, pic_feature_debris());
+    add_feature_layer(&stack, pic_feature_reentries());
+    add_feature_layer(&stack, pic_feature_conjunctions());
     add_feature_layer(&stack, pic_feature_passes());
     add_feature_layer(&stack, pic_feature_overhead());
     add_feature_layer(&stack, pic_feature_launches());

@@ -109,6 +109,12 @@ typedef struct {
 } pic_layer_stack_t;
 
 /*
+ * Change a layer's re-render interval (e.g. to animate for a while).
+ * Main thread only: call it from the layer's own render function.
+ */
+void pic_layer_set_interval(const char *name, int seconds);
+
+/*
  * Show or hide layers set to "global view only" / "local view only"
  * for the view now on screen (local = 1/0), or show them all when the
  * view is fixed (local = -1); local = -2 (the Moon, Mars or Jupiter on

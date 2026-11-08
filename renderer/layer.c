@@ -28,8 +28,20 @@
  * Zeroes out the entire stack structure and stores the output
  * dimensions. No surfaces are allocated until layers are added.
  */
+static pic_layer_stack_t *main_stack;
+
+void pic_layer_set_interval(const char *name, int seconds)
+{
+    int i;
+    if (!main_stack) return;
+    for (i = 0; i < main_stack->count; i++)
+        if (strcmp(main_stack->layers[i].name, name) == 0)
+            main_stack->layers[i].update_interval = seconds;
+}
+
 void pic_layer_stack_init(pic_layer_stack_t *stack, int width, int height)
 {
+    main_stack = stack;
     memset(stack, 0, sizeof(*stack));
     stack->width = width;
     stack->height = height;

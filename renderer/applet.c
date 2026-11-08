@@ -90,6 +90,8 @@ static void draw_rounded_rect(cairo_t *cr, double x, double y,
     cairo_close_path(cr);
 }
 
+double pic_panel_rect[2][4];
+
 void pic_applet_stack_render(pic_applet_stack_t *stack, cairo_t *cr,
                              int width, int height, time_t now)
 {
@@ -188,6 +190,10 @@ void pic_applet_stack_render(pic_applet_stack_t *stack, cairo_t *cr,
         y_right = bottom;
     }
 
+    {   /* side panels' extent, for map labels to keep clear of */
+        int k;
+        for (k = 0; k < 4; k++) { pic_panel_rect[0][k] = 0; pic_panel_rect[1][k] = 0; }
+    }
     for (i = stack->count - 1; i >= 0; i--) {
         pic_applet_t *a = &stack->applets[i];
         double applet_w, applet_h;
@@ -235,6 +241,12 @@ void pic_applet_stack_render(pic_applet_stack_t *stack, cairo_t *cr,
         a->render(cr, applet_w - padding * 2, now, a->user_data);
 
         cairo_restore(cr);
+
+        {
+            double *r = pic_panel_rect[a->side == APPLET_SIDE_LEFT ? 0 : 1];
+            if (r[2] == 0) { r[0] = ax; r[2] = ax + applet_w; r[3] = ay + applet_h + padding * 2; }
+            r[1] = ay;
+        }
 
         /* Move cursor up for next applet on this side */
         *y_cursor = ay - margin * 0.5;

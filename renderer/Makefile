@@ -62,7 +62,7 @@ SOURCES = main.c display.c layer.c spacetrack.c spacedata.c planetview.c planetm
           layers_sst.c applet_seasons.c season.c layers_pchelper.c sprites.c rocket_icons.c launchvis.c datastatus.c applet_events.c health.c sky_icons.c crew.c skycover.c eclipse.c eclipse_data.c layers_eclipse.c \
           localview.c layers_lsr.c layers_rainfall.c layers_rivers.c \
           layers_ebird.c layers_drought.c applet_coast.c applet_backyard.c \
-          layers_twilight.c layers_darksites.c
+          layers_twilight.c layers_darksites.c spacelayers.c layers_spacetrack.c
 OBJECTS = $(SOURCES:.c=.o)
 
 # Output binary names

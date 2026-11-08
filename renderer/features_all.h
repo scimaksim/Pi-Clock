@@ -36,6 +36,10 @@ pic_feature_t *pic_feature_analemma(void);       /* Analemma panel     */
 pic_feature_t *pic_feature_events(void);         /* Coming-up strip    */
 pic_feature_t *pic_feature_health(void);         /* Vital-signs log    */
 pic_feature_t *pic_feature_crew(void);           /* People in space    */
+pic_feature_t *pic_feature_reentries(void);      /* Space-Track TIP     */
+pic_feature_t *pic_feature_conjunctions(void);   /* Close approaches   */
+pic_feature_t *pic_feature_geobelt(void);        /* Geostationary belt */
+pic_feature_t *pic_feature_debris(void);         /* Newest debris      */
 /* People aboard "ISS" / "Tiangong" (crew.c); -1 unknown */
 int pic_crew_aboard(const char *station);
 int pic_crew_parse(const char *js, size_t len);
