@@ -16,6 +16,17 @@
 #define ST_Q_INTDES "/basicspacedata/query/class/gp/OBJECT_ID/~~%s/DECAY_DATE/null-val/format/3le"
 #define ST_Q_IDS    "/basicspacedata/query/class/gp/NORAD_CAT_ID/%s/format/3le"
 
+/*
+ * A PC on the network that fetches orbits for the whole house
+ * (ORBIT_SHARE_URL, e.g. http://192.168.1.251:8080, a Pi-Dash server).
+ * When set, every Space-Track query goes to that PC instead, and
+ * CelesTrak is never asked: one machine talks to the providers, so
+ * nothing in the house can get its address blocked for asking too
+ * often. Writes the address (no trailing /) to out; 1 when set.
+ */
+#include <stddef.h>
+int pic_orbit_share(char *out, size_t n);
+
 /* When the saved account last changed (0: none). Features compare it
  * to retry straight away when an account is added or changed. */
 #include <time.h>

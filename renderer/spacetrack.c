@@ -24,6 +24,7 @@
  */
 
 #include "spacetrack.h"
+#include "feature.h"
 #include "fetch.h"
 #include "datastatus.h"
 #include <ctype.h>
@@ -110,10 +111,29 @@ time_t pic_spacetrack_stamp(void)
     return stat(cred_path(), &st) == 0 && st.st_size > 0 ? st.st_mtime : 0;
 }
 
+int pic_orbit_share(char *out, size_t n)
+{
+    char v[300] = "";
+    const char *e = getenv("PIC_ORBIT_SHARE");          /* tests */
+    size_t k;
+    if (e) snprintf(v, sizeof(v), "%s", e);
+    else pic_conf_str("ORBIT_SHARE_URL", v, sizeof(v));
+    k = strlen(v);
+    while (k && v[k - 1] == '/') v[--k] = 0;
+    if (strncmp(v, "http://", 7) != 0 || k < 8) {
+        if (n) out[0] = 0;
+        return 0;
+    }
+    snprintf(out, n, "%s", v);
+    return 1;
+}
+
 int pic_spacetrack_configured(void)
 {
-    char id[160], pw[160];
-    int ok = read_cred(id, sizeof(id), pw, sizeof(pw));
+    char id[160], pw[160], share[300];
+    int ok;
+    if (pic_orbit_share(share, sizeof(share))) return 1;   /* the PC asks for us */
+    ok = read_cred(id, sizeof(id), pw, sizeof(pw));
     memset(pw, 0, sizeof(pw));
     return ok;
 }
@@ -277,6 +297,32 @@ int pic_spacetrack_fetch(const char *query, const char *path)
     time_t now = time(NULL);
     int i, oldest = 0, n;
     char head[64] = "";
+    char share[300];
+
+    /* Orbits shared by a PC on the network: ask it, never Space-Track.
+     * The PC caches every answer and keeps its own request cap. */
+    if (pic_orbit_share(share, sizeof(share))) {
+        char url[1400], eq[1000];
+        if (strcmp(query, ST_Q_LAST30) == 0) {
+            snprintf(url, sizeof(url), "%s/api/tle_last30", share);
+        } else {
+            urlenc(eq, sizeof(eq), query);
+            snprintf(url, sizeof(url), "%s/api/spacetrack?q=%s", share, eq);
+        }
+        if (pic_fetch_to_file(url, path, 60) != 0) {
+            unlink(path);
+            printf("spacetrack: the shared copy from %s isn't available\n", share);
+            return -1;
+        }
+        n = tidy_tle(path);
+        if (n <= 0) {
+            unlink(path);
+            printf("spacetrack: no satellites in the shared copy\n");
+            return -1;
+        }
+        printf("spacetrack: %d satellites (shared copy from the PC)\n", n);
+        return 0;
+    }
 
     if (!read_cred(id, sizeof(id), pw, sizeof(pw))) return -1;
 

@@ -1397,6 +1397,15 @@ function savePCHelper() {
     }).catch(function(e) { toast(e.message, 'error'); });
 }
 
+// ── Shared satellite orbits (a Pi-Dash server fetches for the house) ──
+function saveOrbitShare() {
+    var v = String(document.getElementById('orbit_share_url').value).trim();
+    apiCall('PUT', '/api/renderer-settings', {ORBIT_SHARE_URL: v}).then(function() {
+        toast(v ? 'Orbits now come from ' + v : 'Fetching orbits directly');
+        loadRendererSettings('orbitshare-card');
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
 // ── Space-Track account (write-only) ───────────────────────
 function loadSpaceTrack() {
     apiCall('GET', '/api/spacetrack').then(function(st) {
@@ -2160,6 +2169,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadEBirdKey();
     loadRendererSettings('coast-card');
     loadRendererSettings('pchelper-card');
+    loadRendererSettings('orbitshare-card');
     loadPCHelperStatus();
     loadDataStatus();
     loadHealth();

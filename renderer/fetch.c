@@ -16,6 +16,7 @@
 #define _GNU_SOURCE   /* pipe2 */
 #endif
 #include "fetch.h"
+#include "spacetrack.h"
 #include "datastatus.h"
 #include <fcntl.h>
 #include <ctype.h>
@@ -262,7 +263,13 @@ static int ct_hold(const char *url, char *why, size_t n)
 {
     time_t now = time(NULL);
     int i, oldest = 0, held = 0;
+    char share[300];
     if (!is_celestrak(url)) return 0;
+    if (pic_orbit_share(share, sizeof(share))) {
+        /* one machine fetches orbits for the house: never CelesTrak here */
+        snprintf(why, n, "not used: orbits come from %s", share);
+        return 1;
+    }
     pthread_mutex_lock(&ct_mu);
     ct_load();
     if (now < ct_pause_until) {

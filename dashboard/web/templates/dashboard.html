@@ -372,10 +372,22 @@
             </div>
         </div>
 
+        <div class="card" id="orbitshare-card">
+            <div class="card-title">Shared Satellite Orbits</div>
+            <p class="text-muted mb-8">If a Pi-Dash server on your network fetches orbits for the whole house, enter its address here. The clock then gets every satellite orbit (Starlink trains, bright satellites, launches, passes) from that PC and <strong>never contacts CelesTrak or Space-Track itself</strong>, so nothing in the house asks the providers twice or gets blocked for asking too often. Leave empty to fetch directly.</p>
+            <div class="form-group">
+                <label for="orbit_share_url">Orbit Server Address</label>
+                <input type="text" id="orbit_share_url" class="form-control" data-conf="ORBIT_SHARE_URL" maxlength="270" placeholder="http://192.168.1.251:8080">
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveOrbitShare()">Save</button>
+            </div>
+        </div>
+
         <!-- Space-Track account: back-up source of satellite orbits -->
         <div class="card" id="spacetrack-card">
             <div class="card-title">Space-Track Account (Satellite Orbits Back-up)</div>
-            <p class="text-muted mb-8">Satellite orbits come from CelesTrak. When CelesTrak can't be reached, the brightest satellites, Starlink trains, launch tracking and passes use your free <strong>Space-Track.org</strong> account instead (US Space Force). At most 12 requests an hour; a refused sign-in pauses it for a day so the account can't be locked.</p>
+            <p class="text-muted mb-8">Not needed when Shared Satellite Orbits (above) is set. Otherwise satellite orbits come from CelesTrak, and when CelesTrak can't be reached, the brightest satellites, Starlink trains, launch tracking and passes use your free <strong>Space-Track.org</strong> account instead (US Space Force). At most 12 requests an hour; a refused sign-in pauses it for a day so the account can't be locked.</p>
             <div class="form-group">
                 <label for="st_user">Username (Email)</label>
                 <input type="text" id="st_user" class="form-control" autocomplete="off" spellcheck="false">

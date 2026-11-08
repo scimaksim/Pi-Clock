@@ -181,6 +181,25 @@ int main(void)
         pic_spacetrack_set_transport(NULL);
     }
 
+    /* Orbits shared by a PC: CelesTrak is never asked, Space-Track
+     * queries go to the PC (no sign-in, no account needed) */
+    {
+        char share[300], buf2[64];
+        setenv("PIC_ORBIT_SHARE", "http://192.168.1.251:8080/", 1);
+        CHECK(pic_orbit_share(share, sizeof(share)) && !strcmp(share, "http://192.168.1.251:8080"), "share address: '%s'", share);
+        CHECK(pic_spacetrack_configured(), "shared orbits count as configured");
+        st_log[0] = 0;
+        pic_spacetrack_set_transport(fake_st);
+        CHECK(pic_fetch_to_buf("https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle", buf2, sizeof(buf2)) < 0,
+              "CelesTrak not asked when orbits are shared");
+        pic_spacetrack_fetch("/basicspacedata/query/class/gp/NORAD_CAT_ID/25544/format/3le", "/tmp/pic_fake_wget/st2.out");
+        CHECK(!st_log[0], "no Space-Track request when orbits are shared");
+        pic_spacetrack_set_transport(NULL);
+        setenv("PIC_ORBIT_SHARE", "", 1);
+        CHECK(!pic_orbit_share(share, sizeof(share)), "empty share address is off");
+        unsetenv("PIC_ORBIT_SHARE");
+    }
+
     /* Alpha-5 catalog numbers */
     CHECK(pic_tle_catnr("1 25544U 98067A   26300.5") == 25544, "5-digit catnr");
     CHECK(pic_tle_catnr("1 A0983U 26001A   26300.5") == 100983, "alpha-5 A0983");

@@ -80,7 +80,7 @@ var (
 // separators become ",". Everything stored in renderer.conf stays free
 // of shell metacharacters.
 func normalizeSetting(k, v string) string {
-	if k == "PC_HELPER_URL" {
+	if k == "PC_HELPER_URL" || k == "ORBIT_SHARE_URL" {
 		v = strings.TrimSpace(v)
 		if v != "" && !strings.Contains(v, "://") {
 			v = "http://" + v
@@ -196,6 +196,10 @@ var rendererSettingDefs = map[string]rendererSetting{
 
 	// PC helper (rain nowcast, HRRR maps, bird migration)
 	"PC_HELPER_URL": patternSetting("", pcHelperRe),
+
+	// A PC (Pi-Dash server) that fetches satellite orbits for the whole
+	// house: when set, the clock never asks CelesTrak or Space-Track itself
+	"ORBIT_SHARE_URL": patternSetting("", pcHelperRe),
 
 	// Local layers
 	"LSR_HOURS":       enumSetting("24", "6", "12", "24", "48"),
