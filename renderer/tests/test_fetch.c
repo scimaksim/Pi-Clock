@@ -44,6 +44,8 @@ int main(void)
           "for a; do u=$a; done\n"
           "case $u in\n"
           "  */ok) printf hello ;;\n"
+          "  https://celestrak.org/*) echo x >> /tmp/pic_fake_wget/ct.count;"
+          " case $u in *fail*) exit 4 ;; *) printf '1 x\\n2 y\\n' ;; esac ;;\n"
           "  */orphan) printf data; sleep 30 & echo $! > /tmp/pic_fake_wget/orphan.pid ;;\n"
           "  */slow) p=$(readlink /proc/$$/fd/1); echo \"$p\" > /tmp/pic_fake_wget/slow.pipe; sleep 2; printf slow ;;\n"
           "  */fds) p=$(cat /tmp/pic_fake_wget/slow.pipe); [ -n \"$p\" ] || { echo none; exit 0; };"
@@ -99,6 +101,28 @@ int main(void)
     CHECK(n > 0 && buf[0] != 'n', "fds reply: %d '%s'", n, buf);
     CHECK(fds == 0, "wget holds the other fetch's pipe");
     pthread_join(th, NULL);
+
+    /* CelesTrak guard: a failure stops all CelesTrak requests (no wget
+     * at all) until the back-off ends; a cap of 6 an hour otherwise */
+    {
+        int calls;
+        FILE *c;
+        setenv("PIC_CELESTRAK_STATE", "/tmp/pic_fake_wget/ct.state", 1);
+        n = pic_fetch_to_buf("https://celestrak.org/a/good", buf, sizeof(buf));
+        CHECK(n > 0, "celestrak ok");
+        n = pic_fetch_to_buf("https://celestrak.org/b/fail", buf, sizeof(buf));
+        CHECK(n < 0, "celestrak fail");
+        n = pic_fetch_to_buf("https://celestrak.org/c/good", buf, sizeof(buf));
+        CHECK(n < 0, "held back after a failure");
+        n = pic_fetch_to_file("https://celestrak.org/d/good", "/tmp/pic_fake_wget/x", 5);
+        CHECK(n != 0, "file fetch held back too");
+        n = pic_fetch_to_buf("http://x/ok", buf, sizeof(buf));
+        CHECK(n > 0, "other hosts unaffected");
+        c = fopen("/tmp/pic_fake_wget/ct.count", "r");
+        calls = 0;
+        if (c) { while (fgets(buf, sizeof(buf), c)) calls++; fclose(c); }
+        CHECK(calls == 2, "wget ran %d times for CelesTrak, want 2", calls);
+    }
 
     snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
     if (system(cmd)) { /* ignore */ }

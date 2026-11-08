@@ -26,6 +26,7 @@
 #include "features_all.h"
 #include <math.h>
 #include <stdio.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -35,6 +36,7 @@
 #define INTDES_URL "https://celestrak.org/NORAD/elements/gp.php?INTDES=%s&FORMAT=tle"
 #define LEARN_PATH "/data/cache/pi-clock-launch-inclinations.txt"
 #define LEARN_DONE_PATH "/data/cache/pi-clock-launch-learned.txt"
+#define LEARN_STAMP "/data/cache/pi-clock-launch-learn.stamp"
 #define LL2_MAX_RESPONSE (1024 * 1024)
 #define MAX_LAUNCHES 20
 #define NEAR_KM 1100.0
@@ -184,6 +186,9 @@ static double file_inclination(const char *path, const char *des, int *n)
     return inc[k / 2];
 }
 
+/* CelesTrak requests one learning run may make (the rest wait a day) */
+static int intdes_budget;
+
 static double launch_inclination(const char *des, int *n)
 {
     static const char *lists[] = { "/tmp/pi-clock-last30.tle", "/tmp/pi-clock-cache/visual.tle",
@@ -193,7 +198,8 @@ static double launch_inclination(const char *des, int *n)
     int i;
     /* CelesTrak by designator: a one-off request per launch, kept */
     snprintf(path, sizeof(path), "/tmp/pi-clock-cache/intdes-%s.tle", des);
-    if (access(path, R_OK) != 0) {
+    if (access(path, R_OK) != 0 && intdes_budget > 0) {
+        intdes_budget--;
         snprintf(url, sizeof(url), INTDES_URL, des);
         if (pic_fetch_to_file(url, path, 30) != 0) unlink(path);
     }
@@ -259,8 +265,17 @@ static int launches_work(pic_feature_t *f)
         if (k) printf("launches: %d launch families with learned inclinations\n", k);
         loaded = 1;
     }
+    /* Once a day, remembered across restarts (a restart used to start
+     * a fresh burst of CelesTrak requests) */
+    {
+        struct stat st;
+        if (!last_learn && stat(LEARN_STAMP, &st) == 0) last_learn = st.st_mtime;
+    }
     if (time(NULL) - last_learn > 86400) {
+        FILE *sf;
         last_learn = time(NULL);
+        if ((sf = fopen(LEARN_STAMP, "w")) != NULL) fclose(sf);
+        intdes_budget = 4;
         learn_from_past();
     }
     static launch_t tmp[MAX_LAUNCHES];

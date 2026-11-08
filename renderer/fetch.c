@@ -28,6 +28,8 @@
 #include <poll.h>
 #include <time.h>
 #include <errno.h>
+#include <pthread.h>
+#include <sys/stat.h>
 
 /* Global User-Agent string — set once at startup */
 static char g_useragent[128] = "Pi-Clock";
@@ -197,6 +199,109 @@ static int report(const char *url, int ok, const char *err, int timed_out, int r
 }
 
 /*
+ * CelesTrak guard. CelesTrak firewalls addresses that ask too often,
+ * and a client that keeps retrying while blocked keeps itself blocked.
+ * Every request to celestrak.org from any feature goes through here:
+ *   - at most CT_PER_HOUR requests in any hour, across all features;
+ *   - after a failure, nothing at all for 6 h, doubling to 24 h while
+ *     failures continue; a success clears it.
+ * The state lives in /data/cache (survives restarts and reboots), so
+ * restarting the renderer can't start a burst.
+ */
+#define CT_STATE    "/data/cache/pi-clock-celestrak.state"
+#define CT_PER_HOUR 6
+static pthread_mutex_t ct_mu = PTHREAD_MUTEX_INITIALIZER;
+static int ct_loaded;
+static time_t ct_pause_until, ct_backoff, ct_recent[CT_PER_HOUR];
+
+static int is_celestrak(const char *url)
+{
+    const char *h = strstr(url, "://");
+    h = h ? h + 3 : url;
+    return strncmp(h, "celestrak.org", 13) == 0 || strncmp(h, "www.celestrak.org", 17) == 0;
+}
+
+static const char *ct_path(void)
+{
+    const char *e = getenv("PIC_CELESTRAK_STATE");    /* tests */
+    return e && *e ? e : CT_STATE;
+}
+
+static void ct_load(void)
+{
+    FILE *f;
+    int i;
+    if (ct_loaded) return;
+    ct_loaded = 1;
+    f = fopen(ct_path(), "r");
+    if (!f) return;
+    if (fscanf(f, "%ld %ld", (long *)&ct_pause_until, (long *)&ct_backoff) != 2)
+        ct_pause_until = ct_backoff = 0;
+    for (i = 0; i < CT_PER_HOUR; i++)
+        if (fscanf(f, "%ld", (long *)&ct_recent[i]) != 1) ct_recent[i] = 0;
+    fclose(f);
+}
+
+static void ct_save(void)
+{
+    char tmp[256];
+    FILE *f;
+    int i;
+    mkdir("/data/cache", 0755);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", ct_path());
+    f = fopen(tmp, "w");
+    if (!f) return;
+    fprintf(f, "%ld %ld\n", (long)ct_pause_until, (long)ct_backoff);
+    for (i = 0; i < CT_PER_HOUR; i++) fprintf(f, "%ld\n", (long)ct_recent[i]);
+    fclose(f);
+    rename(tmp, ct_path());
+}
+
+/* 0: go ahead (the request is counted); otherwise why not, in why */
+static int ct_hold(const char *url, char *why, size_t n)
+{
+    time_t now = time(NULL);
+    int i, oldest = 0, held = 0;
+    if (!is_celestrak(url)) return 0;
+    pthread_mutex_lock(&ct_mu);
+    ct_load();
+    if (now < ct_pause_until) {
+        snprintf(why, n, "held back after a failure (%ld min left)", (long)(ct_pause_until - now + 59) / 60);
+        held = 1;
+    } else {
+        for (i = 1; i < CT_PER_HOUR; i++) if (ct_recent[i] < ct_recent[oldest]) oldest = i;
+        if (now - ct_recent[oldest] < 3600 && ct_recent[oldest] <= now) {
+            snprintf(why, n, "held back (%d requests an hour max)", CT_PER_HOUR);
+            held = 1;
+        } else {
+            ct_recent[oldest] = now;
+            ct_save();
+        }
+    }
+    pthread_mutex_unlock(&ct_mu);
+    return held;
+}
+
+static void ct_result(const char *url, int ok)
+{
+    time_t now = time(NULL);
+    if (!is_celestrak(url)) return;
+    pthread_mutex_lock(&ct_mu);
+    ct_load();
+    if (ok) {
+        ct_pause_until = 0;
+        ct_backoff = 0;
+    } else {
+        ct_backoff = ct_backoff ? ct_backoff * 2 : 6 * 3600;
+        if (ct_backoff > 24 * 3600) ct_backoff = 24 * 3600;
+        ct_pause_until = now + ct_backoff;
+        printf("fetch: CelesTrak failed, no CelesTrak requests for %ld h\n", (long)ct_backoff / 3600);
+    }
+    ct_save();
+    pthread_mutex_unlock(&ct_mu);
+}
+
+/*
  * pic_fetch_to_buf - Fetch a URL into a memory buffer via wget.
  *
  * Creates a pipe, forks a child that execs wget with stdout redirected
@@ -212,6 +317,10 @@ static int fetch_impl(const char *url, const char *header, char *buf,
     int n;
     char err[256];
 
+    if (ct_hold(url, err, sizeof(err))) {
+        pic_status_report(url, 0, err);
+        return -1;
+    }
     if (cpipe(pipefd) < 0) return -1;
     if (cpipe(errfd) < 0) {
         close(pipefd[0]);
@@ -265,6 +374,7 @@ static int fetch_impl(const char *url, const char *header, char *buf,
             snprintf(err, sizeof(err), "empty reply");
         report(url, n > 0, err, killed,
                WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+        ct_result(url, n > 0);
     }
 
     return n > 0 ? n : -1;
@@ -299,6 +409,10 @@ int pic_fetch_to_file_rc(const char *url, const char *path, int timeout)
 
     snprintf(timeout_str, sizeof(timeout_str), "--timeout=%d", timeout);
 
+    if (ct_hold(url, err, sizeof(err))) {
+        pic_status_report(url, 0, err);
+        return -1;
+    }
     if (cpipe(errfd) < 0) return -1;
     pid = fork();
     if (pid < 0) {
@@ -327,6 +441,7 @@ int pic_fetch_to_file_rc(const char *url, const char *path, int timeout)
         close(errfd[1]);
         killed = finish_child(pid, 600, 50000, &status);
         read_err(errfd[0], err, sizeof(err));
+        ct_result(url, !killed && WIFEXITED(status) && WEXITSTATUS(status) == 0);
         /* BusyBox wget exits 1 for every failure; report a server's
          * HTTP error as 8, as GNU wget does, so callers can tell "not
          * there" (e.g. a map tile not made yet) from "can't reach" */
