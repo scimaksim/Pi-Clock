@@ -50,6 +50,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <stdint.h>
 
 #define D2R (M_PI / 180.0)
 #define WORLDS_DIR "/usr/share/pi-clock/worlds"
@@ -101,10 +102,10 @@ typedef struct {
 
 static const world_t WORLDS[PIC_WORLD_N] = {
     [PIC_WORLD_MOON] = { "moon", "Moon", 1737.4, 1737.4, 1737.4, 0,
-        "Map: NASA/GSFC/Arizona State Univ. (LRO LROC WAC colour, SVS CGI Moon Kit) \xc2\xb7 "
+        "Map: NASA/GSFC/Arizona State Univ. (LRO LROC WAC colour, LOLA relief, SVS CGI Moon Kit) \xc2\xb7 "
         "Sites: LROC / NSSDCA \xc2\xb7 Orbiters: JPL Horizons" },
     [PIC_WORLD_MARS] = { "mars", "Mars", 3396.19, 3376.20, 3389.5, 1,
-        "Map: NASA/USGS Viking MDIM colour mosaic \xc2\xb7 Rovers: NASA/JPL-Caltech MMGIS, "
+        "Map: NASA/USGS Viking MDIM colour, MGS MOLA relief \xc2\xb7 Rovers: NASA/JPL-Caltech MMGIS, "
         "HiRISE NASA/JPL-Caltech/UArizona \xc2\xb7 Orbiters & moons: JPL Horizons" },
     [PIC_WORLD_JUPITER] = { "jupiter", "Jupiter", 71492, 66854, 69911, 1,
         "Map: NASA/JPL/Space Science Institute (Cassini, Dec 2000) \xc2\xb7 "
@@ -792,7 +793,8 @@ static void fmt_link(char *out, size_t n, const dsn_link_t *L)
 static unsigned want_mask;        /* bit w: world w is in the cycle     */
 static pic_feature_t worlds_feature;
 static int dust_on = 1;           /* MARS_DUST_CLIM: typical-dust haze   */
-static int labels_on = 1;         /* VIEW_WORLD_LABELS: feature names */
+static int labels_on = 1;
+static int relief_on = 1;         /* VIEW_WORLD_RELIEF: shaded relief */         /* VIEW_WORLD_LABELS: feature names */
 static double grs_l2_set = -1;    /* JUPITER_GRS_L2 (System II), -1 = estimate */
 
 static void worlds_reload(pic_feature_t *f)
@@ -812,6 +814,7 @@ static void worlds_reload(pic_feature_t *f)
     grs_l2_set = pic_conf_num("JUPITER_GRS_L2", -1);
     dust_on = pic_conf_int("MARS_DUST_CLIM", 1) != 0;
     labels_on = pic_conf_int("VIEW_WORLD_LABELS", 1) != 0;
+    relief_on = pic_conf_int("VIEW_WORLD_RELIEF", 1) != 0;
 }
 
 static int worlds_wanted(pic_feature_t *f)
@@ -1585,18 +1588,55 @@ static double draw_dust(cairo_t *cr, frame_t *F, double ls)
 static cairo_surface_t *map_surf;
 static int map_world, map_w, map_h;
 
+/* Shaded relief: an 8-bit factor map (128 = unchanged) computed from
+ * the laser-altimeter elevations (Moon: LRO LOLA; Mars: MGS MOLA),
+ * lit from the north-west at 45 deg, multiplied into the colour map. */
+static void apply_relief(cairo_surface_t *map, int w, int mw, int mh)
+{
+    char path[256];
+    cairo_surface_t *rel;
+    unsigned char *m, *r;
+    int sm, sr, x, y;
+    snprintf(path, sizeof(path), "%s/%s_relief.jpg", dir_worlds(), WORLDS[w].key);
+    if (access(path, R_OK) != 0) return;
+    rel = pic_image_load_scaled(path, mw, mh);
+    if (!rel) return;
+    cairo_surface_flush(map);
+    cairo_surface_flush(rel);
+    m = cairo_image_surface_get_data(map);
+    r = cairo_image_surface_get_data(rel);
+    sm = cairo_image_surface_get_stride(map);
+    sr = cairo_image_surface_get_stride(rel);
+    for (y = 0; y < mh; y++) {
+        uint32_t *pm = (uint32_t *)(m + (size_t)y * sm);
+        const uint32_t *pr = (const uint32_t *)(r + (size_t)y * sr);
+        for (x = 0; x < mw; x++) {
+            uint32_t c = pm[x], f = (pr[x] >> 8) & 0xff;      /* green channel */
+            uint32_t rr = ((c >> 16) & 0xff) * f / 128, gg = ((c >> 8) & 0xff) * f / 128, bb = (c & 0xff) * f / 128;
+            if (rr > 255) rr = 255;
+            if (gg > 255) gg = 255;
+            if (bb > 255) bb = 255;
+            pm[x] = (c & 0xff000000u) | (rr << 16) | (gg << 8) | bb;
+        }
+    }
+    cairo_surface_mark_dirty(map);
+    cairo_surface_destroy(rel);
+}
+
 static cairo_surface_t *map_get(int w, int mw, int mh)
 {
     char path[256];
     static time_t failed_at;
-    if (map_world == w && map_w == mw && map_h == mh &&
+    static int map_relief = -1;
+    if (map_world == w && map_w == mw && map_h == mh && map_relief == relief_on &&
         (map_surf || time(NULL) - failed_at < 300)) return map_surf;
     if (map_surf) cairo_surface_destroy(map_surf);
     map_surf = NULL;
     snprintf(path, sizeof(path), "%s/%s_%d.jpg", dir_worlds(), WORLDS[w].key, mw > 1920 ? 3840 : 1920);
     map_surf = pic_image_load_scaled(path, mw, mh);
-    map_world = w; map_w = mw; map_h = mh;
+    map_world = w; map_w = mw; map_h = mh; map_relief = relief_on;
     if (!map_surf) { printf("worlds: no map %s\n", path); failed_at = time(NULL); }
+    else if (relief_on && cairo_image_surface_get_format(map_surf) != CAIRO_FORMAT_A8) apply_relief(map_surf, w, mw, mh);
     return map_surf;
 }
 

@@ -271,6 +271,13 @@ https://svs.gsfc.nasa.gov/4720
 **Mars** — Viking MDIM 2.1 colour mosaic (Mars_Viking_ClrMosaic_global_925m),
 NASA/USGS Astrogeology. Public domain.
 
+**Shaded relief** (moon_relief.jpg, mars_relief.jpg; made by tools/make_relief.py) —
+Moon: LRO LOLA elevation (SVS CGI Moon Kit ldem_16), NASA/GSFC. Mars: MGS MOLA MEGDR
+16 px/deg (megt90n000eb), NASA/GSFC/MIT via PDS Geosciences. Public domain.
+
+**Feature names** — IAU Gazetteer of Planetary Nomenclature (USGS Astrogeology):
+names, centres and diameters.
+
 **Jupiter** — Cassini global map PIA07782, NASA/JPL/Space Science Institute (December 2000).
 
 **Rover close-ups** — HiRISE / CTX base maps and rover traverses served by NASA/JPL-Caltech
