@@ -321,6 +321,38 @@ static void change_lander(cairo_t *cr)
     box(cr, 0, -7 * U, 2 * U, 1.2 * U, 0.85, 0.85, 0.85);
 }
 
+static void change5_lander(cairo_t *cr)
+{
+    /* Chang'e 5/6 lander after the ascender left: low gold-foil body
+     * on four legs, two solar panels on top, the sampling arm reaching
+     * out to one side and the drill tube below; flag on a short mast */
+    leg(cr, -4.5 * U, 3 * U, -9 * U, 7.5 * U);
+    leg(cr, 4.5 * U, 3 * U, 9 * U, 7.5 * U);
+    leg(cr, -1.5 * U, 4 * U, -2.5 * U, 8 * U);
+    foil(cr, -6 * U, 0, 12 * U, 4 * U);
+    panel(cr, -7 * U, -2.5 * U, 6 * U, 2 * U, 3);
+    panel(cr, 1 * U, -2.5 * U, 6 * U, 2 * U, 3);
+    line(cr, 6 * U, 1 * U, 10 * U, -2 * U, U * 0.45);             /* arm */
+    line(cr, 10 * U, -2 * U, 11 * U, 2 * U, U * 0.45);
+    box(cr, 10.3 * U, 2 * U, 1.6 * U, 1.2 * U, 0.8, 0.8, 0.8);    /* scoop */
+    line(cr, 0, 4 * U, 0, 7.5 * U, U * 0.5);                      /* drill tube */
+    line(cr, -5 * U, 0, -5 * U, -6 * U, U * 0.3);                 /* flag */
+    cairo_rectangle(cr, -5 * U, -6 * U, 3 * U, 2 * U);
+    rgba(cr, 0.85, 0.12, 0.1, 1);
+    fill_out(cr);
+}
+
+static void luna13(cairo_t *cr)
+{
+    /* Luna 9's capsule plus the two spring-loaded arms: the soil
+     * penetrometer and the radiation densitometer */
+    luna_als(cr);
+    line(cr, -3 * U, 4 * U, -10 * U, 2.5 * U, U * 0.4);
+    box(cr, -11 * U, 1.8 * U, 1.6 * U, 1.6 * U, 0.7, 0.7, 0.68);
+    line(cr, 3 * U, 4 * U, 10 * U, 2.5 * U, U * 0.4);
+    box(cr, 9.4 * U, 1.8 * U, 1.6 * U, 1.6 * U, 0.7, 0.7, 0.68);
+}
+
 static void yutu(cairo_t *cr)
 {
     int i;
@@ -765,6 +797,7 @@ static const struct { const char *name; void (*draw)(cairo_t *); } K[PIC_CRAFT_N
     { "LRO", lro }, { "Chandrayaan-2", chandrayaan2 }, { "Danuri", danuri }, { "MRO", mro },
     { "Mars Odyssey", odyssey }, { "MAVEN", maven }, { "Mars Express", mex }, { "TGO", tgo },
     { "Tianwen-1", tianwen1 }, { "Hope", hope }, { "Juno", juno },
+    { "Chang'e 5/6 lander", change5_lander }, { "Luna 13", luna13 },
 };
 
 const char *pic_craft_name(pic_craft_t k)

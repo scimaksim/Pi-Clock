@@ -48,6 +48,8 @@ typedef enum {
     PIC_CRAFT_TIANWEN1,
     PIC_CRAFT_HOPE,
     PIC_CRAFT_JUNO,
+    PIC_CRAFT_CHANGE5,         /* Chang'e 5/6 lander (ascender gone)      */
+    PIC_CRAFT_LUNA13,          /* Luna 13: Luna 9 capsule + two soil arms */
     PIC_CRAFT_N
 } pic_craft_t;
 

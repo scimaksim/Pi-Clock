@@ -145,7 +145,7 @@ static const site_t SITES[] = {
     /* The Moon: LROC-identified hardware (Wagner et al.) and NSSDCA */
     { PIC_WORLD_MOON, "Luna 2", "impact 1959", 29.1, 0.0, PIC_CRAFT_CRASH, NOK, NULL, ST_CRASH, 1 },
     { PIC_WORLD_MOON, "Luna 9", "1966 \xc2\xb7 first soft landing", 7.13, -64.37, PIC_CRAFT_LUNA_ALS, NOK, NULL, ST_ENDED, 1 },
-    { PIC_WORLD_MOON, "Luna 13", "1966", 18.87, -62.05, PIC_CRAFT_LUNA_ALS, NOK, NULL, ST_ENDED, 1 },
+    { PIC_WORLD_MOON, "Luna 13", "1966", 18.87, -62.05, PIC_CRAFT_LUNA13, NOK, NULL, ST_ENDED, 1 },
     { PIC_WORLD_MOON, "Surveyor 1", "1966", -2.4745, -43.3398, PIC_CRAFT_SURVEYOR, NOK, NULL, ST_ENDED, 0 },
     { PIC_WORLD_MOON, "Surveyor 5", "1967", 1.4551, 23.1943, PIC_CRAFT_SURVEYOR, NOK, NULL, ST_ENDED, 0 },
     { PIC_WORLD_MOON, "Surveyor 6", "1967", 0.4742, -1.4275, PIC_CRAFT_SURVEYOR, NOK, NULL, ST_ENDED, 0 },
@@ -163,8 +163,8 @@ static const site_t SITES[] = {
     { PIC_WORLD_MOON, "Luna 24", "1976 \xc2\xb7 sample return", 12.7142, 62.2129, PIC_CRAFT_LUNA_SR, NOK, NULL, ST_ENDED, 0 },
     { PIC_WORLD_MOON, "Chang'e 3 + Yutu", "2013", 44.1214, -19.5117, PIC_CRAFT_CHANGE_LANDER, PIC_CRAFT_YUTU, NULL, ST_ENDED, 0 },
     { PIC_WORLD_MOON, "Chang'e 4 + Yutu-2", "2019 \xc2\xb7 far side", -45.4562, 177.5885, PIC_CRAFT_CHANGE_LANDER, PIC_CRAFT_YUTU, NULL, ST_UNKNOWN, 0 },
-    { PIC_WORLD_MOON, "Chang'e 5", "2020 \xc2\xb7 sample return", 43.0576, -51.9161, PIC_CRAFT_CHANGE_LANDER, NOK, NULL, ST_ENDED, 0 },
-    { PIC_WORLD_MOON, "Chang'e 6", "2024 \xc2\xb7 far-side samples", -41.6385, -153.9852, PIC_CRAFT_CHANGE_LANDER, NOK, NULL, ST_ENDED, 0 },
+    { PIC_WORLD_MOON, "Chang'e 5", "2020 \xc2\xb7 sample return", 43.0576, -51.9161, PIC_CRAFT_CHANGE5, NOK, NULL, ST_ENDED, 0 },
+    { PIC_WORLD_MOON, "Chang'e 6", "2024 \xc2\xb7 far-side samples", -41.6385, -153.9852, PIC_CRAFT_CHANGE5, NOK, NULL, ST_ENDED, 0 },
     { PIC_WORLD_MOON, "Chandrayaan-3", "Vikram + Pragyan \xc2\xb7 2023", -69.3741, 32.32, PIC_CRAFT_VIKRAM, PIC_CRAFT_PRAGYAN, NULL, ST_ENDED, 0 },
     { PIC_WORLD_MOON, "SLIM", "2024 \xc2\xb7 landed on its nose", -13.3160, 25.2510, PIC_CRAFT_SLIM, NOK, NULL, ST_ENDED, 0 },
     { PIC_WORLD_MOON, "IM-1 Odysseus", "2024 \xc2\xb7 on its side", -80.13, 1.44, PIC_CRAFT_NOVA_C, NOK, NULL, ST_ENDED, 0 },
@@ -792,6 +792,7 @@ static void fmt_link(char *out, size_t n, const dsn_link_t *L)
 static unsigned want_mask;        /* bit w: world w is in the cycle     */
 static pic_feature_t worlds_feature;
 static int dust_on = 1;           /* MARS_DUST_CLIM: typical-dust haze   */
+static int labels_on = 1;         /* VIEW_WORLD_LABELS: feature names */
 static double grs_l2_set = -1;    /* JUPITER_GRS_L2 (System II), -1 = estimate */
 
 static void worlds_reload(pic_feature_t *f)
@@ -810,6 +811,7 @@ static void worlds_reload(pic_feature_t *f)
     want_mask = mask;
     grs_l2_set = pic_conf_num("JUPITER_GRS_L2", -1);
     dust_on = pic_conf_int("MARS_DUST_CLIM", 1) != 0;
+    labels_on = pic_conf_int("VIEW_WORLD_LABELS", 1) != 0;
 }
 
 static int worlds_wanted(pic_feature_t *f)
@@ -1817,6 +1819,19 @@ static void draw_link_ring(cairo_t *cr, frame_t *F, double x, double y, double r
     }
 }
 
+/* Year each orbiter arrived in orbit (shown with its altitude) */
+static int orbit_since(const char *key)
+{
+    static const struct { const char *k; int y; } Y[] = {
+        { "moon_lro", 2009 }, { "moon_ch2", 2019 }, { "moon_danuri", 2022 },
+        { "mars_ody", 2001 }, { "mars_mex", 2003 }, { "mars_mro", 2006 },
+        { "mars_tgo", 2016 }, { "mars_hope", 2021 }, { "jup_juno", 2016 } };
+    size_t i;
+    for (i = 0; i < sizeof(Y) / sizeof(Y[0]); i++)
+        if (!strcmp(Y[i].k, key)) return Y[i].y;
+    return 0;
+}
+
 static void draw_orbiters(cairo_t *cr, frame_t *F, int w, double t, int tracks)
 {
     int i;
@@ -1831,6 +1846,11 @@ static void draw_orbiters(cairo_t *cr, frame_t *F, int w, double t, int tracks)
         if (tracks) { draw_track(cr, F, b, t, before, after); continue; }
         map_xy(F, p.lon, p.lat, &x, &y);
         fmt_alt(alt, sizeof(alt), p.r - world_radius(w, p.lat));
+        if (orbit_since(b->key)) {
+            char tmp[48];
+            snprintf(tmp, sizeof(tmp), "since %d \xc2\xb7 %s", orbit_since(b->key), alt);
+            snprintf(alt, sizeof(alt), "%s", tmp);
+        }
         snprintf(l1, sizeof(l1), "%s", b->name);
         {
             double fs = 11.5 * F->s, tw, tw2;
@@ -2366,6 +2386,237 @@ static void draw_key(cairo_t *cr, frame_t *F, int w, const char *credit, int dus
     box_add(F, x - 4, y - 14 * s, x + 900 * s, y_first + 18 * s);
 }
 
+
+/* ── 10b. Feature names (optional: VIEW_WORLD_LABELS) ──────────── */
+
+/* Mars and the Moon: IAU names, centres and sizes from the USGS
+ * Gazetteer of Planetary Nomenclature. tier 1: large regions (spaced
+ * capitals); tier 2: features, mark 1 = circle at true size (craters,
+ * volcanoes), mark 2 = dot. THARSIS sits a little north-west of the
+ * Tharsis Montes centre so it doesn't cover Pavonis Mons. */
+typedef struct { int world, tier; const char *name; double lat, lon, km; int mark; } wlabel_t;
+static const wlabel_t WLABELS[] = {
+    { PIC_WORLD_MARS, 1, "THARSIS", 5.5703, -126.5835, 2058.9, 0 },
+    { PIC_WORLD_MARS, 1, "ARABIA TERRA", 21.2490, 5.7185, 4851.7, 0 },
+    { PIC_WORLD_MARS, 1, "UTOPIA PLANITIA", 46.7363, 117.5168, 3560.4, 0 },
+    { PIC_WORLD_MARS, 1, "HELLAS", -42.4301, 70.5025, 2299.2, 0 },
+    { PIC_WORLD_MARS, 1, "ARGYRE", -49.8406, -43.3098, 892.9, 0 },
+    { PIC_WORLD_MARS, 1, "AMAZONIS PLANITIA", 25.7461, -162.9128, 2809.0, 0 },
+    { PIC_WORLD_MARS, 1, "ACIDALIA PLANITIA", 49.7600, -20.7400, 3505.0, 0 },
+    { PIC_WORLD_MARS, 1, "ELYSIUM PLANITIA", 2.9790, 154.7372, 3000.8, 0 },
+    { PIC_WORLD_MARS, 1, "TERRA CIMMERIA", -32.6795, 147.7458, 5855.9, 0 },
+    { PIC_WORLD_MARS, 1, "TERRA SIRENUM", -39.4946, -154.1521, 3635.2, 0 },
+    { PIC_WORLD_MARS, 1, "NOACHIS TERRA", -50.4072, -5.1567, 5519.4, 0 },
+    { PIC_WORLD_MARS, 1, "SYRTIS MAJOR", 9.2007, 67.1030, 1214.9, 0 },
+    { PIC_WORLD_MARS, 1, "ISIDIS PLANITIA", 13.9357, 88.3772, 1224.6, 0 },
+    { PIC_WORLD_MARS, 1, "CHRYSE PLANITIA", 28.4333, -40.3073, 1542.4, 0 },
+    { PIC_WORLD_MARS, 1, "VALLES MARINERIS", -14.0059, -58.5877, 3761.3, 0 },
+    { PIC_WORLD_MARS, 1, "ARCADIA PLANITIA", 49.0200, -171.8500, 2245.0, 0 },
+    { PIC_WORLD_MARS, 1, "TEMPE TERRA", 38.6877, -70.6143, 1954.9, 0 },
+    { PIC_WORLD_MARS, 1, "TERRA SABAEA", 2.7188, 51.3035, 4688.4, 0 },
+    { PIC_WORLD_MARS, 1, "VASTITAS BOREALIS", 87.7297, 32.5298, 2002.9, 0 },
+    { PIC_WORLD_MARS, 2, "Olympus Mons", 18.6528, -133.8025, 610.1, 1 },
+    { PIC_WORLD_MARS, 2, "Arsia Mons", -8.2571, -120.0925, 470.0, 1 },
+    { PIC_WORLD_MARS, 2, "Pavonis Mons", 1.4801, -112.9624, 366.5, 1 },
+    { PIC_WORLD_MARS, 2, "Ascraeus Mons", 11.9216, -104.0808, 456.4, 1 },
+    { PIC_WORLD_MARS, 2, "Alba Mons", 41.0820, -110.7094, 548.0, 1 },
+    { PIC_WORLD_MARS, 2, "Elysium Mons", 25.0232, 147.2138, 401.0, 1 },
+    { PIC_WORLD_MARS, 2, "Jezero crater", 18.4082, 77.6873, 47.5, 1 },
+    { PIC_WORLD_MARS, 2, "Gale crater", -5.3672, 137.8110, 154.1, 1 },
+    { PIC_WORLD_MARS, 2, "Gusev crater", -14.5308, 175.5244, 158.1, 1 },
+    { PIC_WORLD_MARS, 2, "Huygens crater", -13.8819, 55.5817, 467.3, 1 },
+    { PIC_WORLD_MARS, 2, "Schiaparelli crater", -2.7138, 16.7716, 458.5, 1 },
+    { PIC_WORLD_MARS, 2, "Noctis Labyrinthus", -6.3625, -101.1889, 1190.3, 2 },
+    { PIC_WORLD_MARS, 2, "Lyot crater", 50.4671, 29.3413, 221.5, 1 },
+    { PIC_WORLD_MARS, 2, "Holden crater", -26.0400, -34.0190, 152.7, 1 },
+    { PIC_WORLD_MOON, 1, "OCEANUS PROCELLARUM", 20.6714, -56.6774, 2592.2, 0 },
+    { PIC_WORLD_MOON, 1, "MARE IMBRIUM", 34.7244, -14.9086, 1145.5, 0 },
+    { PIC_WORLD_MOON, 1, "MARE SERENITATIS", 27.2879, 18.3596, 674.3, 0 },
+    { PIC_WORLD_MOON, 1, "MARE TRANQUILLITATIS", 8.3487, 30.8346, 875.7, 0 },
+    { PIC_WORLD_MOON, 1, "MARE CRISIUM", 16.1774, 59.1037, 555.9, 0 },
+    { PIC_WORLD_MOON, 1, "MARE FECUNDITATIS", -7.8350, 53.6691, 840.4, 0 },
+    { PIC_WORLD_MOON, 1, "MARE NECTARIS", -15.1852, 34.6021, 339.4, 0 },
+    { PIC_WORLD_MOON, 1, "MARE NUBIUM", -20.5894, -17.2872, 714.5, 0 },
+    { PIC_WORLD_MOON, 1, "MARE HUMORUM", -24.4785, -38.5716, 419.7, 0 },
+    { PIC_WORLD_MOON, 1, "MARE FRIGORIS", 57.5923, -0.0064, 1446.4, 0 },
+    { PIC_WORLD_MOON, 1, "MARE ORIENTALE", -19.8655, -94.6703, 294.2, 0 },
+    { PIC_WORLD_MOON, 1, "MARE MOSCOVIENSE", 27.2816, 148.1225, 275.6, 0 },
+    { PIC_WORLD_MOON, 1, "MARE AUSTRALE", -47.7705, 91.9854, 996.8, 0 },
+    { PIC_WORLD_MOON, 1, "MARE SMYTHII", -1.7088, 87.0495, 374.0, 0 },
+    { PIC_WORLD_MOON, 1, "MARE MARGINIS", 12.7019, 86.5153, 357.6, 0 },
+    { PIC_WORLD_MOON, 1, "MARE INGENII", -33.2458, 164.8268, 282.2, 0 },
+    { PIC_WORLD_MOON, 1, "MONTES APENNINUS", 19.8714, 0.0253, 599.7, 0 },
+    { PIC_WORLD_MOON, 2, "Tycho", -43.2958, -11.2153, 85.3, 1 },
+    { PIC_WORLD_MOON, 2, "Copernicus", 9.6209, -20.0786, 96.1, 1 },
+    { PIC_WORLD_MOON, 2, "Kepler", 8.1210, -38.0087, 29.5, 1 },
+    { PIC_WORLD_MOON, 2, "Aristarchus", 23.7299, -47.4901, 40.0, 1 },
+    { PIC_WORLD_MOON, 2, "Plato", 51.6192, -9.3825, 100.7, 1 },
+    { PIC_WORLD_MOON, 2, "Clavius", -58.6228, -14.7275, 230.8, 1 },
+    { PIC_WORLD_MOON, 2, "Grimaldi", -5.3800, -68.3600, 235.0, 1 },
+    { PIC_WORLD_MOON, 2, "Tsiolkovskiy", -20.3789, 128.9715, 184.4, 1 },
+    { PIC_WORLD_MOON, 2, "Korolev", -4.1913, -157.4082, 423.4, 1 },
+    { PIC_WORLD_MOON, 2, "Hertzsprung", 1.3651, -128.6561, 536.4, 1 },
+    { PIC_WORLD_MOON, 2, "Apollo", -35.6874, -151.4777, 524.2, 1 },
+    { PIC_WORLD_MOON, 2, "Shackleton", -89.6700, 129.7800, 20.9, 1 },
+    { PIC_WORLD_MOON, 2, "Langrenus", -8.8604, 61.0380, 132.0, 1 },
+    { PIC_WORLD_MOON, 2, "Petavius", -25.3914, 60.7776, 184.1, 1 },
+    { PIC_WORLD_MOON, 2, "Aitken", -16.4430, 172.9583, 129.7, 1 },
+};
+#define NWLABELS ((int)(sizeof(WLABELS) / sizeof(WLABELS[0])))
+
+/* Jupiter: belts and zones where they lie on this map (measured from
+ * the Cassini map's brightness profile; the GRS sits in the STrZ) */
+static const struct { double lat; const char *name; } JBANDS[] = {
+    { 0, "EQUATORIAL ZONE" }, { 12, "NORTH EQUATORIAL BELT" }, { -13, "SOUTH EQUATORIAL BELT" },
+    { 20.5, "NORTH TROPICAL ZONE" }, { -24, "SOUTH TROPICAL ZONE" },
+    { 56, "NORTH POLAR REGION" }, { -56, "SOUTH POLAR REGION" },
+};
+
+
+static int utf8_len(const char *p)
+{
+    if ((*p & 0xE0) == 0xC0) return 2;
+    if ((*p & 0xF0) == 0xE0) return 3;
+    if ((*p & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+
+/* Letter-spaced text width */
+static double spaced_w(cairo_t *cr, const char *s, double gap)
+{
+    double w = 0;
+    char ch[5];
+    const char *p = s;
+    while (*p) {
+        int n = utf8_len(p);
+        memcpy(ch, p, (size_t)n);
+        ch[n] = 0;
+        w += text_w(cr, ch) + (p[n] ? gap : 0);
+        p += n;
+    }
+    return w;
+}
+
+static void spaced_text(cairo_t *cr, double x, double y, const char *s, double gap, double a)
+{
+    char ch[5];
+    const char *p = s;
+    while (*p) {
+        int n = utf8_len(p);
+        memcpy(ch, p, (size_t)n);
+        ch[n] = 0;
+        text_outline(cr, x, y, ch, 1.0, 0.96, 0.88, a);
+        x += text_w(cr, ch) + gap;
+        p += n;
+    }
+}
+
+static int region_label(cairo_t *cr, frame_t *F, double x, double y, const char *s, double fs, double a)
+{
+    double gap = fs * 0.32, w, h = fs;
+    box_t b;
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fs);
+    static const double nudge[][2] = { { 0, 0 }, { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 },
+                                       { 0, -2 }, { 0, 2 }, { -1, -1 }, { 1, 1 }, { -1, 1 }, { 1, -1 } };
+    int k;
+    w = spaced_w(cr, s, gap);
+    /* the name may shift a little (up to ~2 lines / a third of its
+     * width) to make room for the mission callouts */
+    for (k = 0; k < (int)(sizeof(nudge) / sizeof(nudge[0])); k++) {
+        double cx = x + nudge[k][0] * w / 3, cy = y + nudge[k][1] * h * 1.4;
+        cx = fmin(fmax(cx, F->mx + 6 * F->s + w / 2), F->mx + F->mw - 6 * F->s - w / 2);
+        b.x0 = cx - w / 2; b.x1 = cx + w / 2; b.y0 = cy - h * 0.6; b.y1 = cy + h * 0.6;
+        if (box_hits(F, b)) continue;
+        spaced_text(cr, b.x0, cy + fs * 0.35, s, gap, a);
+        box_add(F, b.x0, b.y0, b.x1, b.y1);
+        return 1;
+    }
+    return 0;
+}
+
+static void feature_label(cairo_t *cr, frame_t *F, int w, const wlabel_t *L)
+{
+    static const double side[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+    double s = F->s, x, y, circ = 2 * M_PI * WORLDS[w].mean;
+    double r = L->mark == 1 ? fmax(3 * s, fmin(18 * s, L->km / circ * F->mw / 2)) : 2.5 * s;
+    double fs = 11 * s, tw, tw2;
+    char sz[24];
+    int k;
+    map_xy(F, L->lon, L->lat, &x, &y);
+    snprintf(sz, sizeof(sz), "%.0f km", L->km);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, fs);
+    tw = text_w(cr, L->name);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, 9.5 * s);
+    tw2 = text_w(cr, sz);
+    tw = fmax(tw, tw2);
+    for (k = 0; k < 4; k++) {
+        double lx, ly;
+        box_t b;
+        if (side[k][0] > 0) lx = x + r + 5 * s;
+        else if (side[k][0] < 0) lx = x - r - 5 * s - tw;
+        else lx = x - tw / 2;
+        ly = side[k][0] != 0 ? y - 2 * s : side[k][1] > 0 ? y + r + 12 * s : y - r - 16 * s;
+        b.x0 = lx - 2; b.x1 = lx + tw + 2; b.y0 = ly - 11 * s; b.y1 = ly + 13 * s;
+        if (box_hits(F, b)) continue;
+        cairo_new_path(cr);
+        cairo_arc(cr, x, y, r, 0, 2 * M_PI);
+        if (L->mark == 1) {
+            cairo_set_source_rgba(cr, 0, 0, 0, 0.45);
+            cairo_set_line_width(cr, 2.6 * s);
+            cairo_stroke_preserve(cr);
+            cairo_set_source_rgba(cr, 1, 1, 1, 0.75);
+            cairo_set_line_width(cr, 1.1 * s);
+            cairo_stroke(cr);
+        } else {
+            cairo_set_source_rgba(cr, 1, 1, 1, 0.85);
+            cairo_fill(cr);
+        }
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+        cairo_set_font_size(cr, fs);
+        text_outline(cr, lx, ly, L->name, 1, 1, 1, 0.92);
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 9.5 * s);
+        text_outline(cr, lx, ly + 11 * s, sz, 0.88, 0.9, 0.93, 0.85);
+        box_add(F, b.x0, b.y0, b.x1, b.y1);
+        box_add(F, x - r, y - r, x + r, y + r);
+        return;
+    }
+}
+
+/* tier 1: big regions (drawn before the mission callouts, which make
+ * room for them); tier 2: features (after, in the space left) */
+static void draw_labels(cairo_t *cr, frame_t *F, int w, int tier)
+{
+    double s = F->s;
+    int i, pass;
+    if (!labels_on) return;
+    if (w == PIC_WORLD_JUPITER) {
+        if (tier != 1) return;
+        for (i = 0; i < (int)(sizeof(JBANDS) / sizeof(JBANDS[0])); i++) {
+            double y = F->my + (90.0 - JBANDS[i].lat) / 180.0 * F->mh;
+            region_label(cr, F, F->mx + 150 * s, y, JBANDS[i].name, 11 * s, 0.8);
+            region_label(cr, F, F->mx + F->mw - 150 * s, y, JBANDS[i].name, 11 * s, 0.8);
+        }
+        return;
+    }
+    for (pass = tier; pass == tier; pass++)
+        for (i = 0; i < NWLABELS; i++) {
+            const wlabel_t *L = &WLABELS[i];
+            if (L->world != w || L->tier != pass) continue;
+            if (pass == 2) {
+                feature_label(cr, F, w, L);
+            } else {
+                double x, y;
+                double fs = (L->km > 2500 || (w == PIC_WORLD_MOON && L->km > 600)) ? 13.5 * s : 11 * s;
+                map_xy(F, L->lon, L->lat, &x, &y);
+                region_label(cr, F, x, y, L->name, fs, 0.72);
+            }
+        }
+}
+
 /* ── 11. The view ──────────────────────────────────────────────── */
 
 static const char *mars_season(double ls)
@@ -2555,6 +2806,8 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
     draw_orbiters(cr, F, w, t, 0);
 
 
+    draw_labels(cr, F, w, 1);
+
     /* surface sites: live rovers first, then by list order */
     if (w == PIC_WORLD_MARS) {
         for (i = 0; i < NROVERS; i++) {
@@ -2582,6 +2835,7 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
         draw_callout(cr, F, x, y, st->sprite, st->kind, st->kind2, st->name, st->when,
                      st->status, (st->status == ST_CRASH ? 22 : 32) * F->s);
     }
+    draw_labels(cr, F, w, 2);
     pthread_mutex_unlock(&data_lock);
     cairo_restore(cr);
     free(F);
