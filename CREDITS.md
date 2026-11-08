@@ -51,6 +51,13 @@ standard SGP4 algorithm simplified for amateur satellite tracking.
 
 ## Data Sources
 
+**Space-Track.org** — US Space Force (18th/19th Space Defense
+Squadrons). Element sets, re-entry predictions (TIP), decay
+predictions, public conjunction messages, the satellite catalogue and
+its box score, fetched with the owner's own account and only displayed
+on the clock, per the Space-Track user agreement.
+https://www.space-track.org/
+
 **Smithsonian / USGS Weekly Volcanic Activity Report** — Smithsonian
 Institution Global Volcanism Program and USGS Volcano Hazards Program.
 CAP feed of volcanoes with new or continuing activity.
