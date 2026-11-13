@@ -181,7 +181,7 @@ static void fetch_realtime(void)
     double kp = 0;
     int wind_speed = 0;
     double bz = 0;
-    int bt = 0, have_mag = 0, fresh0 = fresh_fetches;
+    int bt = 0, have_mag = 0, have_kp = 0, fresh0 = fresh_fetches;
     char xray[8] = "";
 
     printf("solar: fetching real-time data...\n");
@@ -207,6 +207,7 @@ static void fetch_realtime(void)
         }
         if (last && last > kbuf) {
             kp = json_extract_double(last - 1, "estimated_kp");
+            have_kp = 1;
             printf("solar: Kp=%.2f\n", kp);
         }
     }
@@ -243,7 +244,7 @@ static void fetch_realtime(void)
 
     /* Update shared data */
     pthread_mutex_lock(&solar_data->mutex);
-    if (kp > 0) solar_data->kp = kp;
+    if (have_kp) solar_data->kp = kp;      /* 0.00 is a real (very quiet) reading */
     if (wind_speed > 0) solar_data->solar_wind_speed = wind_speed;
     if (have_mag) {
         solar_data->bt = bt;
