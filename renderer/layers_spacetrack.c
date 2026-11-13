@@ -271,6 +271,7 @@ static void stopped_deb(pic_feature_t *f)
 #define MAXBOX 48
 static double boxes[P_N][MAXBOX][4];
 static int nbox[P_N];
+static time_t box_at[P_N];         /* when each part last drew */
 
 static int hits(const double *a, const double *b)
 {
@@ -282,7 +283,7 @@ static int clear_at(const double *bx, int w, int h, int part)
     double keep[4][4] = {
         { 0, 0, w * 0.21, h * 0.115 },          /* UTC clock */
         { w * 0.79, 0, w, h * 0.13 },           /* local clock + address */
-        { 0, h * 0.905, w, h },                 /* strips and key at the bottom */
+        { 0, fmin(h * 0.905, pic_legend_top(h)), w, h },   /* notes and key at the bottom */
         { 0, 0, 0, 0 },
     };
     int i, p;
@@ -293,10 +294,11 @@ static int clear_at(const double *bx, int w, int h, int part)
     if (&pic_panel_rect)
         for (i = 0; i < 2; i++)
             if (pic_panel_rect[i][2] > pic_panel_rect[i][0] && hits(bx, pic_panel_rect[i])) return 0;
-    for (p = 0; p < P_N; p++)
+    for (p = 0; p < P_N; p++) {
+        if (p != part && time(NULL) - box_at[p] > 300) continue;   /* layer no longer drawn */
         for (i = 0; i < nbox[p]; i++)
             if (hits(bx, boxes[p][i])) return 0;
-    (void)part;
+    }
     return 1;
 }
 
@@ -516,6 +518,7 @@ static void render_reentries(cairo_t *cr, int w, int h, time_t now, void *ud)
     int i;
     (void)ud;
     nbox[P_RE] = 0;
+    box_at[P_RE] = time(NULL);
     pthread_mutex_lock(&st.mutex);
     for (i = 0; i < st.nre; i++) {
         sl_reentry_t *r = &st.re[i];
@@ -611,6 +614,7 @@ static void render_conj(cairo_t *cr, int w, int h, time_t now, void *ud)
     int i, shown = 0, flashing = 0;
     (void)ud;
     nbox[P_CJ] = 0;
+    box_at[P_CJ] = time(NULL);
     pthread_mutex_lock(&st.mutex);
     for (i = 0; i < st.ncj && shown < 5; i++) {
         sl_conj_t *c = &st.cj[i];
@@ -707,6 +711,7 @@ static void render_geo(cairo_t *cr, int w, int h, time_t now, void *ud)
     int i, nvis = 0;
     (void)ud;
     nbox[P_GEO] = 0;
+    box_at[P_GEO] = time(NULL);
 
     /* the part of the belt above home's horizon */
     for (l = -180; l < 180; l += 0.5)
@@ -778,6 +783,7 @@ static void render_debris(cairo_t *cr, int w, int h, time_t now, void *ud)
     int i, labelled[SL_MAX_GRP] = { 0 };
     (void)ud;
     nbox[P_DEB] = 0;
+    box_at[P_DEB] = time(NULL);
     pthread_mutex_lock(&st.mutex);
 
     /* the pieces, where they are now */
@@ -793,6 +799,9 @@ static void render_debris(cairo_t *cr, int w, int h, time_t now, void *ud)
         double pw = 420 * s, row = fs * 1.5, ph = fs * 2.4 + row * st.ngrp, x, y, r = 6 * s;
         x = (&pic_panel_rect && pic_panel_rect[0][2] > 0) ? pic_panel_rect[0][2] + h / 80.0 : h / 80.0;
         y = h * 0.9 - ph;
+        /* the strips at the bottom sit higher in some views (more
+         * key lines): stay above the notes drawn last frame */
+        if (pic_legend_top(h) - h / 120.0 < h * 0.9) y = pic_legend_top(h) - h / 120.0 - ph;
         cairo_new_sub_path(cr);
         cairo_arc(cr, x + pw - r, y + r, r, -M_PI / 2, 0);
         cairo_arc(cr, x + pw - r, y + ph - r, r, 0, M_PI / 2);
@@ -857,6 +866,7 @@ static void render_debris(cairo_t *cr, int w, int h, time_t now, void *ud)
 static void legend_debris(cairo_t *cr, int w, int h, time_t now, void *ud)
 {
     char t[200], a[16], b[16], c[16], d[16];
+    int ok;
     (void)now; (void)ud;
     pthread_mutex_lock(&st.mutex);
     if (st.stats.ok) {
@@ -867,15 +877,25 @@ static void legend_debris(cairo_t *cr, int w, int h, time_t now, void *ud)
         snprintf(t, sizeof(t), "In orbit: %s objects \xc2\xb7 %s satellites \xc2\xb7 %s rocket bodies"
                  " \xc2\xb7 %s debris \xc2\xb7 %d expected to re-enter this week", a, b, c, d, st.stats.week);
     }
+    ok = st.stats.ok;
     pthread_mutex_unlock(&st.mutex);
-    if (st.stats.ok) pic_draw_legend_line(cr, w, h, 0, t, .8, .9, 1);
+    if (ok) pic_draw_legend_line(cr, w, h, 0, t, .8, .9, 1);
 }
 
 /* ================================================================ features */
 
-static int idle_re(time_t now, void *d)  { (void)now; (void)d; return st.nre == 0; }
-static int idle_cj(time_t now, void *d)  { (void)now; (void)d; return st.ncj == 0; }
-static int idle_geo(time_t now, void *d) { (void)now; (void)d; return st.ngeo == 0; }
+static int idle_part(int part)
+{
+    int n;
+    pthread_mutex_lock(&st.mutex);
+    n = part == P_RE ? st.nre : part == P_CJ ? st.ncj : st.ngeo;
+    pthread_mutex_unlock(&st.mutex);
+    if (n == 0) nbox[part] = 0;        /* nothing drawn: its labels are gone */
+    return n == 0;
+}
+static int idle_re(time_t now, void *d)  { (void)now; (void)d; return idle_part(P_RE); }
+static int idle_cj(time_t now, void *d)  { (void)now; (void)d; return idle_part(P_CJ); }
+static int idle_geo(time_t now, void *d) { (void)now; (void)d; return idle_part(P_GEO); }
 
 static pic_feature_t f_re = {
     .name = "reentries", .layer = render_reentries, .idle = idle_re,

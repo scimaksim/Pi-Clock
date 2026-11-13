@@ -60,7 +60,7 @@ static pic_ctydat_t *cfg_db;
  */
 static int parse_spot_line(const char *line, pic_dxspot_t *spot)
 {
-    char spotter[32], dx_call[32], comment[64];
+    char spotter[32], dx_call[32], comment[64] = "";
     double freq;
 
     if (strncasecmp(line, "DX de ", 6) != 0) {
@@ -364,10 +364,9 @@ static void *cluster_thread_func(void *arg)
 
                                     /* Add to map if within distance/band filter */
                                     if (resolve_spot_locations(&spot)) {
+                                        /* not logged: thousands of spots a day
+                                         * filled the RAM-backed log */
                                         pic_spotlist_add(cfg_spots, &spot);
-                                        printf("dxcluster: spot %s -> %s on %.1f kHz\n",
-                                               spot.spotter, spot.dx_call,
-                                               spot.freq_khz);
                                     }
                                 }
                             }

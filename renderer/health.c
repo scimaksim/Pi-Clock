@@ -29,6 +29,7 @@
 #ifndef VERSION
 #define VERSION "dev"
 #endif
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -143,6 +144,37 @@ static void append(const char *rec)
     fclose(f);
 }
 
+/* The service log lives in RAM (/var/log is a 64 MB tmpfs) and nothing
+ * rotated it: keep its newest part once it passes LOG_MAX. Only when
+ * stdout is a regular file opened for appending, as the service does. */
+#define LOG_MAX  (4L * 1024 * 1024)
+#define LOG_KEEP (512L * 1024)
+
+static void trim_log(void)
+{
+    struct stat sb;
+    char *tail, *nl;
+    int fd;
+    ssize_t n;
+
+    fflush(stdout);
+    if (fstat(STDOUT_FILENO, &sb) != 0 || !S_ISREG(sb.st_mode) || sb.st_size < LOG_MAX) return;
+    if (!(fcntl(STDOUT_FILENO, F_GETFL) & O_APPEND)) return;
+    if (!(tail = malloc(LOG_KEEP))) return;
+    fd = open("/proc/self/fd/1", O_RDONLY);
+    n = fd >= 0 ? pread(fd, tail, LOG_KEEP, sb.st_size - LOG_KEEP) : -1;
+    if (fd >= 0) close(fd);
+    if (n > 0 && ftruncate(STDOUT_FILENO, 0) == 0) {
+        nl = memchr(tail, '\n', (size_t)n);          /* start on a whole line */
+        if (nl && nl + 1 < tail + n) {
+            ssize_t w = write(STDOUT_FILENO, nl + 1, (size_t)(tail + n - nl - 1));
+            (void)w;
+        }
+        printf("health: log trimmed (was %ld KB)\n", (long)(sb.st_size / 1024));
+    }
+    free(tail);
+}
+
 static int health_work(pic_feature_t *f)
 {
     time_t now = time(NULL);
@@ -170,6 +202,7 @@ static int health_work(pic_feature_t *f)
              free_mb("/data"), free_mb("/tmp"), (long)(now - started));
     append(rec);
     if (++samples % 48 == 0) trim();     /* every 4 h */
+    trim_log();
     return HEALTH_STEP;
 }
 

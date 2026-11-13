@@ -62,6 +62,28 @@ int main(void)
         CHECK(fabs(cj[1].tca_frac - 0.712) < 1e-6, "fraction");
     }
 
+    {   /* more pairs than the caller has room for: the soonest are kept
+         * and nothing is written past the array (was an overflow) */
+        enum { ROOM = 3, PAIRS = 40 };
+        struct { sl_conj_t cj[ROOM]; unsigned guard[8]; } box;
+        char *js = malloc(PAIRS * 256 + 8), *p = js;
+        int k, n;
+        memset(&box, 0, sizeof(box));
+        for (k = 0; k < 8; k++) box.guard[k] = 0xC0FFEEu;
+        p += sprintf(p, "[");
+        for (k = 0; k < PAIRS; k++)      /* latest first, to check the sort too */
+            p += sprintf(p, "%s{\"CREATED\":\"2026-11-08 09:00:00\",\"TCA\":\"2026-11-08T18:%02d:00\","
+                         "\"MIN_RNG\":\"%d\",\"PC\":\"0.0001\",\"SAT_1_ID\":\"%d\",\"SAT_1_NAME\":\"A\","
+                         "\"SAT_2_ID\":\"%d\",\"SAT_2_NAME\":\"B\"}", k ? "," : "", 59 - k, 100 + k,
+                         1000 + k, 2000 + k);
+        sprintf(p, "]");
+        n = sl_parse_cdm(js, now, SL_CJ_HOURS, box.cj, ROOM);
+        CHECK(n == ROOM, "capped at room (%d)", n);
+        CHECK(box.cj[0].tca < box.cj[1].tca && box.cj[1].tca < box.cj[2].tca, "sorted by time");
+        for (k = 0; k < 8; k++) CHECK(box.guard[k] == 0xC0FFEEu, "guard %d intact", k);
+        free(js);
+    }
+
     {   /* debris groups: newest first, decayed pieces left out, ids */
         sl_group_t g[SL_MAX_GRP];
         char ids[256];

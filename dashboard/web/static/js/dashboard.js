@@ -337,7 +337,9 @@ function loadSystemInfo() {
                 if (sel) {
                     resOrder.forEach(function(res, i) {
                         var opt = sel.querySelector('option[value="' + res + '"]');
-                        if (opt && i > maxIdx) {
+                        /* once only: this runs every 30 s and the note used
+                         * to be appended again each time */
+                        if (opt && i > maxIdx && !opt.disabled) {
                             opt.disabled = true;
                             opt.textContent += ' \u2014 not supported on this hardware';
                             if (sel.value === res) sel.value = info.max_resolution;
@@ -544,7 +546,12 @@ function osUpgrade() {
             return;
         }
         if (!response.ok) {
-            finishUpgrade(true, 'Server error (' + response.status + ')');
+            /* show the server's own reason when it gives one */
+            response.json().then(function(j) {
+                finishUpgrade(true, (j && j.error) || 'Server error (' + response.status + ')');
+            }).catch(function() {
+                finishUpgrade(true, 'Server error (' + response.status + ')');
+            });
             return;
         }
         if (!response.body) {
@@ -1230,7 +1237,13 @@ function loadRendererSettings(cardId) {
                 el.value = v;
             }
         });
+        card.setAttribute('data-conf-loaded', '1');
         card.dispatchEvent(new Event('conf-loaded'));
+    }).catch(function() {
+        /* The card still shows the page's defaults, not the clock's
+         * settings: saving it now would overwrite the real ones. */
+        card.removeAttribute('data-conf-loaded');
+        toast('Could not load settings \u2014 reload the page before saving', 'error');
     });
 }
 
@@ -1256,6 +1269,10 @@ function saveRendererSettings(cardId, label) {
     var card = document.getElementById(cardId);
     if (!card) return;
     var body = {};
+    if (card.getAttribute('data-conf-loaded') !== '1') {
+        toast('Settings were not loaded \u2014 reload the page first', 'error');
+        return;
+    }
     card.querySelectorAll('[data-conf]').forEach(function(el) {
         var k = el.getAttribute('data-conf');
         body[k] = (el.type === 'checkbox') ? (el.checked ? '1' : '0')
@@ -1957,7 +1974,10 @@ function checkForUpdates() {
     apiCall('GET', '/api/system/update-check').then(function(data) {
         var el = document.getElementById('sys-update-available');
         if (!el) return;
-        if (data.update) {
+        if (data.fork) {
+            el.textContent = 'fork build ' + (data.installed || '') + ' \u2014 stock image updates are off';
+            el.style.color = '';
+        } else if (data.update) {
             el.textContent = data.available + ' (update available)';
             el.style.color = 'var(--warning)';
         } else if (data.available) {

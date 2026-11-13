@@ -53,5 +53,6 @@ double pic_jupiter_sys2_to_sys3(double l2, double t);
 double pic_mars_msd(double t);
 double pic_mars_mtc(double t);
 double pic_mars_ls(double t);
+double pic_mars_eot(double t);     /* equation of time, degrees */
 
 #endif /* PIC_PLANETVIEW_H */

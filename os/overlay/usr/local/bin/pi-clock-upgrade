@@ -123,6 +123,9 @@ install_update() {
 	MOUNT_DIR="/mnt/inactive"
 	mkdir -p "$MOUNT_DIR"
 	mount "$INACTIVE_DEV" "$MOUNT_DIR"
+	# A failure from here on must not leave the slot mounted: the next
+	# attempt would then fail at mkfs until a reboot.
+	trap 'umount "$MOUNT_DIR" 2>/dev/null || true' EXIT
 
 	echo "Extracting rootfs to slot $INACTIVE_SLOT..."
 	tar -xJf "$TMP_DIR/$ROOTFS_FILE" -C "$MOUNT_DIR"

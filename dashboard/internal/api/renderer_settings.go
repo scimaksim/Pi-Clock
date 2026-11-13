@@ -8,6 +8,7 @@ package api
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -286,7 +287,12 @@ func PutRendererSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		cfg.Lock()
 		defer cfg.Unlock()
 
-		data, _ := os.ReadFile(rendererConfPath)
+		data, rerr := readForUpdate(rendererConfPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 		if len(lines) == 1 && lines[0] == "" {
 			lines = nil

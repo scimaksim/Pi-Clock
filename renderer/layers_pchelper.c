@@ -389,7 +389,8 @@ static void pch_render(cairo_t *cr, int width, int height, time_t now, void *ud)
     x1 = pic_lon_to_x(d->bbox[2], width);
     y0 = pic_lat_to_y(d->bbox[3], height);
     y1 = pic_lat_to_y(d->bbox[1], height);
-    if (x1 < x0) x1 += pic_lon_to_x(180, width) - pic_lon_to_x(-180, width);
+    /* box across the map's seam: one whole world further right */
+    if (x1 < x0) x1 += width * 360.0 / pic_config.view_span_lon;
     if (x1 > x0 + 1 && y1 > y0 + 1 && x1 > 0 && x0 < width && y1 > 0 && y0 < height) {
         cairo_save(cr);
         cairo_rectangle(cr, x0, y0, x1 - x0, y1 - y0);
@@ -571,12 +572,26 @@ static void pch_stopped(pic_feature_t *f)
     pthread_mutex_unlock(&d->mutex);
 }
 
+/* Nothing to draw (helper off, no frames, or expired): the layer is
+ * skipped instead of clearing and repainting its surface every second */
+static int pch_idle(time_t now, void *ud)
+{
+    pch_t *d = (pch_t *)ud;
+    int idle;
+    if (!d) return 1;
+    pthread_mutex_lock(&d->mutex);
+    idle = !usable(d, now);
+    pthread_mutex_unlock(&d->mutex);
+    return idle;
+}
+
 /* ── The products ─────────────────────────────────────────────────── */
 
 #define PCH(var, prod, every)                                                \
     static pch_t var##_d = { .product = prod, .surf_frame = -1 };            \
     static pic_feature_t var##_f = {                                         \
         .name = prod, .layer = pch_render, .legend = pch_legend,             \
+        .idle = pch_idle,                                                    \
         .interval = every, .extra_mb = 8, .work = pch_work, .needs_network = 1, \
         .stopped = pch_stopped, .data = &var##_d,                            \
     };                                                                       \

@@ -664,7 +664,8 @@ void pic_layer_render_satclouds(cairo_t *cr, int width, int height,
         !(sc.image && slot_fits(sc.span, (sc.lon0 + sc.lon1) / 2, sc.ccl, v))) {
         img = sc.alt;
         l0 = sc.alt_box[0]; l1 = sc.alt_box[1]; a0 = sc.alt_box[2]; a1 = sc.alt_box[3];
-    } else if (sc.image && !pic_view_image_stale(sc.span)) {
+    } else if (sc.image && !pic_view_image_stale(sc.span) &&
+               now - sc.fetched < 3 * 3600) {      /* hours-old clouds are not shown as current */
         img = sc.image;
         l0 = sc.lon0; l1 = sc.lon1; a0 = sc.lat0; a1 = sc.lat1;
     }

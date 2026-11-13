@@ -15,6 +15,8 @@ CC      ?= gcc
 # warning classes are noise here
 CFLAGS  ?= -Wall -Wextra -Wformat=2 -Wno-format-truncation -Wno-stringop-truncation -O2
 LDFLAGS ?=
+# musl gives threads 128 KB of stack by default; the fetchers use more
+LDFLAGS += -Wl,-z,stack-size=1048576
 VERSION ?= 0.0.0-dev
 
 # Use pkg-config to find library flags.

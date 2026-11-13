@@ -414,6 +414,7 @@ typedef struct {
     /* latest raw image from the rover's cameras */
     char photo_url[320], photo_cam[40], photo_date[24];
     int photo_sol, photo_rank, photo_gen, photo_loaded;
+    int photo_cur;              /* picture on disk is the one the caption describes */
     cairo_surface_t *photo;
     int inset_z, inset_tx0, inset_ty0;
     time_t checked;
@@ -718,9 +719,9 @@ static int dsn_now_parse(const char *xml, dsn_link_t *out, int max)
             xml_attr(p, e, "friendlyName", site, sizeof(site));
         } else if (strncmp(p, "<dish ", 6) == 0) {
             const char *dend = strstr(e, "</dish>"), *c;
-            dsn_link_t L;
+            dsn_link_t L, T[6];           /* one per craft on this dish */
             char b[24], dn[12] = "";
-            int k, have_target = 0;
+            int k, nt = 0, q;
             if (!dend) dend = e;
             memset(&L, 0, sizeof(L));
             xml_attr(p, e, "name", dn, sizeof(dn));
@@ -728,25 +729,46 @@ static int dsn_now_parse(const char *xml, dsn_link_t *out, int max)
             if (strncmp(dn, "DSS", 3) == 0) snprintf(L.dish, sizeof(L.dish), "DSS-%s", dn + 3);
             else snprintf(L.dish, sizeof(L.dish), "%s", dn);
             snprintf(L.site, sizeof(L.site), "%s", site);
+            /* the dish's targets first (a dish can serve several craft) */
             for (c = e; (c = strchr(c + 1, '<')) != NULL && c < dend; c = strchr(c, '>')) {
                 const char *ce = strchr(c, '>');
                 if (!ce) break;
-                if (!strncmp(c, "<downSignal ", 12) && xml_attr(c, ce, "active", b, sizeof(b)) && !strcmp(b, "true")) {
-                    L.down = 1;
-                    if (xml_attr(c, ce, "dataRate", b, sizeof(b))) L.down_bps = fmax(L.down_bps, atof(b));
-                } else if (!strncmp(c, "<upSignal ", 10) && xml_attr(c, ce, "active", b, sizeof(b)) && !strcmp(b, "true")) {
-                    L.up = 1;
-                } else if (!strncmp(c, "<target ", 8) && !have_target && xml_attr(c, ce, "id", b, sizeof(b))) {
-                    L.id = atoi(b);
-                    if (xml_attr(c, ce, "rtlt", b, sizeof(b))) L.rtlt = atof(b);
-                    have_target = L.id > 0;
+                if (!strncmp(c, "<target ", 8) && nt < 6 && xml_attr(c, ce, "id", b, sizeof(b)) && atoi(b) > 0) {
+                    T[nt] = L;
+                    T[nt].id = atoi(b);
+                    if (xml_attr(c, ce, "rtlt", b, sizeof(b))) T[nt].rtlt = atof(b);
+                    nt++;
                 }
             }
-            if (have_target && (L.down || L.up)) {
+            /* then each active signal, credited to the craft it names
+             * (spacecraftID is the target id, negated); a signal with
+             * no id goes to the dish's only target */
+            for (c = e; nt && (c = strchr(c + 1, '<')) != NULL && c < dend; c = strchr(c, '>')) {
+                const char *ce = strchr(c, '>');
+                int down, id = 0;
+                if (!ce) break;
+                down = !strncmp(c, "<downSignal ", 12);
+                if (!down && strncmp(c, "<upSignal ", 10)) continue;
+                if (!xml_attr(c, ce, "active", b, sizeof(b)) || strcmp(b, "true")) continue;
+                if (xml_attr(c, ce, "spacecraftID", b, sizeof(b))) id = abs(atoi(b));
+                for (q = 0; q < nt; q++) if (T[q].id == id) break;
+                if (q == nt) {
+                    if (id == 0 && nt == 1) q = 0;
+                    else continue;            /* can't tell whose signal it is */
+                }
+                if (down) {
+                    T[q].down = 1;
+                    if (xml_attr(c, ce, "dataRate", b, sizeof(b))) T[q].down_bps = fmax(T[q].down_bps, atof(b));
+                } else {
+                    T[q].up = 1;
+                }
+            }
+            for (q = 0; q < nt && n < max; q++) {
+                if (!T[q].down && !T[q].up) continue;
                 /* one entry per spacecraft: keep the fastest downlink */
-                for (k = 0; k < n; k++) if (out[k].id == L.id) break;
-                if (k == n) out[n++] = L;
-                else if (L.down_bps > out[k].down_bps) out[k] = L;
+                for (k = 0; k < n; k++) if (out[k].id == T[q].id) break;
+                if (k == n) out[n++] = T[q];
+                else if (T[q].down_bps > out[k].down_bps) out[k] = T[q];
             }
             p = dend;
             continue;
@@ -862,6 +884,7 @@ static int rover_tiles_check(rover_t *r)
 }
 
 static int rover_photo_choose(rover_t *r, const char *txt);
+static void photo_check(rover_t *r);
 
 static pthread_once_t cache_once = PTHREAD_ONCE_INIT;
 
@@ -879,7 +902,7 @@ static void load_all_cache(void)
         snprintf(path, sizeof(path), "%s/%s_traverse.json", dir_cache(), ROVERS[i].key);
         if ((txt = slurp(path, NULL)) != NULL) { rover_parse_traverse(&ROVERS[i], txt); free(txt); }
         snprintf(path, sizeof(path), "%s/%s_raw.json", dir_cache(), ROVERS[i].key);
-        if ((txt = slurp(path, NULL)) != NULL) { rover_photo_choose(&ROVERS[i], txt); free(txt); }
+        if ((txt = slurp(path, NULL)) != NULL) { rover_photo_choose(&ROVERS[i], txt); free(txt); photo_check(&ROVERS[i]); }
     }
     snprintf(path, sizeof(path), "%s/heli_current.json", dir_cache());
     if ((txt = slurp(path, NULL)) != NULL) { heli_parse(txt); free(txt); }
@@ -1145,6 +1168,26 @@ static void photo_path(char *out, size_t n, const rover_t *r)
     snprintf(out, n, "%s/%s_photo.jpg", dir_cache(), r->key);
 }
 
+/* The caption, pointing and wedge come from the feed; the picture is a
+ * separate download. Until the two match (download pending or failing)
+ * the picture must not be shown under the new caption. */
+static void photo_check(rover_t *r)
+{
+    char mark[300], path[256], url[320], *old;
+    int cur;
+    pthread_mutex_lock(&data_lock);
+    snprintf(url, sizeof(url), "%s", r->photo_url);
+    pthread_mutex_unlock(&data_lock);
+    snprintf(mark, sizeof(mark), "%s/%s_photo.url", dir_cache(), r->key);
+    photo_path(path, sizeof(path), r);
+    old = slurp(mark, NULL);
+    cur = url[0] && old && strcmp(old, url) == 0 && access(path, R_OK) == 0;
+    free(old);
+    pthread_mutex_lock(&data_lock);
+    r->photo_cur = cur;
+    pthread_mutex_unlock(&data_lock);
+}
+
 static void fetch_rover_photo(rover_t *r)
 {
     char path[256], tmp[300], url[320], *txt;
@@ -1155,6 +1198,7 @@ static void fetch_rover_photo(rover_t *r)
     if (txt && rover_photo_choose(r, txt)) rename(tmp, path);
     else unlink(tmp);
     free(txt);
+    photo_check(r);
     /* download the picture when it changed */
     pthread_mutex_lock(&data_lock);
     snprintf(url, sizeof(url), "%s", r->photo_url);
@@ -1171,6 +1215,7 @@ static void fetch_rover_photo(rover_t *r)
                 write_file(mark, url, strlen(url));
                 pthread_mutex_lock(&data_lock);
                 r->photo_gen++;
+                r->photo_cur = 1;
                 pthread_mutex_unlock(&data_lock);
                 printf("worlds: %s latest image %s\n", r->name, url);
             } else {
@@ -1902,7 +1947,10 @@ static void draw_track(cairo_t *cr, frame_t *F, const body_t *b, double t, doubl
 static void fmt_alt(char *out, size_t n, double km)
 {
     if (km >= 100000) snprintf(out, n, "%.2f million km", km / 1e6);
-    else if (km >= 10000) snprintf(out, n, "%.0f,%03.0f km", floor(km / 1000), fmod(km, 1000));
+    else if (km >= 10000) {
+        long v = lround(km);                 /* whole km first: never "22,1000 km" */
+        snprintf(out, n, "%ld,%03ld km", v / 1000, v % 1000);
+    }
     else snprintf(out, n, "%.0f km", km);
 }
 
@@ -2036,7 +2084,8 @@ static void draw_pj(cairo_t *cr, frame_t *F, double tpj, const pic_subpt_t *at)
  * shadow where the line from the Sun past it meets the planet */
 static void draw_moons(cairo_t *cr, frame_t *F, int w, double t, double slon, double slat, int have_sun)
 {
-    int i;
+    int i, nl = 0;
+    double lx[8], ly[8];          /* moon labels placed so far */
     for (i = 0; i < NBODIES; i++) {
         body_t *b = &BODIES[i];
         pic_subpt_t p;
@@ -2049,7 +2098,7 @@ static void draw_moons(cairo_t *cr, frame_t *F, int w, double t, double slon, do
         if (have_sun && pic_shadow_point(p.lon, p.lat, p.r, slon, slat,
                                          WORLDS[w].a, WORLDS[w].b, &olon, &olat)) {
             double sx, sy, km_per_px = 2 * M_PI * WORLDS[w].a / F->mw, sr;
-            double rad = w == PIC_WORLD_MARS ? b->radius + (p.r - WORLDS[w].mean) * 0.0046 : b->radius;
+            double rad = w == PIC_WORLD_MARS ? b->radius + (p.r - WORLDS[w].mean) * 0.0031 : b->radius;   /* Sun's angular radius at Mars */
             cairo_pattern_t *g;
             sr = fmax(rad / km_per_px, 3.0 * F->s);
             map_xy(F, olon, olat, &sx, &sy);
@@ -2092,12 +2141,24 @@ static void draw_moons(cairo_t *cr, frame_t *F, int w, double t, double slon, do
         pic_draw_small_moon(cr, b->kind, x, y, rr);
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
         cairo_set_font_size(cr, 11 * F->s);
-        text_outline(cr, x + rr + 4 * F->s, y - 1 * F->s, b->name, 1, 0.95, 0.85, 1);
-        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-        cairo_set_font_size(cr, 9.5 * F->s);
-        fmt_alt(l2, sizeof(l2), p.r - world_radius(w, p.lat));
-        text_outline(cr, x + rr + 4 * F->s, y + 10 * F->s, l2, 0.9, 0.9, 0.9, 0.9);
-        box_add(F, x - rr, y - rr, x + rr + 90 * F->s, y + rr + 4);
+        {   /* moons close together on the map: step the label down
+             * (then up) so the names don't print over each other */
+            double ty = y, off[5] = { 0, 26, -26, 52, -52 };
+            int q, o;
+            for (o = 0; o < 5; o++) {
+                ty = y + off[o] * F->s;
+                for (q = 0; q < nl; q++)
+                    if (fabs(lx[q] - x) < 120 * F->s && fabs(ly[q] - ty) < 24 * F->s) break;
+                if (q == nl) break;
+            }
+            if (nl < 8) { lx[nl] = x; ly[nl] = ty; nl++; }
+            text_outline(cr, x + rr + 4 * F->s, ty - 1 * F->s, b->name, 1, 0.95, 0.85, 1);
+            cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+            cairo_set_font_size(cr, 9.5 * F->s);
+            fmt_alt(l2, sizeof(l2), p.r - world_radius(w, p.lat));
+            text_outline(cr, x + rr + 4 * F->s, ty + 10 * F->s, l2, 0.9, 0.9, 0.9, 0.9);
+            box_add(F, x - rr, fmin(y, ty) - rr, x + rr + 90 * F->s, fmax(y, ty) + rr + 4);
+        }
     }
 }
 
@@ -2196,7 +2257,7 @@ static void draw_inset(cairo_t *cr, frame_t *F, rover_t *r, double bx, double by
         r->photo_loaded = r->photo_gen;
     }
     /* map and picture take turns, 12 s each */
-    photo_mode = r->photo && r->photo_url[0] && fmod(now_f + (r == &ROVERS[0] ? 0 : 6), 24.0) >= 12.0;
+    photo_mode = r->photo && r->photo_cur && r->photo_url[0] && fmod(now_f + (r == &ROVERS[0] ? 0 : 6), 24.0) >= 12.0;
 
     cairo_save(cr);
     cairo_rectangle(cr, bx, by, W, H);
@@ -3024,7 +3085,7 @@ static int render_zoom(cairo_t *cr, frame_t *F, rover_t *r, double t)
     char title[64], line[256];
     int k;
     const int A_R = 90, A_G = 230, A_B = 255;     /* box A colour */
-    if (!map || !r->have) return 0;
+    if (!map || !r->have || !r->photo_cur) return 0;   /* new picture still downloading */
     dem_load(r);
     footprint_calc(r, &fp);
     mpp = 2 * M_PI * R_MARS_EQ * cos(r->lat * D2R) / (256.0 * (1 << ZOOM_Z)) / sc;   /* m per screen px */
@@ -3071,6 +3132,9 @@ static int render_zoom(cairo_t *cr, frame_t *F, rover_t *r, double t)
     /* the wedge: direction and width of the picture */
     if (fp.ok) {
         double reach = 1100 / mpp, a0 = fp.az[0], a1 = fp.az[FP_COLS];
+        /* without the terrain model the edge directions were never
+         * traced: use the camera axis and its field of view */
+        if (!fp.n) { a0 = fp.az_c - fp.fov / 2; a1 = fp.az_c + fp.fov / 2; }
         /* aimed at the ground: the wedge ends where the top of the
          * picture meets it (the traced ground, else flat ground) */
         if (fp.n && !fp.sky) reach = fmax(fp.dmax * 1.3, 12 * s * mpp) / mpp;
@@ -3195,7 +3259,7 @@ static int render_zoom(cairo_t *cr, frame_t *F, rover_t *r, double t)
         double PW = 860 * s, PH = PW * ih / iw, px, py, k2, cap_x;
         char c1[160], c2[200];
         if (PH > 560 * s) { PH = 560 * s; PW = PH * iw / ih; }
-        px = F->mw - PW - 24 * s; py = 24 * s;
+        px = F->mw - PW - 24 * s; py = 78 * s;      /* below the local clock, date and address */
         k2 = PW / iw;
         {   /* the caption panel is at least as wide as its text */
             double cw;
@@ -3321,7 +3385,7 @@ static int render_zoom(cairo_t *cr, frame_t *F, rover_t *r, double t)
     cairo_restore(cr);
 
     snprintf(title, sizeof(title), "MARS \xc2\xb7 %s", r == &ROVERS[0] ? "CURIOSITY" : "PERSEVERANCE");
-    snprintf(line, sizeof(line), "%s \xc2\xb7 sol %d \xc2\xb7 map: HiRISE colour, 25 cm per pixel",
+    snprintf(line, sizeof(line), "%s \xc2\xb7 sol %d \xc2\xb7 map: HiRISE colour mosaic",
              r == &ROVERS[0] ? "Gale crater, on Mount Sharp" : "near Jezero crater",
              mission_sol(r, t));
     draw_header(cr, F, title, line);
@@ -3395,8 +3459,9 @@ void pic_planetview_render(cairo_t *cr, int width, int height, int w, time_t now
         }
     }
     if (!have_sun && w == PIC_WORLD_MARS) {
-        /* no ephemeris yet: mean sun from Mars time (within ~2 deg) */
-        slon = wrap180(-(pic_mars_mtc(t) - 12.0) * 15.0);
+        /* no ephemeris yet: true sun from Mars time and its equation
+         * of time (Mars24 formulae, well within a degree) */
+        slon = wrap180(-((pic_mars_mtc(t) - 12.0) * 15.0 + pic_mars_eot(t)));
         slat = asin(sin(25.19 * D2R) * sin(pic_mars_ls(t) * D2R)) / D2R;
         have_sun = 1;
     }

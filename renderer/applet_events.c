@@ -59,10 +59,12 @@ int pic_events_collect(time_t now, pic_event_t *out, int max)
     time_t horizon = now + (time_t)hours_ahead * 3600;
     double lat = pic_config.qth_lat, lon = pic_config.qth_lon;
 
+    int added = 0;   /* whether the last ADD kept its event (within the horizon) */
 #define ADD(K, S, E, O, ...) do { if (n < MAX_EV && (S) < horizon) { \
         memset(&ev[n], 0, sizeof(ev[n])); ev[n].kind = (K); ev[n].start = (S); \
         ev[n].end = (E); ev[n].outdoors = (O); \
-        snprintf(ev[n].text, sizeof(ev[n].text), __VA_ARGS__); n++; } } while (0)
+        snprintf(ev[n].text, sizeof(ev[n].text), __VA_ARGS__); n++; added = 1; } \
+        else added = 0; } while (0)
 
     /* Satellite passes */
     {
@@ -73,7 +75,7 @@ int pic_events_collect(time_t now, pic_event_t *out, int max)
             /* Only passes the cloud forecast lets you see */
             if (pic_sky_clear(p[i].start, p[i].end, NULL) == PIC_SKY_CLOUDY) continue;
             ADD(PIC_EV_PASS, p[i].start, p[i].end, 1, "%.15s pass", p[i].sat);
-            snprintf(ev[n - 1].detail, sizeof(ev[n - 1].detail), "%s\xe2\x86\x92%s %d\xc2\xb0",
+            if (added) snprintf(ev[n - 1].detail, sizeof(ev[n - 1].detail), "%s\xe2\x86\x92%s %d\xc2\xb0",
                      compass8(p[i].az_start), compass8(p[i].az_end), (int)(p[i].max_el + 0.5));
         }
     }
@@ -85,7 +87,7 @@ int pic_events_collect(time_t now, pic_event_t *out, int max)
             if (L[i].net + L[i].vis.t_end < now) continue;
             ADD(PIC_EV_LAUNCH, L[i].net + L[i].vis.t_start, L[i].net + L[i].vis.t_end, 1,
                 "%.30s launch", L[i].rocket);
-            snprintf(ev[n - 1].detail, sizeof(ev[n - 1].detail), "look %s%s",
+            if (added) snprintf(ev[n - 1].detail, sizeof(ev[n - 1].detail), "look %s%s",
                      pic_launchvis_compass(L[i].vis.az_start),
                      L[i].precise && !strcmp(L[i].status, "Go") ? "" : " (NET)");
         }
@@ -111,7 +113,7 @@ int pic_events_collect(time_t now, pic_event_t *out, int max)
             horizon = now + 7 * 86400;        /* showers are worth a week's notice */
             ADD(PIC_EV_SHOWER, t, t + 36000, 1, "%s peak", name);
             horizon = hz;
-            snprintf(ev[n - 1].detail, sizeof(ev[n - 1].detail), "ZHR %d", zhr);
+            if (added) snprintf(ev[n - 1].detail, sizeof(ev[n - 1].detail), "ZHR %d", zhr);
         }
     }
     /* Moon rise / set */
@@ -142,7 +144,7 @@ int pic_events_collect(time_t now, pic_event_t *out, int max)
         if (best_s >= 0 && best_len >= 2) {
             time_t t0 = a->hours[best_s].t, t1 = t0 + (time_t)best_len * 3600;
             ADD(PIC_EV_DARK, t0, t1, 1, "Clear dark sky");
-            snprintf(ev[n - 1].detail, sizeof(ev[n - 1].detail), "%d h", best_len);
+            if (added) snprintf(ev[n - 1].detail, sizeof(ev[n - 1].detail), "%d h", best_len);
         }
         pthread_mutex_unlock(&a->mutex);
     }

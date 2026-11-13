@@ -252,8 +252,14 @@ void pic_layer_render_dsn(cairo_t *cr, int width, int height,
     double fs = height / 85.0, s = height / 60.0;
     int i, k;
 
-    (void)now; (void)ud;
+    (void)ud;
     pthread_mutex_lock(&dsn.mutex);
+    /* These are live links: when updates have failed for 10 minutes
+     * the last ones are no longer what the antennas are doing */
+    if (dsn.fetched && now - dsn.fetched > 600) {
+        pthread_mutex_unlock(&dsn.mutex);
+        return;
+    }
     for (i = 0; i < dsn.nst; i++) {
         const dsn_station_t *st = &dsn.st[i];
         double x = pic_lon_to_x(st->lon, width);

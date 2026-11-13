@@ -3,7 +3,7 @@
  *
  *   Backyard
  *   56°F  75%  wind NE 6 mph
- *   Soil 61°F at 2 in
+ *   Soil 61°F at 2.4 in   (the 6 cm model level)
  *    Sat  Sun  Mon  Tue  Wed  Thu  Fri      <- overnight lows,
  *     50   47   53   53   56   61   58         frost-coloured
  *   No frost in the next 7 nights
@@ -35,6 +35,7 @@
 static struct {
     pthread_mutex_t mutex;
     int    ok;
+    time_t at;                 /* when this was fetched */
     double temp, rh, wind, wdir, soil;
     double low[9], rain[9];
     char   day[9][4];
@@ -80,6 +81,7 @@ int pic_backyard_parse(const char *js, size_t len)
     }
     by.ndays = n;
     by.ok = 1;
+    by.at = time(NULL);
     pthread_mutex_unlock(&by.mutex);
     pic_json_free(&j);
     return 0;
@@ -116,16 +118,18 @@ double pic_applet_render_backyard(cairo_t *cr, double width, time_t now,
     int i, first_frost = -1, cols;
     double rain_next = 0;
 
-    (void)now; (void)ud;
+    (void)ud;
     if (!cr) return total;
     y = pic_applet_title(cr, width, "Backyard") + fs * 0.3;
     pthread_mutex_lock(&by.mutex);
-    if (!by.ok) {
+    /* Conditions older than 3 h are not "now" any more (updates failing) */
+    if (!by.ok || now - by.at > 3 * 3600) {
+        int old = by.ok;
         pthread_mutex_unlock(&by.mutex);
         cairo_set_font_size(cr, fs);
         cairo_set_source_rgba(cr, 0.6, 0.6, 0.65, 0.9);
         cairo_move_to(cr, 0, y + fs);
-        cairo_show_text(cr, "Loading\xe2\x80\xa6");
+        cairo_show_text(cr, old ? "No recent data" : "Loading\xe2\x80\xa6");
         return total;
     }
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
@@ -141,7 +145,7 @@ double pic_applet_render_backyard(cairo_t *cr, double width, time_t now,
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                            CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, fs * 0.9);
-    snprintf(line, sizeof(line), "Soil %.0f\xc2\xb0" "F at 2 in", by.soil);
+    snprintf(line, sizeof(line), "Soil %.0f\xc2\xb0" "F at 2.4 in", by.soil);
     cairo_set_source_rgba(cr, 0.85, 0.75, 0.55, 0.95);
     cairo_move_to(cr, 0, y + fs);
     pic_show_text_fit(cr, line, width);

@@ -130,9 +130,10 @@ double pic_applet_render_astro(cairo_t *cr, double width,
     /* ── Local sun and moon events ─────────────────────────── */
     sun_up     = pic_astro_sun_alt(now, lat, lon) > ASTRO_SUN_H0;
     sunset     = pic_astro_next_crossing(0, now, lat, lon, ASTRO_SUN_H0, 0, 30);
-    sunrise    = pic_astro_next_crossing(0, sun_up ? sunset : now, lat, lon,
+    /* sunset == 0: the sun does not set (polar day); search from now */
+    sunrise    = pic_astro_next_crossing(0, sun_up && sunset ? sunset : now, lat, lon,
                                          ASTRO_SUN_H0, 1, 30);
-    dark_start = pic_astro_next_crossing(0, sun_up ? sunset : now - 12 * 3600,
+    dark_start = pic_astro_next_crossing(0, sun_up ? (sunset ? sunset : now) : now - 12 * 3600,
                                          lat, lon, ASTRO_TWILIGHT_H0, 0, 30);
     dark_end   = dark_start ? pic_astro_next_crossing(0, dark_start, lat, lon,
                                          ASTRO_TWILIGHT_H0, 1, 30) : 0;

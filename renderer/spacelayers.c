@@ -116,13 +116,17 @@ int sl_parse_tip(const char *js, time_t now, time_t keep, sl_reentry_t *out, int
 
 /* ------------------------------------------------------------ CDM */
 
-int sl_parse_cdm(const char *js, time_t now, int hours, sl_conj_t *out, int max)
+#define CDM_SCAN 64     /* pairs looked at before keeping the soonest */
+
+int sl_parse_cdm(const char *js, time_t now, int hours, sl_conj_t *res, int max)
 {
     pic_json_t j;
-    char made[SL_MAX_CJ * 2][32];
+    char made[CDM_SCAN][32];
+    sl_conj_t *out;
     int n = 0, i, k, cnt;
-    if (!js || pic_json_parse(&j, js, strlen(js)) != 0) return 0;
-    if (!pic_json_is_array(&j, 0)) { pic_json_free(&j); return 0; }
+    if (max <= 0 || !(out = calloc(CDM_SCAN, sizeof(*out)))) return 0;
+    if (!js || pic_json_parse(&j, js, strlen(js)) != 0) { free(out); return 0; }
+    if (!pic_json_is_array(&j, 0)) { pic_json_free(&j); free(out); return 0; }
     cnt = pic_json_size(&j, 0);
     for (i = 0; i < cnt; i++) {
         char t[40], c[32];
@@ -151,7 +155,7 @@ int sl_parse_cdm(const char *js, time_t now, int hours, sl_conj_t *out, int max)
         x.rng_m = jnum(&j, o, "MIN_RNG", 0);
         x.pc = jnum(&j, o, "PC", 0);
         if (slot < 0) {
-            if (n >= (int)(sizeof(made) / sizeof(made[0]))) continue;
+            if (n >= CDM_SCAN) continue;
             slot = n++;
         }
         out[slot] = x;
@@ -162,7 +166,10 @@ int sl_parse_cdm(const char *js, time_t now, int hours, sl_conj_t *out, int max)
         for (k = i; k > 0 && out[k].tca < out[k - 1].tca; k--) {
             sl_conj_t t = out[k]; out[k] = out[k - 1]; out[k - 1] = t;
         }
-    return n < max ? n : max;
+    if (n > max) n = max;
+    memcpy(res, out, sizeof(*out) * (size_t)n);
+    free(out);
+    return n;
 }
 
 /* ------------------------------------------------------------ debris */

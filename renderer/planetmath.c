@@ -204,3 +204,16 @@ double pic_mars_ls(double t)
     ls = fmod(a + v, 360.0);
     return ls < 0 ? ls + 360.0 : ls;
 }
+
+/* Mars equation of time, degrees (true minus mean sun), Allison &
+ * McEwen 2000 (Mars24): up to about +10 / -13 degrees over the year. */
+double pic_mars_eot(double t)
+{
+    double dt = jd_tt(t) - 2451545.0;
+    double ls = pic_mars_ls(t) * D2R;
+    double afms = fmod(270.3871 + 0.524038496 * dt, 360.0);
+    double vm = pic_mars_ls(t) - (afms < 0 ? afms + 360.0 : afms);      /* equation of centre */
+    while (vm > 180) vm -= 360;
+    while (vm < -180) vm += 360;
+    return 2.861 * sin(2 * ls) - 0.071 * sin(4 * ls) + 0.035 * sin(6 * ls) - vm;
+}

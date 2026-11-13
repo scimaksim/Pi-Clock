@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/MW0MWZ/Pi-Clock/dashboard/internal/api"
 	"github.com/MW0MWZ/Pi-Clock/dashboard/internal/auth"
@@ -170,6 +171,7 @@ func main() {
 	})
 
 	fmt.Printf("Pi-Clock Dashboard %s\n", version)
+	api.BuildVersion = version
 
 	// Start HTTP → HTTPS redirect on port 80 in a separate goroutine.
 	// Runs concurrently with the main HTTPS server below. Uses a
@@ -187,7 +189,9 @@ func main() {
 			}
 			http.Redirect(w, r, target, http.StatusMovedPermanently)
 		})
-		if err := http.ListenAndServe(httpAddr, redirect); err != nil {
+		rs := &http.Server{Addr: httpAddr, Handler: redirect,
+			ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+		if err := rs.ListenAndServe(); err != nil {
 			log.Printf("http redirect: %v", err)
 		}
 	}()
@@ -203,7 +207,12 @@ func main() {
 
 	// Start HTTPS server
 	fmt.Printf("HTTPS on %s\n", httpsAddr)
-	if err := http.ListenAndServeTLS(httpsAddr, certPath, keyPath, r); err != nil {
+	// Header and idle timeouts: a client that opens connections and
+	// sends nothing must not tie up the Pi. No body timeout, so the
+	// screenshot and package upgrade calls can take as long as they need.
+	srv := &http.Server{Addr: httpsAddr, Handler: r,
+		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 64 << 10}
+	if err := srv.ListenAndServeTLS(certPath, keyPath); err != nil {
 		log.Fatalf("https: %v", err)
 	}
 }

@@ -343,7 +343,7 @@ double pic_applet_render_planets(cairo_t *cr, double width, time_t now,
     double lon = pic_config.qth_lon;
     int i, nvis = 0, rows;
     char line[128], a[16], b[16];
-    double total;
+    double total, tcol = fs * 5.1;      /* x of the time column */
 
     (void)ud;
     pthread_mutex_lock(&pl_mutex);
@@ -363,6 +363,18 @@ double pic_applet_render_planets(cairo_t *cr, double width, time_t now,
 
     y = pic_applet_title(cr, width, "Planets & Events") + fs * 0.3;
     cairo_set_font_size(cr, fs);
+    /* Times start after the widest name shown ("Jupiter" in bold ran
+     * into them at the old fixed column) */
+    {
+        cairo_text_extents_t ne;
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                               CAIRO_FONT_WEIGHT_BOLD);
+        for (i = 0; i < N_NAKED; i++) {
+            if (!wins[i].visible) continue;
+            cairo_text_extents(cr, naked[i].name, &ne);
+            if (fs * 1.35 + ne.x_advance + fs * 0.45 > tcol) tcol = fs * 1.35 + ne.x_advance + fs * 0.45;
+        }
+    }
     for (i = 0; i < N_NAKED; i++) {
         const pwin_t *w = &wins[i];
         cairo_text_extents_t e;
@@ -394,9 +406,9 @@ double pic_applet_render_planets(cairo_t *cr, double width, time_t now,
         snprintf(right, sizeof(right), "%d\xc2\xb0 %s", (int)(w->peak_alt + 0.5),
                  compass8(w->peak_az));
         cairo_text_extents(cr, right, &e);
-        pic_fit_text(cr, line, width - fs * 5.1 - e.x_advance - fs * 0.3);
+        pic_fit_text(cr, line, width - tcol - e.x_advance - fs * 0.3);
         cairo_set_source_rgba(cr, 0.85, 0.85, 0.9, 0.9);
-        cairo_move_to(cr, fs * 5.1, y + fs);
+        cairo_move_to(cr, tcol, y + fs);
         cairo_show_text(cr, line);
         cairo_set_source_rgba(cr, 0.65, 0.7, 0.78, 0.9);
         cairo_move_to(cr, width - e.x_advance, y + fs);

@@ -83,4 +83,6 @@ time_t pic_astro_next_crossing(int body, time_t t0, double lat, double lon,
 #define ASTRO_MOON_H0       (0.125)
 #define ASTRO_TWILIGHT_H0   (-18.0)
 
+/* Equinox/solstice instant (which: 0 Mar, 1 Jun, 2 Sep, 3 Dec), UTC */
+time_t pic_astro_season(int year, int which);
 #endif /* PIC_ASTRO_H */

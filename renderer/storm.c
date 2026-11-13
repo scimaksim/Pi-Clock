@@ -136,18 +136,24 @@ int pic_storm_parse_events(const char *js, size_t len,
 static int ring_centre(const pic_json_t *j, int ring, double *lat, double *lon)
 {
     int k, n = pic_json_size(j, ring);
-    double sx = 0, sy = 0;
+    double sx = 0, sy = 0, first = 0;
     int used = 0;
 
     if (n > 1) n--;     /* closing vertex repeats the first */
     for (k = 0; k < n; k++) {
         int c = pic_json_at(j, ring, k);
-        sx += pic_json_num(j, pic_json_at(j, c, 0), 0);
+        double lo = pic_json_num(j, pic_json_at(j, c, 0), 0);
+        if (!used) first = lo;
+        while (lo - first > 180) lo -= 360;     /* ring across the date line */
+        while (lo - first < -180) lo += 360;
+        sx += lo;
         sy += pic_json_num(j, pic_json_at(j, c, 1), 0);
         used++;
     }
     if (!used) return -1;
     *lon = sx / used;
+    if (*lon > 180) *lon -= 360;
+    if (*lon < -180) *lon += 360;
     *lat = sy / used;
     return 0;
 }

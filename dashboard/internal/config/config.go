@@ -216,9 +216,15 @@ func (c *RendererConfig) Update(values map[string]string) error {
 
 	// Reject values containing newlines — they would inject extra
 	// KEY=VALUE lines into the config file.
+	// Cap the length too: the renderer reads lines into 256-byte
+	// buffers, so an over-long value would spill into a "second line"
+	// and be parsed as another setting.
 	for _, v := range values {
-		if strings.ContainsAny(v, "\n\r") {
+		if strings.ContainsAny(v, "\n\r\x00") {
 			return fmt.Errorf("invalid characters in config value")
+		}
+		if len(v) > 64 {
+			return fmt.Errorf("config value too long")
 		}
 	}
 

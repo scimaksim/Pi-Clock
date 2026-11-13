@@ -52,28 +52,19 @@ static void sun_at(time_t t, double *lambda, double *decl, double *eot)
     if (eot) *eot = e * 4.0;                       /* minutes            */
 }
 
-/* Next time the sun's ecliptic longitude reaches a multiple of 90° */
+/* Next equinox or solstice after now */
 static time_t next_quarter(time_t now, int *which)
 {
-    double l0, l;
-    int q0, q;
-    time_t a = now, b;
-
-    sun_at(now, &l0, NULL, NULL);
-    q0 = (int)(l0 / 90.0);
-    for (b = now + 86400; b < now + 100 * 86400; b += 86400) {
-        sun_at(b, &l, NULL, NULL);
-        q = (int)(l / 90.0);
-        if (q != q0) break;
-        a = b;
-    }
-    while (b - a > 60) {
-        time_t m = a + (b - a) / 2;
-        sun_at(m, &l, NULL, NULL);
-        if ((int)(l / 90.0) == q0) a = m; else b = m;
-    }
-    *which = (q0 + 1) % 4;   /* 0 Mar equinox, 1 Jun solstice, 2 Sep, 3 Dec */
-    return b;
+    struct tm g;
+    time_t best = 0;
+    int y, q;
+    gmtime_r(&now, &g);
+    for (y = g.tm_year + 1900; y <= g.tm_year + 1901; y++)
+        for (q = 0; q < 4; q++) {
+            time_t t = pic_astro_season(y, q);
+            if (t > now && (!best || t < best)) { best = t; *which = q; }
+        }
+    return best;      /* 0 Mar equinox, 1 Jun solstice, 2 Sep, 3 Dec */
 }
 
 /* Daylight (s) for the local calendar day containing t; 0 if none */
@@ -92,7 +83,8 @@ static long day_length(time_t t, double lat, double lon)
 
 static void fmt_hm(char *out, size_t n, long s)
 {
-    snprintf(out, n, "%ld h %02ld m", s / 3600, (s % 3600 + 30) / 60);
+    long m = (s + 30) / 60;          /* whole minutes: never "9 h 60 m" */
+    snprintf(out, n, "%ld h %02ld m", m / 60, m % 60);
 }
 
 /* ── Seasons panel ───────────────────────────────────────────────── */
@@ -193,7 +185,14 @@ double pic_applet_render_seasons(cairo_t *cr, double width, time_t now, void *ud
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                            CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, fs);
-    days = (long)((ss.next - now + 43200) / 86400);
+    {   /* calendar days from today, not rounded half-days */
+        struct tm d0, d1;
+        localtime_r(&now, &d0);
+        localtime_r(&ss.next, &d1);
+        d0.tm_hour = d1.tm_hour = 12; d0.tm_min = d1.tm_min = 0; d0.tm_sec = d1.tm_sec = 0;
+        d0.tm_isdst = d1.tm_isdst = -1;
+        days = (long)((mktime(&d1) - mktime(&d0) + 43200) / 86400);
+    }
     cairo_set_source_rgba(cr, 0.95, 0.95, 0.97, 0.95);
     snprintf(line, sizeof(line), days == 0 ? "Today" : days == 1 ? "Tomorrow" : "In %ld days", days);
     cairo_move_to(cr, tx, y + fs * 1.1);
@@ -340,8 +339,10 @@ double pic_applet_render_analemma(cairo_t *cr, double width, time_t now, void *u
                                CAIRO_FONT_WEIGHT_NORMAL);
         cairo_set_font_size(cr, fs * 0.85);
         cairo_set_source_rgba(cr, 0.8, 0.82, 0.88, 0.95);
-        snprintf(line, sizeof(line), "%.0f m %02.0f s vs. clock", floor(m),
-                 fmod(m * 60.0, 60.0));
+        {
+            long sec = lround(m * 60.0);      /* whole seconds: never "5 m 60 s" */
+            snprintf(line, sizeof(line), "%ld m %02ld s vs. clock", sec / 60, sec % 60);
+        }
         cairo_move_to(cr, tx, y0 + fs * 1.1 + line_h * 0.9);
         pic_show_text_fit(cr, line, tw);
 

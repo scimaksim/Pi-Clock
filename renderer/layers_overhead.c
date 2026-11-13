@@ -551,7 +551,7 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                         cairo_set_line_width(cr, s * 0.5);
                         cairo_stroke(cr);
                     }
-                    if (!sprites && lit && up && home_dark) {   /* ring: look up now */
+                    if (!sprites && lit && up && home_dark && sky == PIC_SKY_CLEAR) {   /* ring: look up now */
                         cairo_new_path(cr);
                         cairo_arc(cr, x, y, s * (known == 2 ? 9 : known ? 6.5 : 4.2), 0, 2 * M_PI);
                         cairo_set_source_rgba(cr, lr, lg, lb, 0.9);

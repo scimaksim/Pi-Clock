@@ -148,6 +148,7 @@ void pic_draw_text_pill(cairo_t *cr, double x, double y, const char *text,
  * resets the stack.
  */
 static double legend_used;   /* rows of height/72*1.75 already taken */
+static double legend_used_last;   /* rows the last frame's notes took */
 
 /* Top of the news ticker bar (display.c), 0 when it's off. Weak so
  * test harnesses without display.c still link. */
@@ -157,6 +158,14 @@ static double legend_bottom(int height)
 {
     double t = &pic_ticker_bar_top ? pic_ticker_bar_top : 0;
     return t > height * 0.5 && t < height ? t : height;
+}
+
+/* Top edge of the notes stacked above the map key in the last frame,
+ * for panels on the map to stay above them */
+double pic_legend_top(int height)
+{
+    double fs = height / 72.0;
+    return legend_bottom(height) - fs * (3.2 + 1.75 * legend_used_last) - fs * 0.2;
 }
 
 double pic_legend_take(int height, double rows)
@@ -422,6 +431,7 @@ void pic_map_key_draw(cairo_t *cr, int width, int height, double bottom)
     int i, n = map_key_n;
 
     map_key_n = 0;
+    legend_used_last = legend_used;
     legend_used = 0;
     if (n == 0) return;
     cairo_save(cr);

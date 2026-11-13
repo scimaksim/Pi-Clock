@@ -65,7 +65,8 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	// A stale .tmp from a crash keeps its old mode through WriteFile,
 	// which matters for 0600 secrets: start fresh and set the mode.
 	os.Remove(tmp)
-	if err := os.WriteFile(tmp, data, perm); err != nil {
+	if err := writeSynced(tmp, data, perm); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	if err := os.Chmod(tmp, perm); err != nil {
@@ -77,6 +78,53 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return nil
+}
+
+// writeSynced writes data and flushes it to the card before returning,
+// so a rename that follows never exposes an empty file after power loss.
+func writeSynced(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// atomicWriteBoot replaces a file on the FAT boot partition (config.txt,
+// cmdline.txt) or in /etc via a synced temp file and rename. Truncating
+// these in place risked an empty cmdline.txt, and an unbootable Pi, if
+// power failed mid-write. No chmod: FAT has no modes.
+func atomicWriteBoot(path string, data []byte) error {
+	tmp := path + ".tmp"
+	os.Remove(tmp)
+	if err := writeSynced(tmp, data, 0644); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// readForUpdate reads a config file that is about to be rewritten. A
+// missing file is an empty one; any other read error is returned, so a
+// transient failure can't make the rewrite drop every other setting.
+func readForUpdate(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return data, nil
 }
 
 // userConfMu serialises read-modify-write operations on pi-clock-user.conf.
@@ -519,7 +567,7 @@ func updateConfigTxtResolution(res string) {
 		lines = append(lines, "framebuffer_height="+dims[1])
 	}
 
-	if err := os.WriteFile(configTxt, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+	if err := atomicWriteBoot(configTxt, []byte(strings.Join(lines, "\n"))); err != nil {
 		log.Printf("updateConfigTxtResolution: can't write %s: %v", configTxt, err)
 	} else {
 		log.Printf("config.txt updated: %sx%s for %s", dims[0], dims[1], res)
@@ -563,7 +611,7 @@ func updateCmdlineVideo(res string) {
 	}
 	filtered = append(filtered, videoParam)
 
-	if err := os.WriteFile(cmdline, []byte(strings.Join(filtered, " ")+"\n"), 0644); err != nil {
+	if err := atomicWriteBoot(cmdline, []byte(strings.Join(filtered, " ")+"\n")); err != nil {
 		log.Printf("updateCmdlineVideo: can't write %s: %v", cmdline, err)
 	} else {
 		log.Printf("cmdline.txt updated: %s", videoParam)
@@ -874,10 +922,24 @@ func PostApkUpgrade(w http.ResponseWriter, r *http.Request) {
 // upgrade processes would corrupt the inactive partition.
 var upgradeRunning int32
 
+// BuildVersion is the dashboard's own build version (set from main).
+// A "fork-..." build must not offer or run the stock OS image upgrade:
+// it downloads the upstream image, which would replace the fork's
+// renderer and dashboard and drop every feature only the fork has.
+var BuildVersion = "dev"
+
+func isForkBuild() bool { return strings.HasPrefix(BuildVersion, "fork-") }
+
 // PostOsUpgrade triggers a full OS image upgrade (A/B slot).
 // The response is streamed as Server-Sent Events so the dashboard
 // can show live progress through each stage of the upgrade.
 func PostOsUpgrade(w http.ResponseWriter, r *http.Request) {
+	if isForkBuild() {
+		jsonResponse(w, http.StatusConflict, map[string]string{
+			"error": "this clock runs a fork build; the stock OS image would replace it. Update from the fork's releases instead.",
+		})
+		return
+	}
 	if !atomic.CompareAndSwapInt32(&upgradeRunning, 0, 1) {
 		jsonResponse(w, http.StatusConflict, map[string]string{
 			"error": "upgrade already in progress",
@@ -982,6 +1044,13 @@ func GetUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		"available": "",
 		"update":    false,
 		"url":       "",
+		"fork":      isForkBuild(),
+	}
+	if isForkBuild() {
+		/* The stock release is not an update for a fork build */
+		result["installed"] = BuildVersion
+		jsonResponse(w, http.StatusOK, result)
+		return
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -1047,7 +1116,7 @@ func PutHostname(w http.ResponseWriter, r *http.Request) {
 	}
 
 	/* Set hostname in the running system */
-	if err := os.WriteFile("/etc/hostname", []byte(h+"\n"), 0644); err != nil {
+	if err := atomicWriteBoot("/etc/hostname", []byte(h+"\n")); err != nil {
 		internalError(w, "save hostname", err)
 		return
 	}
@@ -1063,7 +1132,7 @@ func PutHostname(w http.ResponseWriter, r *http.Request) {
 				lines[i] = "127.0.1.1   " + h
 			}
 		}
-		if err := os.WriteFile("/etc/hosts", []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		if err := atomicWriteBoot("/etc/hosts", []byte(strings.Join(lines, "\n"))); err != nil {
 			log.Printf("hostname: failed to update /etc/hosts: %v", err)
 		}
 	}
@@ -1466,6 +1535,15 @@ func PostChangePassword(sessions *auth.SessionStore) http.HandlerFunc {
 			}
 		}
 
+		/* Login rejects anything over 128 characters: a longer new
+		 * password would lock the owner out. */
+		if len(req.New) > 128 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{
+				"error": "password too long (max 128 characters)",
+			})
+			return
+		}
+
 		if len(req.New) < 8 {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{
 				"error": "password too short (min 8 characters)",
@@ -1735,7 +1813,12 @@ func readAppletsConf() (order []string, byName map[string]appletSetting) {
 func GetDxSettings() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 
 		result := map[string]string{
 			"dx_distance": "0",
@@ -2002,7 +2085,12 @@ func PutDxSettings(cfg *config.RendererConfig) http.HandlerFunc {
 
 		// Read existing config, update DX fields, write back
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 
 		// Remove existing DX_ lines
 		var lines []string
@@ -2091,7 +2179,12 @@ func PutPropSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		defer cfg.Unlock()
 
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 		lines := strings.Split(string(data), "\n")
 
 		/* Update or add PROP_BANDS and ANTENNA_GAIN */
@@ -2129,7 +2222,12 @@ func PutPropSettings(cfg *config.RendererConfig) http.HandlerFunc {
 func GetLightningSettings() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 
 		result := map[string]string{
 			"lightning_fade_ms": "15000",
@@ -2169,7 +2267,12 @@ func PutLightningSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		defer cfg.Unlock()
 
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 		lines := strings.Split(string(data), "\n")
 
 		found := false
@@ -2197,7 +2300,12 @@ func PutLightningSettings(cfg *config.RendererConfig) http.HandlerFunc {
 func GetEarthquakeSettings() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 
 		result := map[string]string{
 			"earthquake_display_s": "86400",
@@ -2237,7 +2345,12 @@ func PutEarthquakeSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		defer cfg.Unlock()
 
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 		lines := strings.Split(string(data), "\n")
 
 		found := false

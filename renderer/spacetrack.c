@@ -199,7 +199,7 @@ static int st_https(const char *method, const char *path, const char *cookie,
     SSL_CTX *ctx = NULL;
     SSL *ssl = NULL;
     int fd = -1, status = -1, n, inhdr = 1;
-    char req[2048], buf[8192], hdr[8192];
+    char *req = NULL, buf[8192], hdr[8192];   /* req on the heap: ID lists run to several KB */
     size_t hl = 0;
     struct timeval tv = { 30, 0 };
 
@@ -239,15 +239,14 @@ static int st_https(const char *method, const char *path, const char *cookie,
                      "Content-Type: application/x-www-form-urlencoded\r\n"
                      "Content-Length: %zu\r\n", strlen(body));
         }
-        n = snprintf(req, sizeof(req),
+        n = asprintf(&req,
                      "%s %s HTTP/1.0\r\nHost: " ST_HOST "\r\nUser-Agent: %s\r\n%s\r\n",
                      method, path, pic_fetch_get_useragent(), extra);
         memset(extra, 0, sizeof(extra));
     }
-    if (n <= 0 || (size_t)n >= sizeof(req)) goto done;
+    if (n <= 0 || !req) { req = NULL; goto done; }
     if (SSL_write(ssl, req, n) != n) goto done;
     if (body && SSL_write(ssl, body, (int)strlen(body)) != (int)strlen(body)) goto done;
-    memset(req, 0, sizeof(req));
 
     if (cookies && cn) cookies[0] = 0;
     while ((n = SSL_read(ssl, buf, sizeof(buf))) > 0) {
@@ -280,6 +279,7 @@ static int st_https(const char *method, const char *path, const char *cookie,
         if (out && n > off) fwrite(buf + off, 1, (size_t)(n - off), out);
     }
 done:
+    if (req) { OPENSSL_cleanse(req, strlen(req)); free(req); }   /* held the cookie */
     if (ssl) { SSL_shutdown(ssl); SSL_free(ssl); }
     if (ctx) SSL_CTX_free(ctx);
     if (fd >= 0) close(fd);

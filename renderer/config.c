@@ -385,17 +385,20 @@ void pic_load_renderer_conf(pic_renderer_conf_t *conf)
 /*
  * pic_wait_for_network - Poll for network connectivity at boot.
  *
- * Tries an HTTP fetch every 5 seconds for up to 2 minutes (24 attempts).
+ * Tries an HTTP fetch every 5 seconds for 2 minutes, then every minute.
  * Uses the NOAA 10cm-flux endpoint as the test URL — it's lightweight
  * and we need it anyway for solar data.
  *
- * Returns 1 if network is ready, 0 if timed out or *running was cleared.
+ * Returns 1 if network is ready, 0 if *running was cleared.
  */
 int pic_wait_for_network(const char *label, const volatile int *running)
 {
     int attempts = 0;
 
-    while (*running && attempts < 24) { /* 24 × 5s = 2 minutes max */
+    /* Never gives up: a fetcher that returned here stayed dead until
+     * the layer was toggled (router slower to boot than the Pi, or the
+     * test URL down). After 2 minutes it tries once a minute. */
+    while (*running) {
         /* Test connectivity with a lightweight fetch */
         int ret = pic_fetch_to_file(
             "https://services.swpc.noaa.gov/products/summary/10cm-flux.json",
@@ -404,18 +407,17 @@ int pic_wait_for_network(const char *label, const volatile int *running)
             printf("%s: network ready\n", label);
             return 1;
         }
-        if (attempts % 2 == 0)
-            printf("%s: waiting for network (%d/24)...\n", label, attempts + 1);
+        if (attempts < 24 ? attempts % 2 == 0 : attempts % 30 == 24)
+            printf("%s: waiting for network (try %d)...\n", label, attempts + 1);
         /* Sleep in 1s chunks so the stop flag is checked promptly.
          * Without this, shutdown can stall for up to 10s while a
          * thread is sleeping inside this function. */
         {
             int s;
-            for (s = 0; s < 5 && *running; s++)
+            for (s = 0; s < (attempts < 24 ? 5 : 60) && *running; s++)
                 sleep(1);
         }
         attempts++;
     }
-    printf("%s: network wait timed out\n", label);
-    return 0;
+    return 0;      /* stopped while waiting */
 }

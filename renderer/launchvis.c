@@ -59,6 +59,20 @@ static int has(const char *s, const char *w)
     return 0;
 }
 
+/* As has(), but w must stand alone ("ISS", not the "iss" in "Mission") */
+static int has_word(const char *s, const char *w)
+{
+    size_t n = strlen(w), i, j;
+    if (!s) return 0;
+    for (i = 0; s[i]; i++) {
+        if (i > 0 && isalnum((unsigned char)s[i - 1])) continue;
+        for (j = 0; j < n && s[i + j]; j++)
+            if (tolower((unsigned char)s[i + j]) != w[j]) break;
+        if (j == n && !isalnum((unsigned char)s[i + j])) return 1;
+    }
+    return 0;
+}
+
 const char *pic_launchvis_compass(double az)
 {
     static const char *p[16] = { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
@@ -183,7 +197,7 @@ static double target_inclination(const char *orbit, const char *mission, const c
     if (has(mission, "crew") || has(mission, "crs-") || has(mission, "spx-") ||
         has(mission, "cygnus") || has(mission, "axiom") || has(mission, "ax-") ||
         has(mission, "dragon") || has(mission, "starliner") || has(mission, "dream chaser") ||
-        has(mission, "iss") || has(orbit, "iss"))
+        has_word(mission, "iss") || has_word(orbit, "iss"))
         return 51.6;
     if (has(orbit, "gto") || has(orbit, "geo") || has(orbit, "gso") || has(orbit, "heo") ||
         has(orbit, "lunar") || has(orbit, "tli") || has(orbit, "helio") ||

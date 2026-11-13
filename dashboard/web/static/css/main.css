@@ -21,7 +21,7 @@
     --bg-input: #ffffff;
     --text-primary: #2a2420;
     --text-secondary: #6b5e52;
-    --text-muted: #a89888;
+    --text-muted: #77685a;   /* 5:1 on white; help text was 2.8:1 */
     --border: #e0d8cc;
     --accent: #a88a3c;
     --accent-hover: #8a7030;
@@ -42,7 +42,7 @@
     --bg-input: #333030;
     --text-primary: #e8e0d4;
     --text-secondary: #a09888;
-    --text-muted: #6b6360;
+    --text-muted: #b0a698;   /* 4.7:1 on the card; help text was 1.9:1 */
     --border: #504a46;
     --accent: #c9a84c;
     --accent-hover: #dbb85c;

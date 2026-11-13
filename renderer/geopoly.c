@@ -58,7 +58,7 @@ int pic_geopoly_add_ring(pic_geopoly_t *g, const float *lat, const float *lon,
 
     if (n < 3 || g->nrings >= g->max_rings || room < 4) return -1;
     /* Decimate long rings so one huge polygon can't exhaust the pool */
-    while (n / step > room || n / step > 4000) step++;
+    while ((n + step - 1) / step > room || (n + step - 1) / step > 4000) step++;
 
     r = &g->rings[g->nrings];
     *r = *style;
@@ -82,7 +82,7 @@ static int add_json_ring(pic_geopoly_t *g, const pic_json_t *j, int ring,
 
     room = g->max_vert - g->nvert;
     if (n < 3 || g->nrings >= g->max_rings || room < 4) return 0;
-    while (n / step > room || n / step > 4000) step++;
+    while ((n + step - 1) / step > room || (n + step - 1) / step > 4000) step++;
 
     r = &g->rings[g->nrings];
     *r = *style;

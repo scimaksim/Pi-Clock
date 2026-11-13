@@ -306,7 +306,7 @@ void pic_applet_load_config(pic_applet_stack_t *stack)
     while (fgets(line, sizeof(line), f) && new_count < MAX_APPLETS) {
         char name[32];
         int  enabled;
-        char side_str[16];
+        char side_str[16] = "";
         int  side;
         int  found;
 

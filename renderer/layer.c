@@ -159,7 +159,7 @@ int pic_layer_stack_update(pic_layer_stack_t *stack, time_t now)
                 /* Static layer, already rendered once — skip */
                 continue;
             }
-            if (elapsed < layer->update_interval) {
+            if (elapsed >= 0 && elapsed < layer->update_interval) {
                 /* Not enough time has passed — skip */
                 continue;
             }

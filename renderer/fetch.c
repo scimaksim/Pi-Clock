@@ -383,6 +383,9 @@ static int fetch_impl(const char *url, const char *header, char *buf,
         buf[n] = '\0';
         killed = finish_child(pid, slow ? 0 : 300, 100000, &status) || slow;
         if (killed) n = 0;   /* cut off part-way: not a whole reply */
+        /* wget failed part-way (connection dropped mid-body): what
+         * arrived is not a whole reply either */
+        if (n > 0 && WIFEXITED(status) && WEXITSTATUS(status) != 0) n = 0;
         read_err(errfd[0], err, sizeof(err));
         if (n <= 0 && !err[0] && WIFEXITED(status) && WEXITSTATUS(status) == 0)
             snprintf(err, sizeof(err), "empty reply");

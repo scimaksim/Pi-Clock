@@ -78,11 +78,17 @@ for vmlinuz in "$PREV_MNT"/boot/vmlinuz-*; do
 	cp -f "$vmlinuz" "/boot/firmware/kernel${suffix}.img"
 
 	dtbdir="$PREV_MNT/usr/lib/modules/$kver/dtb"
-	[ -d "$dtbdir/broadcom" ] && cp -f "$dtbdir/broadcom"/*.dtb /boot/firmware/ 2>/dev/null
+	# "test && cp" would abort the script (set -e) if cp failed, with the
+	# kernel already replaced but the slot not yet switched
+	if [ -d "$dtbdir/broadcom" ]; then
+		cp -f "$dtbdir/broadcom"/*.dtb /boot/firmware/ 2>/dev/null || true
+	fi
 	if [ -d "$dtbdir/overlays" ]; then
 		mkdir -p /boot/firmware/overlays
-		cp -f "$dtbdir/overlays"/*.dtbo /boot/firmware/overlays/ 2>/dev/null
-		[ -f "$dtbdir/overlays/README" ] && cp -f "$dtbdir/overlays/README" /boot/firmware/overlays/ 2>/dev/null
+		cp -f "$dtbdir/overlays"/*.dtbo /boot/firmware/overlays/ 2>/dev/null || true
+		if [ -f "$dtbdir/overlays/README" ]; then
+			cp -f "$dtbdir/overlays/README" /boot/firmware/overlays/ 2>/dev/null || true
+		fi
 	fi
 done
 

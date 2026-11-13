@@ -122,6 +122,7 @@ void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
  * stack and return the y of the lowest row's text baseline.
  */
 double pic_legend_take(int height, double rows);
+double pic_legend_top(int height);      /* top of last frame's notes */
 
 /*
  * A legend row of line-style swatches, centred: a short line in each

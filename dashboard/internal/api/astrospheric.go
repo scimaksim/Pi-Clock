@@ -42,7 +42,8 @@ func (k secretKey) get() http.HandlerFunc {
 			return
 		}
 		hint := ""
-		if len(key) >= 4 {
+		// Only for long keys: the last 4 of a short one gives most of it away
+		if len(key) >= 16 {
 			hint = key[len(key)-4:]
 		}
 		jsonResponse(w, http.StatusOK, map[string]interface{}{

@@ -110,20 +110,50 @@ double pic_saturn_ring_tilt(double ecl_lon, double ecl_lat)
     return asin(sb) / D2R;
 }
 
-/* Galilean moons: x (Jupiter radii, +west... drawn + to the right) and
- * whether in front (0) or behind (1) the planet. Meeus ch. 44 low
- * accuracy, referred to 2000 Jan 1.5 */
+/* Galilean moons as seen from Earth: x in Jupiter radii (+ = west of
+ * the planet, drawn to the right) and whether each is on the far side
+ * (1) or the near side (0). Meeus, Astronomical Algorithms ch. 44,
+ * low-accuracy method: Earth-Jupiter geometry, light time and the main
+ * mutual perturbations; good to a few tenths of a radius. */
 void pic_galilean_moons(time_t t, double x[4], int behind[4])
 {
-    double d = t / 86400.0 + 2440587.5 - 2451545.0;
-    static const double l0[4] = { 106.077, 175.733, 120.561, 84.455 };
-    static const double n[4] = { 203.4889558, 101.3747362, 50.3176081, 21.5710728 };
-    static const double a[4] = { 5.9, 9.4, 15.0, 26.4 };
+    double d = t / 86400.0 + 2440587.5 - 2451545.0 + 69.0 / 86400.0;   /* TT */
+    double V = (172.74 + 0.00111588 * d) * D2R;
+    double M = (357.529 + 0.9856003 * d) * D2R;
+    double N = (20.020 + 0.0830853 * d + 0.329 * sin(V)) * D2R;
+    double J = 66.115 + 0.9025179 * d - 0.329 * sin(V);
+    double A = 1.915 * sin(M) + 0.020 * sin(2 * M);
+    double B = 5.555 * sin(N) + 0.168 * sin(2 * N);
+    double K = (J + A - B) * D2R;
+    double R = 1.00014 - 0.01671 * cos(M) - 0.00014 * cos(2 * M);
+    double r = 5.20872 - 0.25208 * cos(N) - 0.00611 * cos(2 * N);
+    double delta = sqrt(r * r + R * R - 2 * r * R * cos(K));
+    double psi = asin(R / delta * sin(K)) / D2R;
+    double dl = d - delta / 173.0;                      /* light time */
+    double u[4], rad[4], G, H;
     int i;
+    u[0] = 163.8069 + 203.4058646 * dl + psi - B;
+    u[1] = 358.4140 + 101.2916335 * dl + psi - B;
+    u[2] = 5.7176 + 50.2345180 * dl + psi - B;
+    u[3] = 224.8092 + 21.4879800 * dl + psi - B;
+    G = (331.18 + 50.310482 * dl) * D2R;
+    H = (87.45 + 21.569231 * dl) * D2R;
+    rad[0] = 5.9057 - 0.0244 * cos(2 * (u[0] - u[1]) * D2R);
+    rad[1] = 9.3966 - 0.0882 * cos(2 * (u[1] - u[2]) * D2R);
+    rad[2] = 14.9883 - 0.0216 * cos(G);
+    rad[3] = 26.3627 - 0.1939 * cos(H);
+    {
+        double c0 = 0.473 * sin(2 * (u[0] - u[1]) * D2R);
+        double c1 = 1.065 * sin(2 * (u[1] - u[2]) * D2R);
+        u[0] += c0;
+        u[1] += c1;
+        u[2] += 0.165 * sin(G);
+        u[3] += 0.843 * sin(H);
+    }
     for (i = 0; i < 4; i++) {
-        double u = fmod(l0[i] + n[i] * d, 360.0) * D2R;
-        x[i] = a[i] * sin(u);
-        behind[i] = cos(u) > 0;      /* beyond superior conjunction side */
+        double a = fmod(u[i], 360.0) * D2R;     /* from inferior conjunction */
+        x[i] = rad[i] * sin(a);
+        behind[i] = cos(a) < 0;
     }
 }
 
