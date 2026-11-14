@@ -20,6 +20,11 @@ int main(void)
     CHECK(pic_labels_clear(a, box) == 0, "own box blocks pic_labels_clear");
     CHECK(pic_labels_free(b, box) == 0, "another owner's box blocks");
 
+    /* a moving marker (owner -1) sees everyone's boxes and claims none */
+    CHECK(pic_labels_free(-1, box) == 0, "owner -1 blocked by a");
+    pic_labels_claim(-1, box);
+    CHECK(pic_labels_free(a, box) == 1, "owner -1 claims nothing");
+
     /* b wants a label right of (895, 510): that is a's box, so it goes elsewhere */
     CHECK(pic_labels_place(b, 895, 510, 5, 80, 20, 1920, 1080, &x, &y) == 1, "placed");
     {

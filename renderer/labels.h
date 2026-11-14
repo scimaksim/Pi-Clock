@@ -20,7 +20,8 @@ int pic_labels_owner(const char *name);
 void pic_labels_begin(int owner);
 
 /* 1 if box {x0, y0, x1, y1} overlaps no box claimed by ANOTHER owner
- * that is still on screen (same view, drawn in the last few minutes) */
+ * that is still on screen (same view, drawn in the last few minutes).
+ * Owner -1 (a moving marker that claims nothing): checks every owner. */
 int pic_labels_free(int owner, const double box[4]);
 
 /* As pic_labels_free(), and clear of this owner's own boxes too */
