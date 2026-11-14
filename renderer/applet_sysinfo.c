@@ -151,7 +151,7 @@ static long get_uptime(void)
     FILE *f = fopen("/proc/uptime", "r");
     double up = 0;
     if (f) {
-        fscanf(f, "%lf", &up);
+        if (fscanf(f, "%lf", &up) != 1) up = 0;
         fclose(f);
     }
     return (long)up;

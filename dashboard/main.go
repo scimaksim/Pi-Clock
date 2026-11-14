@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/MW0MWZ/Pi-Clock/dashboard/internal/api"
 	"github.com/MW0MWZ/Pi-Clock/dashboard/internal/auth"
@@ -117,7 +118,31 @@ func main() {
 		r.Get("/earthquake-settings", api.GetEarthquakeSettings())
 		r.Put("/earthquake-settings", api.PutEarthquakeSettings(cfg))
 
+		// Generic renderer settings (volcanoes, storms, aircraft, ...)
+		r.Get("/renderer-settings", api.GetRendererSettings())
+		r.Put("/renderer-settings", api.PutRendererSettings(cfg))
+		r.Get("/pchelper-status", api.GetPCHelperStatus())
+		r.Get("/data-status", api.GetDataStatus())
+		r.Get("/health", api.GetHealth())
+
+		// Astrospheric API key (write-only)
+		r.Get("/astrospheric-key", api.GetAstrosphericKey())
+		r.Put("/astrospheric-key", api.PutAstrosphericKey())
+		r.Get("/aisstream-key", api.GetAISKey())
+		r.Put("/aisstream-key", api.PutAISKey())
+		r.Get("/spacetrack", api.GetSpaceTrack())
+		r.Put("/spacetrack", api.PutSpaceTrack())
+		r.Post("/spacetrack/test", api.TestSpaceTrack())
+		r.Get("/ebird-key", api.GetEBirdKey())
+		r.Put("/ebird-key", api.PutEBirdKey())
+		r.Get("/ha-webhook", api.GetHAWebhook())
+		r.Put("/ha-webhook", api.PutHAWebhook())
+		r.Post("/ha-webhook/test", api.TestHAWebhook())
+
 		// Applet settings
+		r.Get("/settings/export", api.ExportSettings())
+		r.Post("/settings/import", api.ImportSettings(cfg))
+
 		r.Get("/applets", api.GetApplets())
 		r.Put("/applets", api.PutApplets())
 
@@ -146,6 +171,7 @@ func main() {
 	})
 
 	fmt.Printf("Pi-Clock Dashboard %s\n", version)
+	api.BuildVersion = version
 
 	// Start HTTP → HTTPS redirect on port 80 in a separate goroutine.
 	// Runs concurrently with the main HTTPS server below. Uses a
@@ -163,7 +189,9 @@ func main() {
 			}
 			http.Redirect(w, r, target, http.StatusMovedPermanently)
 		})
-		if err := http.ListenAndServe(httpAddr, redirect); err != nil {
+		rs := &http.Server{Addr: httpAddr, Handler: redirect,
+			ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+		if err := rs.ListenAndServe(); err != nil {
 			log.Printf("http redirect: %v", err)
 		}
 	}()
@@ -179,7 +207,12 @@ func main() {
 
 	// Start HTTPS server
 	fmt.Printf("HTTPS on %s\n", httpsAddr)
-	if err := http.ListenAndServeTLS(httpsAddr, certPath, keyPath, r); err != nil {
+	// Header and idle timeouts: a client that opens connections and
+	// sends nothing must not tie up the Pi. No body timeout, so the
+	// screenshot and package upgrade calls can take as long as they need.
+	srv := &http.Server{Addr: httpsAddr, Handler: r,
+		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 64 << 10}
+	if err := srv.ListenAndServeTLS(certPath, keyPath); err != nil {
 		log.Fatalf("https: %v", err)
 	}
 }

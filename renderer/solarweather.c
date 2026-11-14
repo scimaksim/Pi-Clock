@@ -18,6 +18,7 @@
  */
 
 #include "solarweather.h"
+#include "datastatus.h"
 #include "config.h"
 #include "fetch.h"
 #include "image.h"
@@ -61,6 +62,10 @@ static pic_solar_data_t *solar_data;
  * If the network fetch fails, reads from the cache file instead.
  * This means a service restart gets instant data without re-fetching.
  */
+/* Replies that came from the network (not the cache), so a long outage
+ * is not shown as fresh data */
+static int fresh_fetches;
+
 static int fetch_url_cached(const char *url, char *buf, int buf_size,
                             const char *cache_name)
 {
@@ -72,6 +77,7 @@ static int fetch_url_cached(const char *url, char *buf, int buf_size,
     /* Try network first */
     n = pic_fetch_to_buf(url, buf, buf_size);
     if (n > 0) {
+        fresh_fetches++;
         /* Cache the response */
         FILE *f = fopen(path, "w");
         if (f) {
@@ -175,7 +181,7 @@ static void fetch_realtime(void)
     double kp = 0;
     int wind_speed = 0;
     double bz = 0;
-    int bt = 0;
+    int bt = 0, have_mag = 0, have_kp = 0, fresh0 = fresh_fetches;
     char xray[8] = "";
 
     printf("solar: fetching real-time data...\n");
@@ -186,18 +192,26 @@ static void fetch_realtime(void)
      * a pointer to the last one found. Then extract the value.
      * The (last - 1) offset backs up one char so json_find_value()
      * can find the opening quote of the key. */
-    if (fetch_url_cached("https://services.swpc.noaa.gov/json/planetary_k_index_1m.json",
-                  buf, sizeof(buf), "noaa_kp.json") > 0) {
+    /* The file is ~30 KB (6 h of minutes): read into the 8 KB buffer
+     * it was cut short and the "latest" Kp was about 4 hours old. */
+    {
+    enum { KP_BUF = 128 * 1024 };
+    char *kbuf = malloc(KP_BUF);
+    if (kbuf && fetch_url_cached("https://services.swpc.noaa.gov/json/planetary_k_index_1m.json",
+                  kbuf, KP_BUF, "noaa_kp.json") > 0) {
         const char *last = NULL;
-        const char *p = buf;
+        const char *p = kbuf;
         while ((p = strstr(p, "\"estimated_kp\"")) != NULL) {
             last = p;
             p++;
         }
-        if (last && last > buf) {
+        if (last && last > kbuf) {
             kp = json_extract_double(last - 1, "estimated_kp");
+            have_kp = 1;
             printf("solar: Kp=%.2f\n", kp);
         }
+    }
+    free(kbuf);
     }
 
     /* Solar wind speed */
@@ -213,6 +227,7 @@ static void fetch_realtime(void)
                   buf, sizeof(buf), "noaa_mag.json") > 0) {
         bt = json_extract_int(buf, "bt");
         bz = json_extract_double(buf, "bz_gsm");
+        have_mag = 1;
         printf("solar: Bt=%d Bz=%.1f\n", bt, bz);
     }
 
@@ -229,12 +244,14 @@ static void fetch_realtime(void)
 
     /* Update shared data */
     pthread_mutex_lock(&solar_data->mutex);
-    if (kp > 0) solar_data->kp = kp;
+    if (have_kp) solar_data->kp = kp;      /* 0.00 is a real (very quiet) reading */
     if (wind_speed > 0) solar_data->solar_wind_speed = wind_speed;
-    solar_data->bt = bt;
-    solar_data->bz = bz;
+    if (have_mag) {
+        solar_data->bt = bt;
+        solar_data->bz = bz;
+    }
     if (xray[0]) strncpy(solar_data->xray_class, xray, sizeof(solar_data->xray_class) - 1);
-    solar_data->last_updated = time(NULL);
+    if (fresh_fetches != fresh0) solar_data->last_updated = time(NULL);
     pthread_mutex_unlock(&solar_data->mutex);
 }
 
@@ -329,19 +346,20 @@ static void fetch_sfi(void)
  */
 static void *solar_thread_func(void *arg)
 {
+    pic_status_feature = "solarweather";   /* data-source status (datastatus.c) */
     int tick = 0;
 
     (void)arg;
 
     /* Lower priority so TLS handshakes don't starve the renderer.
      * On Pi Zero, each HTTPS fetch takes seconds of CPU. */
-    nice(15);
+    if (nice(15) == -1) { /* priority unchanged: fine */ }
 
     /* Ensure tmpfs cache directory exists */
     mkdir("/tmp/pi-clock-cache", 0700);
 
     /* Wait for network before first fetch */
-    if (!pic_wait_for_network("solar", &solar_running)) {
+    if (!pic_wait_for_network_once("solar", &solar_running)) {
         printf("solar: will retry in %d seconds\n", FETCH_TICK);
     } else {
         /* First run — fetch everything */
@@ -356,8 +374,8 @@ static void *solar_thread_func(void *arg)
 
         /* Sleep in 5-second chunks so we can stop promptly */
         while (solar_running && elapsed < FETCH_TICK) {
-            sleep(5);
-            elapsed += 5;
+            sleep(1);       /* 1 s steps so shutdown is prompt */
+            elapsed += 1;
         }
 
         if (!solar_running) break;

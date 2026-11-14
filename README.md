@@ -25,6 +25,10 @@ Runs headless. No desktop environment. Just plug in power and HDMI.
 
 **Satellite Tracking** — SGP4 orbit propagation for ISS, QO-100, and 15+ amateur satellites. Ground tracks (past + future), visibility footprints, and satellite icons on the map. TLEs auto-updated from Celestrak.
 
+**Weather & Hazards** — Live US NEXRAD radar, NWS warning polygons with a banner when an alert covers your QTH, hurricanes and tropical storms worldwide with forecast cones and tracks, air quality (AQI) with wildfire smoke, and recently active volcanoes.
+
+**Sky & Traffic** — Starlink trains with the next pass visible from your QTH, naked-eye satellites (ISS, Tiangong, Hubble), live aircraft from adsb.lol or your own ADS-B receiver, and a Tonight's Sky panel with sun/moon times, darkness and (with an Astrospheric Pro key) cloud, transparency and seeing. Also: visible ISS/Tiangong/Hubble passes, planets and sky events (meteor showers, eclipses), upcoming rocket launches with nearby pads highlighted, NASA's Deep Space Network live, ships from AIS (free aisstream.io key), real GOES/Himawari satellite clouds, wildfires and smoke, the SPC severe storm outlook, a tides panel, an aurora watch that alerts when the aurora may be visible or photographable from home, and a light-pollution map with your estimated Bortle class and the nearest dark site.
+
 **Solar Weather** — Live data from NOAA SWPC: solar flux index, Kp index, solar wind speed, Bz, and X-ray flux. Cycling SDO sun images. Band condition predictions. MUF estimates for 5 directions from your QTH using real solar position and live SFI.
 
 **News Ticker** — Scrolling headlines from ARRL, RSGB GB2RS, DX World, Southgate ARC, and NOAA space weather alerts. Smooth 30 FPS rendering on its own thread.

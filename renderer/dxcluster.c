@@ -16,6 +16,7 @@
  */
 
 #include "dxcluster.h"
+#include "datastatus.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,7 +60,7 @@ static pic_ctydat_t *cfg_db;
  */
 static int parse_spot_line(const char *line, pic_dxspot_t *spot)
 {
-    char spotter[32], dx_call[32], comment[64];
+    char spotter[32], dx_call[32], comment[64] = "";
     double freq;
 
     if (strncasecmp(line, "DX de ", 6) != 0) {
@@ -198,6 +199,7 @@ static int tcp_connect(const char *host, int port)
     printf("dxcluster: resolving %s...\n", host);
     if (getaddrinfo(host, port_str, &hints, &res) != 0) {
         printf("dxcluster: DNS lookup failed for %s\n", host);
+        pic_status_report(host, 0, "DNS lookup failed");
         return -1;
     }
     printf("dxcluster: DNS resolved, attempting connect...\n");
@@ -261,6 +263,7 @@ static int tcp_connect(const char *host, int port)
  */
 static void *cluster_thread_func(void *arg)
 {
+    pic_status_feature = "dxcluster";   /* data-source status (datastatus.c) */
     int backoff = 5;
 
     (void)arg;
@@ -274,6 +277,7 @@ static void *cluster_thread_func(void *arg)
         fd = tcp_connect(cfg_host, cfg_port);
         if (fd < 0) {
             printf("dxcluster: connection failed, retry in %ds\n", backoff);
+            pic_status_report(cfg_host, 0, "could not connect");
             sleep(backoff);
             if (backoff < MAX_BACKOFF) backoff *= 2;
             continue;
@@ -293,6 +297,7 @@ static void *cluster_thread_func(void *arg)
         cluster_fd = fd;
         pthread_mutex_unlock(&fd_mu);
         printf("dxcluster: connected to %s:%d\n", cfg_host, cfg_port);
+        pic_status_report(cfg_host, 1, NULL);
         backoff = 5;
         last_keepalive = time(NULL);
 
@@ -359,10 +364,9 @@ static void *cluster_thread_func(void *arg)
 
                                     /* Add to map if within distance/band filter */
                                     if (resolve_spot_locations(&spot)) {
+                                        /* not logged: thousands of spots a day
+                                         * filled the RAM-backed log */
                                         pic_spotlist_add(cfg_spots, &spot);
-                                        printf("dxcluster: spot %s -> %s on %.1f kHz\n",
-                                               spot.spotter, spot.dx_call,
-                                               spot.freq_khz);
                                     }
                                 }
                             }

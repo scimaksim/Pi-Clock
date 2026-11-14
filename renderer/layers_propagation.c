@@ -13,6 +13,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
+#include "feature.h"
 #include "layer.h"
 #include "display.h"
 #include "solar.h"
@@ -134,7 +135,9 @@ static void compute_prop_grid(double qth_lat, double qth_lon,
         double pt_lat = (90.0 - (double)gy * 180.0 / (GRID_H - 1)) * DEG_TO_RAD;
 
         for (gx = 0; gx < GRID_W; gx++) {
-            double pt_lon = (-180.0 + (double)gx * 360.0 / (GRID_W - 1)) * DEG_TO_RAD;
+            /* columns every 360/W degrees from -180: the layout
+             * pic_paint_viewport_grid() expects */
+            double pt_lon = (-180.0 + (double)gx * 360.0 / GRID_W) * DEG_TO_RAD;
 
             /* Great-circle distance from QTH */
             double dlat = pt_lat - qth_lat_r;
@@ -229,13 +232,22 @@ void pic_layer_render_propagation(cairo_t *cr, int width, int height,
     double sfi = 100.0, kp = 0.0;
     int gx, gy;
 
+    static unsigned prop_gen;       /* viewport the cache was drawn for */
+
     if (!cr || !sol) return;
 
-    /* Read solar data */
+    /* Read solar data. Without a real solar flux reading the map would
+     * be computed from a made-up one: draw nothing until it arrives. */
     pthread_mutex_lock(&sol->mutex);
     if (sol->sfi > 0) sfi = (double)sol->sfi;
     kp = sol->kp;
+    gx = sol->sfi > 0;
     pthread_mutex_unlock(&sol->mutex);
+    if (!gx) return;
+    if (prop_gen != (unsigned)pic_config.viewport_gen) {     /* zoomed or switched view */
+        prop_gen = (unsigned)pic_config.viewport_gen;
+        grid_cache_dirty = 1;
+    }
 
     /* Re-read config at most every 60 seconds */
     read_prop_config(now);
@@ -324,11 +336,12 @@ void pic_layer_render_propagation(cairo_t *cr, int width, int height,
                 /* Clamp to valid range to avoid negative array index */
                 while (center_off < 0) center_off += GRID_W;
                 center_off = center_off % GRID_W;
+                (void)center_off;   /* the viewport paint handles the centre now */
 
                 for (gy = 0; gy < GRID_H; gy++) {
                     for (gx = 0; gx < GRID_W; gx++) {
                         /* Map display column to data column with center_lon */
-                        int src_gx = (gx + center_off) % GRID_W;
+                        int src_gx = gx;     /* world columns; the viewport paint places them */
                         double rel = prop_grid[gy][src_gx];
                         unsigned int ia, ir, ig, ib;
 
@@ -359,13 +372,9 @@ void pic_layer_render_propagation(cairo_t *cr, int width, int height,
                     cairo_paint(cc);
                     cairo_set_operator(cc, CAIRO_OPERATOR_OVER);
 
-                    cairo_scale(cc,
-                                (double)width / GRID_W,
-                                (double)height / GRID_H);
-                    cairo_set_source_surface(cc, grid_surf, 0, 0);
-                    cairo_pattern_set_filter(cairo_get_source(cc),
-                                             CAIRO_FILTER_BILINEAR);
-                    cairo_paint(cc);
+                    /* through the current view (centre, zoom, local
+                     * view), not stretched over the whole screen */
+                    pic_paint_viewport_grid(cc, grid_surf, width, height);
                     cairo_destroy(cc);
                 }
 
@@ -422,11 +431,9 @@ void pic_layer_render_propagation_legend(cairo_t *cr, int width, int height,
     bg_h = legend_fs * 1.2 + bg_pad * 2;
     gap = height / 160.0;
 
-    if (pic_ticker_bar_top > 0) {
-        ref_bottom = pic_ticker_bar_top - gap - bg_h - gap;
-    } else {
-        ref_bottom = height - height / 80.0 - bg_h - gap;
-    }
+    /* A slot in the shared bottom legend stack (feature.c) */
+    (void)gap;
+    ref_bottom = pic_legend_take(height, 1.3) + height / 72.0 * 0.45;
     lx = (width - total_w) / 2.0;
     ly = ref_bottom - bg_h + bg_pad + dot_r;
 

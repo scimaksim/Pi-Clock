@@ -27,10 +27,10 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
-	"sync"
-	"sync/atomic"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -62,7 +62,15 @@ var validDxValue = regexp.MustCompile(`^[0-9a-fA-F]*$`)
 // Prevents corrupt config files on power loss (common on Pi appliances).
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, perm); err != nil {
+	// A stale .tmp from a crash keeps its old mode through WriteFile,
+	// which matters for 0600 secrets: start fresh and set the mode.
+	os.Remove(tmp)
+	if err := writeSynced(tmp, data, perm); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Chmod(tmp, perm); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -70,6 +78,53 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return nil
+}
+
+// writeSynced writes data and flushes it to the card before returning,
+// so a rename that follows never exposes an empty file after power loss.
+func writeSynced(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// atomicWriteBoot replaces a file on the FAT boot partition (config.txt,
+// cmdline.txt) or in /etc via a synced temp file and rename. Truncating
+// these in place risked an empty cmdline.txt, and an unbootable Pi, if
+// power failed mid-write. No chmod: FAT has no modes.
+func atomicWriteBoot(path string, data []byte) error {
+	tmp := path + ".tmp"
+	os.Remove(tmp)
+	if err := writeSynced(tmp, data, 0644); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// readForUpdate reads a config file that is about to be rewritten. A
+// missing file is an empty one; any other read error is returned, so a
+// transient failure can't make the rewrite drop every other setting.
+func readForUpdate(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return data, nil
 }
 
 // userConfMu serialises read-modify-write operations on pi-clock-user.conf.
@@ -141,6 +196,10 @@ func PutConfig(cfg *config.RendererConfig) http.HandlerFunc {
 			})
 			return
 		}
+		if len(values) == 0 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "nothing to save"})
+			return
+		}
 
 		if err := cfg.Update(values); err != nil {
 			internalError(w, "save config", err)
@@ -181,6 +240,8 @@ var layerDefs = []struct {
 	{"daylight", "Day Map", true, 1.0},
 	{"basemap", "Night Map", true, 1.0},
 	{"borders", "Country Borders", true, 1.0},
+	{"localmap", "Local Detail (towns, state lines when zoomed)", true, 1.0},
+	{"twilight", "Sunset & Twilight Lines", false, 1.0},
 	{"grid", "Lat/Lon Grid", false, 1.0},
 	{"timezone", "Time Zones", true, 1.0},
 	{"cqzone", "CQ Zones", false, 1.0},
@@ -189,12 +250,49 @@ var layerDefs = []struct {
 	{"bandconditions", "Propagation Prediction", false, 1.0},
 	{"dxspots", "DX Cluster Spots", false, 1.0},
 	{"satellites", "Satellite Tracker", false, 1.0},
+	{"passes", "Visible Pass Tracks (ISS, Tiangong...)", false, 1.0},
+	{"overhead", "Satellites Overhead Now (live)", false, 1.0},
+	{"launches", "Rocket Launches", false, 1.0},
+	{"events", "Coming Up strip (passes, launches, moon, rain...)", false, 1.0},
+	{"dsn", "Deep Space Network", false, 1.0},
+	{"planets", "Planets (overhead points)", false, 1.0},
+	{"eclipse", "Eclipses (live Moon shadow, lunar eclipse view)", true, 1.0},
+	{"starlink", "Starlink Trains", false, 1.0},
+	{"reentries", "Re-entries (Space-Track)", false, 1.0},
+	{"conjunctions", "Close Approaches in Orbit (Space-Track)", false, 1.0},
+	{"geobelt", "Geostationary Belt from Home (Space-Track)", false, 1.0},
+	{"debris", "Newest Space Debris + catalogue totals (Space-Track)", false, 1.0},
 	{"lightning", "Lightning Strikes", false, 1.0},
 	{"earthquakes", "Earthquakes", false, 1.0},
-	{"precip", "Rain Radar", false, 1.0},
+	{"volcanoes", "Volcanoes", false, 1.0},
+	{"storms", "Hurricanes / Tropical Storms", false, 1.0},
+	{"aircraft", "Aircraft (ADS-B)", false, 1.0},
+	{"ships", "Ships (AIS)", false, 1.0},
+	{"ebird", "Rare Birds (eBird)", false, 1.0},
+	{"darksites", "Dark-Sky Sites Tonight", false, 1.0},
+	{"fires", "Wildfires & Smoke (US)", false, 1.0},
+	{"wxalerts", "NWS Weather Alerts (US)", false, 1.0},
+	{"spc", "Severe Storm Outlook (SPC)", false, 1.0},
+	{"lsr", "Storm Reports (last 24 h)", false, 1.0},
+	{"rainfall", "Rain Totals (US, radar + gauges)", false, 0.8},
+	{"rivers", "River & Creek Gauges", false, 1.0},
+	{"drought", "Drought Monitor (US)", false, 1.0},
+	{"precip", "Rain Forecast (GFS model)", false, 1.0},
+	{"radar", "Live Radar (US NEXRAD)", false, 0.8},
+	{"airquality", "Air Quality (AQI)", false, 1.0},
+	{"satclouds", "Satellite Clouds (GOES/Himawari)", false, 1.0},
+	{"sst", "Sea Surface Temperature (Gulf Stream)", false, 1.0},
+	{"nowcast", "Rain Arriving: animated radar, past hour + 90-min forecast (PC helper)", false, 1.0},
+	{"hrrr_clouds", "Cloud Forecast, next 18 h (HRRR, PC helper)", false, 1.0},
+	{"hrrr_smoke", "Smoke Forecast (HRRR, PC helper)", false, 1.0},
+	{"hrrr_gust", "Wind Gust Forecast (HRRR, PC helper)", false, 1.0},
+	{"hrrr_frost", "Frost Tonight (HRRR, PC helper)", false, 1.0},
+	{"birds", "Bird Migration Tonight (radar + MistNet, PC helper)", false, 1.0},
 	{"cloud", "Cloud Cover", false, 1.0},
 	{"wind", "Wind", false, 1.0},
 	{"aurora", "Aurora", false, 1.0},
+	{"aurorawatch", "Aurora Watch (view line + home alert)", false, 1.0},
+	{"lightpollution", "Light Pollution (sky brightness)", false, 0.9},
 	{"qth", "Home QTH Marker", true, 1.0},
 	{"sun", "Sun Position", false, 1.0},
 	{"moon", "Moon Position", false, 1.0},
@@ -202,9 +300,34 @@ var layerDefs = []struct {
 	{"hud", "Clock / HUD", true, 1.0},
 }
 
+// layerCategory groups layers in the dashboard list. Layers missing here
+// fall into "Other" so a new layer never disappears from the UI.
+var layerCategory = map[string]string{
+	"daylight": "Base Map", "basemap": "Base Map", "borders": "Base Map",
+	"localmap": "Base Map", "grid": "Base Map", "timezone": "Base Map",
+	"twilight": "Base Map", "lightpollution": "Base Map",
+	"qth": "Overlays & Clock", "sun": "Overlays & Clock", "moon": "Overlays & Clock",
+	"ticker": "Overlays & Clock", "hud": "Overlays & Clock",
+	"radar": "Weather", "satclouds": "Weather", "cloud": "Weather",
+	"precip": "Weather", "rainfall": "Weather", "wind": "Weather",
+	"airquality": "Weather", "lightning": "Weather", "sst": "Weather",
+	"nowcast": "Weather", "hrrr_clouds": "Weather", "hrrr_smoke": "Weather",
+	"hrrr_gust": "Weather", "hrrr_frost": "Weather",
+	"wxalerts": "Hazards", "spc": "Hazards", "lsr": "Hazards",
+	"storms": "Hazards", "rivers": "Hazards", "drought": "Hazards",
+	"fires": "Hazards", "earthquakes": "Hazards", "volcanoes": "Hazards",
+	"satellites": "Sky & Space", "passes": "Sky & Space", "overhead": "Sky & Space", "starlink": "Sky & Space",
+	"reentries": "Sky & Space", "conjunctions": "Sky & Space", "geobelt": "Sky & Space", "debris": "Sky & Space",
+	"launches": "Sky & Space", "events": "Sky & Space", "dsn": "Sky & Space", "planets": "Sky & Space", "eclipse": "Sky & Space",
+	"aurora": "Sky & Space", "aurorawatch": "Sky & Space", "darksites": "Sky & Space",
+	"aircraft": "Traffic & Wildlife", "ships": "Traffic & Wildlife", "ebird": "Traffic & Wildlife", "birds": "Traffic & Wildlife",
+	"cqzone": "Ham Radio", "ituzone": "Ham Radio", "maidenhead": "Ham Radio",
+	"bandconditions": "Ham Radio", "dxspots": "Ham Radio",
+}
+
 // layersConfPath is on the persistent /data partition so it survives OS
 // upgrades. The renderer checks for changes via the pi-clock-reload trigger file.
-const layersConfPath = "/data/etc/pi-clock-layers.conf"
+var layersConfPath = "/data/etc/pi-clock-layers.conf"
 
 // GetLayers returns current layer settings, merged with defaults.
 func GetLayers() http.HandlerFunc {
@@ -216,22 +339,62 @@ func GetLayers() http.HandlerFunc {
 		for _, def := range layerDefs {
 			enabled := def.Default
 			opacity := def.Opacity
+			view := 0
 
 			if s, ok := saved[def.Name]; ok {
 				enabled = s.enabled
 				opacity = s.opacity
+				view = s.view
 			}
 
 			layers = append(layers, map[string]interface{}{
-				"name":    def.Name,
-				"label":   def.Label,
-				"enabled": enabled,
-				"opacity": opacity,
+				"name":     def.Name,
+				"label":    def.Label,
+				"enabled":  enabled,
+				"opacity":  opacity,
+				"category": layerCat(def.Name),
+				"view":     layerViewName[view],
+				"suggest":  layerViewSuggestFor(def.Name),
 			})
 		}
 
 		jsonResponse(w, http.StatusOK, layers)
 	}
+}
+
+// layerViewSuggest is the view each layer reads best in when Map View
+// auto-switches. Layers not listed work in both.
+var layerViewSuggest = map[string]string{
+	// Detailed or local data that is clutter (or invisible) at world scale
+	"localmap": "local", "passes": "local", "overhead": "local",
+	"lsr": "local", "rainfall": "local", "rivers": "local", "radar": "local",
+	"aircraft": "local", "ships": "local", "ebird": "local",
+	"darksites": "local", "airquality": "local", "spc": "local",
+	"lightpollution": "local", "nowcast": "local", "hrrr_clouds": "local",
+	"hrrr_smoke": "local", "hrrr_gust": "local", "hrrr_frost": "local", "birds": "local",
+	// Planet-scale patterns, too coarse or too sparse up close
+	"grid": "global", "timezone": "global", "satellites": "global",
+	"starlink": "global", "launches": "global", "reentries": "global",
+	"conjunctions": "global", "geobelt": "global", "debris": "global", "dsn": "global",
+	"planets": "global", "earthquakes": "global", "volcanoes": "global",
+	"aurora": "global", "aurorawatch": "global", "cloud": "global",
+	"precip": "global", "wind": "global", "sst": "global", "cqzone": "global",
+	"ituzone": "global", "maidenhead": "global", "dxspots": "global",
+	"bandconditions": "global",
+}
+
+func layerCat(name string) string {
+	if c, ok := layerCategory[name]; ok {
+		return c
+	}
+	return "Other"
+}
+
+func layerViewSuggestFor(name string) string {
+	if v, ok := layerViewSuggest[name]; ok {
+		return v
+	}
+	return "any"
 }
 
 // PutLayers saves layer settings and signals the renderer.
@@ -241,12 +404,18 @@ func PutLayers() http.HandlerFunc {
 			Name    string  `json:"name"`
 			Enabled bool    `json:"enabled"`
 			Opacity float64 `json:"opacity"`
+			View    string  `json:"view"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&layers); err != nil {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{
 				"error": "invalid JSON",
 			})
+			return
+		}
+		if len(layers) == 0 {
+			// an empty list would erase every saved layers setting
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "empty list: nothing was saved"})
 			return
 		}
 
@@ -262,7 +431,11 @@ func PutLayers() http.HandlerFunc {
 			if l.Enabled {
 				e = "1"
 			}
-			lines = append(lines, fmt.Sprintf("%s=%s,%.2f", l.Name, e, l.Opacity))
+			if v := layerViewCode[l.View]; v != 0 {
+				lines = append(lines, fmt.Sprintf("%s=%s,%.2f,%d", l.Name, e, l.Opacity, v))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s=%s,%.2f", l.Name, e, l.Opacity))
+			}
 		}
 
 		content := strings.Join(lines, "\n") + "\n"
@@ -283,7 +456,13 @@ func PutLayers() http.HandlerFunc {
 type layerSetting struct {
 	enabled bool
 	opacity float64
+	view    int // 0 any view, 1 global view only, 2 local view only
 }
+
+// layerViewCode maps the dashboard's view names to the renderer's
+// third field in pi-clock-layers.conf.
+var layerViewCode = map[string]int{"any": 0, "global": 1, "local": 2}
+var layerViewName = []string{"any", "global", "local"}
 
 func readLayersConf() map[string]layerSetting {
 	result := make(map[string]layerSetting)
@@ -308,16 +487,22 @@ func readLayersConf() map[string]layerSetting {
 		if !validName.MatchString(name) {
 			continue
 		}
-		vals := strings.SplitN(parts[1], ",", 2)
-		if len(vals) != 2 {
+		vals := strings.Split(parts[1], ",")
+		if len(vals) < 2 {
 			continue
 		}
 
 		enabled := vals[0] == "1"
 		opacity := 1.0
 		fmt.Sscanf(vals[1], "%f", &opacity)
+		view := 0
+		if len(vals) >= 3 {
+			if v, err := strconv.Atoi(strings.TrimSpace(vals[2])); err == nil && v >= 0 && v <= 2 {
+				view = v
+			}
+		}
 
-		result[name] = layerSetting{enabled: enabled, opacity: opacity}
+		result[name] = layerSetting{enabled: enabled, opacity: opacity, view: view}
 	}
 
 	return result
@@ -391,7 +576,7 @@ func updateConfigTxtResolution(res string) {
 		lines = append(lines, "framebuffer_height="+dims[1])
 	}
 
-	if err := os.WriteFile(configTxt, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+	if err := atomicWriteBoot(configTxt, []byte(strings.Join(lines, "\n"))); err != nil {
 		log.Printf("updateConfigTxtResolution: can't write %s: %v", configTxt, err)
 	} else {
 		log.Printf("config.txt updated: %sx%s for %s", dims[0], dims[1], res)
@@ -435,7 +620,7 @@ func updateCmdlineVideo(res string) {
 	}
 	filtered = append(filtered, videoParam)
 
-	if err := os.WriteFile(cmdline, []byte(strings.Join(filtered, " ")+"\n"), 0644); err != nil {
+	if err := atomicWriteBoot(cmdline, []byte(strings.Join(filtered, " ")+"\n")); err != nil {
 		log.Printf("updateCmdlineVideo: can't write %s: %v", cmdline, err)
 	} else {
 		log.Printf("cmdline.txt updated: %s", videoParam)
@@ -746,10 +931,24 @@ func PostApkUpgrade(w http.ResponseWriter, r *http.Request) {
 // upgrade processes would corrupt the inactive partition.
 var upgradeRunning int32
 
+// BuildVersion is the dashboard's own build version (set from main).
+// A "fork-..." build must not offer or run the stock OS image upgrade:
+// it downloads the upstream image, which would replace the fork's
+// renderer and dashboard and drop every feature only the fork has.
+var BuildVersion = "dev"
+
+func isForkBuild() bool { return strings.HasPrefix(BuildVersion, "fork-") }
+
 // PostOsUpgrade triggers a full OS image upgrade (A/B slot).
 // The response is streamed as Server-Sent Events so the dashboard
 // can show live progress through each stage of the upgrade.
 func PostOsUpgrade(w http.ResponseWriter, r *http.Request) {
+	if isForkBuild() {
+		jsonResponse(w, http.StatusConflict, map[string]string{
+			"error": "this clock runs a fork build; the stock OS image would replace it. Update from the fork's releases instead.",
+		})
+		return
+	}
 	if !atomic.CompareAndSwapInt32(&upgradeRunning, 0, 1) {
 		jsonResponse(w, http.StatusConflict, map[string]string{
 			"error": "upgrade already in progress",
@@ -854,6 +1053,13 @@ func GetUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		"available": "",
 		"update":    false,
 		"url":       "",
+		"fork":      isForkBuild(),
+	}
+	if isForkBuild() {
+		/* The stock release is not an update for a fork build */
+		result["installed"] = BuildVersion
+		jsonResponse(w, http.StatusOK, result)
+		return
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -919,7 +1125,7 @@ func PutHostname(w http.ResponseWriter, r *http.Request) {
 	}
 
 	/* Set hostname in the running system */
-	if err := os.WriteFile("/etc/hostname", []byte(h+"\n"), 0644); err != nil {
+	if err := atomicWriteBoot("/etc/hostname", []byte(h+"\n")); err != nil {
 		internalError(w, "save hostname", err)
 		return
 	}
@@ -935,7 +1141,7 @@ func PutHostname(w http.ResponseWriter, r *http.Request) {
 				lines[i] = "127.0.1.1   " + h
 			}
 		}
-		if err := os.WriteFile("/etc/hosts", []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		if err := atomicWriteBoot("/etc/hosts", []byte(strings.Join(lines, "\n"))); err != nil {
 			log.Printf("hostname: failed to update /etc/hosts: %v", err)
 		}
 	}
@@ -1056,17 +1262,17 @@ func currentWifiAuthBlock(confPath, targetSSID string) (block string, ok bool) {
 //
 // Three modes, resolved from the request body:
 //
-//   1. open_network=true:      write key_mgmt=NONE (unsecured network).
-//   2. password non-empty:     derive the PSK via PBKDF2-HMAC-SHA1 per
-//                              IEEE 802.11i / RFC 8018 — the same hash
-//                              `wpa_passphrase(8)` would produce.
-//   3. password empty:         reuse the existing auth line from
-//                              wpa_supplicant.conf, but only if the
-//                              requested SSID matches the one already
-//                              stored. Otherwise reject — we have no
-//                              credentials to fall back on and silently
-//                              dropping the network to open would be a
-//                              data-loss footgun.
+//  1. open_network=true:      write key_mgmt=NONE (unsecured network).
+//  2. password non-empty:     derive the PSK via PBKDF2-HMAC-SHA1 per
+//     IEEE 802.11i / RFC 8018 — the same hash
+//     `wpa_passphrase(8)` would produce.
+//  3. password empty:         reuse the existing auth line from
+//     wpa_supplicant.conf, but only if the
+//     requested SSID matches the one already
+//     stored. Otherwise reject — we have no
+//     credentials to fall back on and silently
+//     dropping the network to open would be a
+//     data-loss footgun.
 //
 // PBKDF2 is computed in-process rather than by shelling out to
 // `wpa_passphrase`. That removes a whole class of failure modes (PATH,
@@ -1338,6 +1544,15 @@ func PostChangePassword(sessions *auth.SessionStore) http.HandlerFunc {
 			}
 		}
 
+		/* Login rejects anything over 128 characters: a longer new
+		 * password would lock the owner out. */
+		if len(req.New) > 128 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{
+				"error": "password too long (max 128 characters)",
+			})
+			return
+		}
+
 		if len(req.New) < 8 {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{
 				"error": "password too short (min 8 characters)",
@@ -1398,6 +1613,17 @@ var appletDefs = []struct {
 	{"muf", "MUF Estimate", false, "left"},
 	{"voacap", "Propagation Prediction", false, "right"},
 	{"solar", "Solar Weather", false, "left"},
+	{"astro", "Tonight's Sky (Astronomy)", false, "left"},
+	{"planets", "Planets & Sky Events", false, "left"},
+	{"passes", "Visible Satellite Passes", false, "left"},
+	{"tides", "Tides", false, "left"},
+	{"launches", "Rocket Launches", false, "right"},
+	{"dsn", "Deep Space Network", false, "right"},
+	{"aurorawatch", "Aurora Watch", false, "right"},
+	{"backyard", "Backyard (frost, soil, rain)", false, "left"},
+	{"coast", "Coast (NC buoys)", false, "right"},
+	{"seasons", "Seasons (solstice countdown, daylight change)", false, "right"},
+	{"analemma", "Analemma (equation of time, solar noon)", false, "right"},
 	{"sysinfo", "System Info", true, "left"},
 	{"features", "Active Features", true, "right"},
 }
@@ -1489,6 +1715,11 @@ func PutApplets() http.HandlerFunc {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{
 				"error": "invalid JSON",
 			})
+			return
+		}
+		if len(applets) == 0 {
+			// an empty list would erase every saved panels setting
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "empty list: nothing was saved"})
 			return
 		}
 
@@ -1596,7 +1827,12 @@ func readAppletsConf() (order []string, byName map[string]appletSetting) {
 func GetDxSettings() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 
 		result := map[string]string{
 			"dx_distance": "0",
@@ -1628,6 +1864,9 @@ var satelliteDefs = []struct {
 	Default bool
 }{
 	{"ao7", "AO-7 — Linear, sun-only", 7530, false},
+	{"bluewalker3", "BlueWalker 3 — Naked-eye visible", 53807, false},
+	{"envisat", "Envisat — Naked-eye visible (derelict)", 27386, false},
+	{"hubble", "Hubble Space Telescope — Naked-eye visible", 20580, false},
 	{"ao73", "AO-73 (FUNcube-1) — Linear", 39444, false},
 	{"ao91", "AO-91 (Fox-1B) — FM, sun-only", 43017, false},
 	{"ao123", "AO-123 (ASRTU-1) — FM", 61781, false},
@@ -1643,6 +1882,7 @@ var satelliteDefs = []struct {
 	{"so50", "SO-50 (SaudiSat) — FM", 27607, false},
 	{"so125", "SO-125 (HADES-ICM) — FM/Digi", 63492, false},
 	{"sonate2", "SONATE-2 — APRS Digi", 59112, false},
+	{"tiangong", "Tiangong (CSS) — Naked-eye visible", 48274, false},
 }
 
 const satConfPath = "/data/etc/pi-clock-satellites.conf"
@@ -1676,6 +1916,11 @@ func PutSatellites() http.HandlerFunc {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 			return
 		}
+		if len(sats) == 0 {
+			// an empty list would erase every saved satellites setting
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "empty list: nothing was saved"})
+			return
+		}
 
 		var lines []string
 		lines = append(lines, "# Pi-Clock satellite configuration")
@@ -1684,7 +1929,9 @@ func PutSatellites() http.HandlerFunc {
 				continue
 			}
 			e := "0"
-			if s.Enabled { e = "1" }
+			if s.Enabled {
+				e = "1"
+			}
 			lines = append(lines, fmt.Sprintf("%s=%s", s.Name, e))
 		}
 
@@ -1701,10 +1948,14 @@ func PutSatellites() http.HandlerFunc {
 func readSatConf() map[string]bool {
 	result := make(map[string]bool)
 	data, err := os.ReadFile(satConfPath)
-	if err != nil { return result }
+	if err != nil {
+		return result
+	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") { continue }
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 && validName.MatchString(parts[0]) {
 			result[parts[0]] = parts[1] == "1"
@@ -1769,6 +2020,12 @@ func PutTickerSources() http.HandlerFunc {
 			return
 		}
 
+		if len(req.Sources) == 0 {
+			// a body without the list would erase the saved sources
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "no sources given: nothing was saved"})
+			return
+		}
+
 		var lines []string
 		lines = append(lines, "# Pi-Clock ticker source configuration")
 		lines = append(lines, fmt.Sprintf("mode=%d", req.Mode))
@@ -1825,14 +2082,20 @@ func PutDxSettings(cfg *config.RendererConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var settings struct {
 			DxDistance string `json:"dx_distance"`
-			DxBands   string `json:"dx_bands"`
-			DxSpotAge string `json:"dx_spot_age"`
+			DxBands    string `json:"dx_bands"`
+			DxSpotAge  string `json:"dx_spot_age"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{
 				"error": "invalid JSON",
 			})
+			return
+		}
+
+		if settings.DxDistance == "" || settings.DxBands == "" || settings.DxSpotAge == "" {
+			// a body without the fields would blank the saved values
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "missing DX settings"})
 			return
 		}
 
@@ -1853,7 +2116,12 @@ func PutDxSettings(cfg *config.RendererConfig) http.HandlerFunc {
 
 		// Read existing config, update DX fields, write back
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 
 		// Remove existing DX_ lines
 		var lines []string
@@ -1942,7 +2210,12 @@ func PutPropSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		defer cfg.Unlock()
 
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 		lines := strings.Split(string(data), "\n")
 
 		/* Update or add PROP_BANDS and ANTENNA_GAIN */
@@ -1980,7 +2253,12 @@ func PutPropSettings(cfg *config.RendererConfig) http.HandlerFunc {
 func GetLightningSettings() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 
 		result := map[string]string{
 			"lightning_fade_ms": "15000",
@@ -2020,7 +2298,12 @@ func PutLightningSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		defer cfg.Unlock()
 
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 		lines := strings.Split(string(data), "\n")
 
 		found := false
@@ -2048,7 +2331,12 @@ func PutLightningSettings(cfg *config.RendererConfig) http.HandlerFunc {
 func GetEarthquakeSettings() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 
 		result := map[string]string{
 			"earthquake_display_s": "86400",
@@ -2088,7 +2376,12 @@ func PutEarthquakeSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		defer cfg.Unlock()
 
 		confPath := "/data/etc/pi-clock-renderer.conf"
-		data, _ := os.ReadFile(confPath)
+		data, rerr := readForUpdate(confPath)
+		if rerr != nil {
+			log.Printf("config read failed, nothing changed: %v", rerr)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "could not read the current settings; nothing was changed"})
+			return
+		}
 		lines := strings.Split(string(data), "\n")
 
 		found := false

@@ -11,8 +11,12 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 CC      ?= gcc
-CFLAGS  ?= -Wall -Wextra -Wformat=2 -O2
+# snprintf into fixed buffers truncates by design throughout: those two
+# warning classes are noise here
+CFLAGS  ?= -Wall -Wextra -Wformat=2 -Wno-format-truncation -Wno-stringop-truncation -O2
 LDFLAGS ?=
+# musl gives threads 128 KB of stack by default; the fetchers use more
+LDFLAGS += -Wl,-z,stack-size=1048576
 VERSION ?= 0.0.0-dev
 
 # Use pkg-config to find library flags.
@@ -29,7 +33,7 @@ ALL_CFLAGS  = $(CFLAGS) $(CAIRO_CFLAGS) $(SDL2_CFLAGS) $(DRM_CFLAGS) -DVERSION=\
 ALL_LDFLAGS = $(LDFLAGS) $(CAIRO_LIBS) $(SDL2_LIBS) -lm -lpthread -lssl -lcrypto -ldrm
 
 # Source files and corresponding object files
-SOURCES = main.c display.c layer.c solar.c lunar.c image.c config.c borders.c \
+SOURCES = main.c display.c layer.c spacetrack.c spacedata.c planetview.c planetmath.c craft_icons.c solar.c lunar.c image.c config.c borders.c \
           ctydat.c callsign_districts.c dxspot.c dxcluster.c \
           layers_base.c layers_daylight.c layers_grid.c \
           layers_borders.c layers_timezone.c layers_cqzone.c layers_ituzone.c \
@@ -44,7 +48,23 @@ SOURCES = main.c display.c layer.c solar.c lunar.c image.c config.c borders.c \
           lightning.c layers_lightning.c \
           earthquake.c layers_earthquake.c \
           wind.c layers_wind.c layers_cloud.c layers_precip.c \
-          aurora.c layers_aurora.c
+          aurora.c layers_aurora.c \
+          volcano.c layers_volcano.c \
+          json.c storm.c layers_storm.c \
+          nwsalert.c layers_nwsalert.c \
+          radar.c layers_radar.c \
+          astro.c applet_astro.c \
+          airquality.c layers_airquality.c \
+          starlink.c layers_starlink.c \
+          aircraft.c layers_aircraft.c \
+          feature.c sat_icons.c layers_overhead.c geopoly.c ws.c layers_spc.c layers_launches.c \
+          layers_dsn.c applet_passes.c layers_satclouds.c layers_fires.c \
+          applet_tides.c layers_planets.c layers_ships.c \
+          layers_aurorawatch.c layers_lightpollution.c ha_notify.c \
+          layers_sst.c applet_seasons.c season.c layers_pchelper.c sprites.c rocket_icons.c launchvis.c datastatus.c applet_events.c health.c sky_icons.c crew.c skycover.c eclipse.c eclipse_data.c layers_eclipse.c \
+          localview.c layers_lsr.c layers_rainfall.c layers_rivers.c \
+          layers_ebird.c layers_drought.c applet_coast.c applet_backyard.c \
+          layers_twilight.c layers_darksites.c spacelayers.c layers_spacetrack.c labels.c gcat.c
 OBJECTS = $(SOURCES:.c=.o)
 
 # Output binary names

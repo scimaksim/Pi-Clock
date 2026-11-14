@@ -50,12 +50,29 @@
 #include "earthquake.h"
 #include "wind.h"
 #include "aurora.h"
+#include "volcano.h"
+#include "storm.h"
+#include "nwsalert.h"
+#include "radar.h"
+#include "astro.h"
+#include "feature.h"
+#include "features_all.h"
+#include "localview.h"
+#include "planetview.h"
+#include "spacedata.h"
+#include "season.h"
+#include "sprites.h"
+#include "airquality.h"
+#include "starlink.h"
+#include "aircraft.h"
 
 extern double pic_applet_render_dxfeed(cairo_t *cr, double width,
                                        time_t now, void *user_data);
 extern double pic_applet_render_muf(cairo_t *cr, double width,
                                     time_t now, void *user_data);
 extern double pic_applet_render_solar(cairo_t *cr, double width,
+                                      time_t now, void *user_data);
+extern double pic_applet_render_astro(cairo_t *cr, double width,
                                       time_t now, void *user_data);
 extern double pic_applet_render_voacap(cairo_t *cr, double width,
                                        time_t now, void *user_data);
@@ -131,6 +148,30 @@ extern void pic_cloud_cleanup(void);
 extern void pic_layer_render_precip(cairo_t *cr, int width, int height,
                                     time_t now, void *user_data);
 extern void pic_precip_cleanup(void);
+extern void pic_layer_render_volcano(cairo_t *cr, int width, int height,
+                                     time_t now, void *user_data);
+extern void pic_layer_render_storm(cairo_t *cr, int width, int height,
+                                   time_t now, void *user_data);
+extern void pic_layer_render_nwsalert(cairo_t *cr, int width, int height,
+                                      time_t now, void *user_data);
+extern void pic_layer_render_nwsalert_banner(cairo_t *cr, int width,
+                                             int height, time_t now,
+                                             void *user_data);
+extern void pic_layer_render_radar(cairo_t *cr, int width, int height,
+                                   time_t now, void *user_data);
+extern void pic_layer_render_airquality(cairo_t *cr, int width, int height,
+                                        time_t now, void *user_data);
+extern void pic_layer_render_starlink(cairo_t *cr, int width, int height,
+                                      time_t now, void *user_data);
+extern void pic_layer_render_aircraft_legend(cairo_t *cr, int width, int height,
+                                             time_t now, void *user_data);
+extern void pic_layer_render_lightning_near(cairo_t *cr, int width, int height,
+                                            time_t now, void *user_data);
+extern void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
+                                      time_t now, void *user_data);
+extern void pic_layer_render_airquality_badge(cairo_t *cr, int width,
+                                              int height, time_t now,
+                                              void *user_data);
 extern void pic_layer_render_aurora(cairo_t *cr, int width, int height,
                                     time_t now, void *user_data);
 extern void pic_aurora_cleanup(void);
@@ -218,7 +259,7 @@ static void vt_activate(void)
         snprintf(tty_path, sizeof(tty_path), "/dev/tty%d", PIC_VT);
         tfd = open(tty_path, O_WRONLY | O_NOCTTY);
         if (tfd >= 0) {
-            write(tfd, "\033[?25l", 6);
+            if (write(tfd, "\033[?25l", 6) < 0) { /* cursor stays; harmless */ }
             close(tfd);
         }
     }
@@ -480,6 +521,83 @@ static int get_total_ram_mb(void)
  * The surface cost itself is calculated at runtime from the display
  * resolution (width * height * 4 bytes).
  */
+/*
+ * sync_astro_fetcher - Run the Astrospheric fetcher only while the
+ * "Tonight's Sky" applet is enabled, so a configured API key never
+ * spends credits for a panel nobody can see.
+ */
+/*
+ * Registered pic_feature_t overlays (layers and/or applets). Each runs
+ * its fetch thread only while its layer or applet is enabled.
+ */
+static pic_feature_t *features[64];
+static int nfeatures;
+
+static void register_feature(pic_feature_t *f)
+{
+    if (!f) return;
+    if (nfeatures < (int)(sizeof(features) / sizeof(features[0])))
+        features[nfeatures++] = f;
+    else
+        printf("display: too many features, '%s' not registered\n", f->name);
+}
+
+/* Register a feature and add its map layer (off until configured). */
+static void add_feature_layer(pic_layer_stack_t *stack, pic_feature_t *f)
+{
+    if (!f) return;
+    register_feature(f);
+    if (f->layer &&
+        pic_layer_stack_add(stack, f->name, f->layer, f->interval,
+                            1.0, f->data) == 0) {
+        stack->layers[stack->count - 1].enabled = f->default_on;
+        stack->layers[stack->count - 1].idle = f->idle;
+    }
+}
+
+static void sync_features(pic_layer_stack_t *stack,
+                          pic_applet_stack_t *applets)
+{
+    int i, k;
+    for (i = 0; i < nfeatures; i++) {
+        pic_feature_t *f = features[i];
+        int on = 0;
+        if (f->layer) {
+            for (k = 0; k < stack->count; k++)
+                if (strcmp(stack->layers[k].name, f->name) == 0)
+                    on |= stack->layers[k].enabled;
+            f->layer_on = on;
+        }
+        if (f->applet)
+            for (k = 0; k < applets->count; k++)
+                if (strcmp(applets->applets[k].name, f->name) == 0)
+                    on |= applets->applets[k].enabled;
+        if (!on && f->wanted)
+            on = f->wanted(f);
+        if (on) {
+            if (f->reload) f->reload(f);
+            pic_feature_start(f);
+        } else {
+            pic_feature_stop(f);
+        }
+    }
+}
+
+static void stop_features(void)
+{
+    pic_feature_stop_all(features, nfeatures, 5);
+}
+
+static void sync_astro_fetcher(pic_applet_stack_t *applets, pic_astro_t *astro)
+{
+    int i, on = 0;
+    for (i = 0; i < applets->count; i++)
+        if (strcmp(applets->applets[i].name, "astro") == 0)
+            on = applets->applets[i].enabled;
+    if (on) pic_astro_start(astro);
+    else    pic_astro_stop();
+}
+
 static const struct {
     const char *name;
     int extra_mb;  /* Additional RAM beyond the surface */
@@ -506,6 +624,43 @@ static const struct {
     {"satellites",     2},  /* TLE cache + track arrays + SGP4       */
     {"earthquakes",    1},  /* USGS JSON fetch buffer                */
     {"lightning",      2},  /* TLS WebSocket + LZW decode workspace  */
+    {"volcanoes",      1},  /* 1MB CAP XML fetch buffer              */
+    {"storms",         8},  /* 6MB GeoJSON buffer + JSON tokens      */
+    {"wxalerts",       8},  /* 6MB GeoJSON buffer + polygon pool     */
+    {"radar",         10},  /* Up to 2400x1062 ARGB mosaic           */
+    {"airquality",     1},  /* 17x11 AQI grid + 512KB fetch buffer   */
+    {"starlink",       2},  /* TLE catalogue + up to 3x32 elements   */
+    {"reentries",      1},  /* Space-Track re-entry predictions       */
+    {"conjunctions",   1},  /* Space-Track close approaches           */
+    {"geobelt",        4},  /* ~1,100 geostationary element sets      */
+    {"debris",         2},  /* newest debris pieces' elements         */
+    {"aircraft",       4},  /* 3MB JSON buffer + tokens + 1500 slots */
+    {"spc",            3},  /* GeoJSON buffer + polygon pool         */
+    {"fires",          3},  /* FIRMS CSV + smoke KML + point pool    */
+    {"launches",       1},  /* Launch Library JSON                   */
+    {"dsn",            1},  /* DSN XML                               */
+    {"ships",          2},  /* TLS WebSocket + vessel table          */
+    {"planets",        0},  /* Orbital math only                     */
+    {"satclouds",     20},  /* GIBS PNGs + two composited images     */
+    {"aurorawatch",    2},  /* OVATION JSON + Kp forecast            */
+    {"lightpollution", 8},  /* Sky-brightness image (peak ~20MB calc) */
+    {"localmap",       6},  /* 1:10m lines + towns (static)          */
+    {"twilight",       0},  /* Solar math only                       */
+    {"passes",         1},  /* TLEs + pass list                      */
+    {"overhead",       5},  /* ~1,700 TLEs (pic_sat_t ~2 KB each)    */
+    {"lsr",            4},  /* Storm report JSON                     */
+    {"rainfall",      10},  /* MRMS image up to 2400 px wide         */
+    {"rivers",         4},  /* NWPS gauge JSON                       */
+    {"ebird",          1},  /* eBird JSON                            */
+    {"drought",        6},  /* USDM file (~17MB while parsing)       */
+    {"darksites",      2},  /* Site list + home sky grid             */
+    {"sst",            8},  /* 1440x720 index + ARGB wash + PNG      */
+    {"nowcast",       13},  /* PC helper: up to 19 frames 900x700 bytes */
+    {"hrrr_clouds",    6},  /* PC helper: 18 frames ~714x440 bytes   */
+    {"hrrr_smoke",     6},
+    {"hrrr_gust",      6},
+    {"hrrr_frost",     1},
+    {"birds",          5},  /* PC helper: up to 13 frames 663x542    */
 
     /* Optional overlays */
     {"cqzone",         0},  /* Static data                           */
@@ -890,6 +1045,149 @@ static void *ticker_render_func(void *arg)
     return NULL;
 }
 
+/* ── Smooth sprites (overhead satellites) ──────────────────────────
+ *
+ * The main loop composites the map once a second. In sprite mode it
+ * keeps the map ("under": all layers) and what sits on top of it
+ * ("over": panels, legends, clock) apart, and hands copies of both to
+ * this thread, which ~30 times a second rebuilds only the patches
+ * around moving sprites (under + sprites + over) and writes them to
+ * the framebuffer. fb_lock serialises its writes with the main blit.
+ */
+static pthread_mutex_t fb_lock = PTHREAD_MUTEX_INITIALIZER;
+
+typedef struct {
+    unsigned char *fb_mem;
+    int fb_stride, width, height, drm_fd;
+    pic_ticker_t *ticker;
+    volatile sig_atomic_t *quit;
+    /* guarded by fb_lock */
+    cairo_surface_t *under, *over;   /* thread's copies; NULL = off   */
+    int prev[PIC_SPRITES_MAX][4], nprev;
+} sprite_args_t;
+
+static sprite_args_t sargs;
+
+static int rect_merge(int r[][4], int n)
+{
+    int i, j, merged = 1;
+    while (merged) {
+        merged = 0;
+        for (i = 0; i < n && !merged; i++)
+            for (j = i + 1; j < n; j++) {
+                if (r[i][0] > r[j][2] + 8 || r[j][0] > r[i][2] + 8 ||
+                    r[i][1] > r[j][3] + 8 || r[j][1] > r[i][3] + 8)
+                    continue;
+                if (r[j][0] < r[i][0]) r[i][0] = r[j][0];
+                if (r[j][1] < r[i][1]) r[i][1] = r[j][1];
+                if (r[j][2] > r[i][2]) r[i][2] = r[j][2];
+                if (r[j][3] > r[i][3]) r[i][3] = r[j][3];
+                memcpy(r[j], r[n - 1], sizeof(r[0]));
+                n--;
+                merged = 1;
+                break;
+            }
+    }
+    return n;
+}
+
+static void *sprite_thread_func(void *arg)
+{
+    sprite_args_t *a = (sprite_args_t *)arg;
+    static int cur[PIC_SPRITES_MAX][4], dirty[2 * PIC_SPRITES_MAX][4];
+    unsigned char *scratch = NULL;
+    size_t scratch_size = 0;
+
+    while (!*a->quit) {
+        struct timespec ts;
+        double tf;
+        int n, nd, i, ty0 = 0;
+
+        if (a->drm_fd >= 0) {
+            drmVBlank vbl;
+            memset(&vbl, 0, sizeof(vbl));
+            vbl.request.type = DRM_VBLANK_RELATIVE;
+            vbl.request.sequence = 2;               /* 30 fps at 60 Hz */
+            if (drmWaitVBlank(a->drm_fd, &vbl) != 0) {
+                struct timespec d = { 0, 33000000 };
+                nanosleep(&d, NULL);
+            }
+        } else {
+            struct timespec d = { 0, 33000000 };
+            nanosleep(&d, NULL);
+        }
+        if (!vt_is_active()) continue;
+
+        pthread_mutex_lock(&a->ticker->mutex);
+        ty0 = (int)a->ticker->bar_top;
+        pthread_mutex_unlock(&a->ticker->mutex);
+
+        pthread_mutex_lock(&fb_lock);
+        if (!a->under || !a->over) {
+            a->nprev = 0;
+            pthread_mutex_unlock(&fb_lock);
+            continue;
+        }
+        clock_gettime(CLOCK_REALTIME, &ts);
+        tf = ts.tv_sec + ts.tv_nsec / 1e9;
+        n = pic_sprites_rects(tf, a->width, a->height, cur, PIC_SPRITES_MAX);
+        if (n == 0 && a->nprev == 0) {
+            pthread_mutex_unlock(&fb_lock);
+            continue;
+        }
+        memcpy(dirty, a->prev, sizeof(int) * 4 * a->nprev);
+        memcpy(dirty[a->nprev], cur, sizeof(int) * 4 * n);
+        nd = rect_merge(dirty, a->nprev + n);
+
+        for (i = 0; i < nd; i++) {
+            int x0 = dirty[i][0], y0 = dirty[i][1], x1 = dirty[i][2], y1 = dirty[i][3];
+            int w, h, stride, y;
+            cairo_surface_t *patch;
+            cairo_t *cr;
+            if (ty0 > 0 && y1 > ty0) y1 = ty0;        /* the ticker owns its bar */
+            if (x0 < 0) x0 = 0;
+            if (y0 < 0) y0 = 0;
+            if (x1 > a->width) x1 = a->width;
+            if (y1 > a->height) y1 = a->height;
+            w = x1 - x0;
+            h = y1 - y0;
+            if (w <= 0 || h <= 0) continue;
+            stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, w);
+            if ((size_t)stride * h > scratch_size) {
+                free(scratch);
+                scratch_size = (size_t)stride * h;
+                scratch = malloc(scratch_size);
+                if (!scratch) { scratch_size = 0; break; }
+            }
+            patch = cairo_image_surface_create_for_data(scratch, CAIRO_FORMAT_ARGB32,
+                                                        w, h, stride);
+            cr = cairo_create(patch);
+            cairo_translate(cr, -x0, -y0);
+            cairo_rectangle(cr, x0, y0, w, h);
+            cairo_clip(cr);
+            cairo_set_source_surface(cr, a->under, 0, 0);
+            cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+            cairo_paint(cr);
+            cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+            pic_sprites_draw(cr, tf, a->width, a->height);
+            cairo_set_source_surface(cr, a->over, 0, 0);
+            cairo_paint(cr);
+            cairo_destroy(cr);
+            cairo_surface_flush(patch);
+            for (y = 0; y < h; y++)
+                fb_put_run(a->fb_mem, a->fb_stride, a->width, a->height,
+                           scratch + (size_t)y * stride, x0, y0 + y, w,
+                           pic_config.rotate180);
+            cairo_surface_destroy(patch);
+        }
+        memcpy(a->prev, cur, sizeof(int) * 4 * n);
+        a->nprev = n;
+        pthread_mutex_unlock(&fb_lock);
+    }
+    free(scratch);
+    return NULL;
+}
+
 /*
  * pic_display_run_framebuffer - Direct Linux framebuffer render loop.
  *
@@ -917,6 +1215,13 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     cairo_surface_t *frame_surface = NULL;
     cairo_surface_t *base_surface = NULL;   /* Cached composite of all layers except HUD */
     int base_valid = 0;                     /* Non-zero when base cache is usable */
+    /* Smooth sprites (see sprite_thread_func) */
+    cairo_surface_t *applet_surface = NULL, *overlay_surface = NULL;
+    cairo_surface_t *sp_under = NULL, *sp_over = NULL;
+    int sprite_mode = 0, sprites_failed = 0, base_rebuilt = 0;
+    double frame_tf = 0;
+    pthread_t sprite_thread;
+    int sprite_thread_started = 0;
     cairo_surface_t *black_marble = NULL;
     cairo_surface_t *blue_marble = NULL;
     pic_borders_t borders;
@@ -934,6 +1239,14 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_earthquake_t earthquakes;
     pic_wind_t wind;
     pic_aurora_t aurora;
+    static pic_volcanoes_t volcanoes;
+    static pic_storms_t storms;
+    static pic_nws_t wxalerts;
+    static pic_radar_t radar;
+    static pic_astro_t astro;
+    static pic_airquality_t airquality;
+    static pic_starlink_t starlink;
+    static pic_aircraft_t aircraft;
     pic_layer_stack_t stack;
     pic_applet_stack_t applets;
     pic_sysinfo_t sysinfo;
@@ -1163,7 +1476,17 @@ static int pic_display_run_framebuffer(const char *maps_dir,
         /* Load timezone grid for coordinate → timezone lookup */
         snprintf(path, sizeof(path), "%s/tzgrid.dat", maps_dir);
         pic_tz_load(path);
+
+        /* Local view: 1:10m detail (installed with the fork's binary) */
+        snprintf(path, sizeof(path), "%s/localmap.dat", maps_dir);
+        if (pic_localmap_load(path) != 0)
+            pic_localmap_load("/usr/share/pi-clock/localmap.dat");
     }
+    pic_regional_set_world(black_marble, blue_marble);
+    pic_season_set_world(blue_marble);
+    pic_view_reload(time(NULL));
+    pic_season_reload();
+    pic_config_recompute_viewport();
 
     /* Start solar weather data fetcher */
     pic_solar_init(&solar);
@@ -1175,6 +1498,14 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_earthquake_init(&earthquakes);
     pic_wind_init(&wind);
     pic_aurora_init(&aurora);
+    pic_volcano_init(&volcanoes);
+    pic_storm_init(&storms);
+    pic_nws_init(&wxalerts);
+    pic_radar_init(&radar);
+    pic_astro_init(&astro);
+    pic_aq_init(&airquality);
+    pic_sl_init(&starlink);
+    pic_ac_init(&aircraft);
 
     /* Start satellite tracker — register satellites and fetch TLEs */
     pic_sat_init(&satellites);
@@ -1198,6 +1529,12 @@ static int pic_display_run_framebuffer(const char *maps_dir,
 
     /* Digipeaters / APRS */
     pic_sat_add(&satellites, "sonate2",  "SONATE-2",    59112);
+
+    /* Naked-eye visible (non-amateur; TLEs via individual fetch) */
+    pic_sat_add(&satellites, "tiangong",   "Tiangong",     48274);  /* CSS / Tianhe */
+    pic_sat_add(&satellites, "hubble",     "Hubble",       20580);
+    pic_sat_add(&satellites, "bluewalker3","BlueWalker 3", 53807);
+    pic_sat_add(&satellites, "envisat",    "Envisat",      27386);  /* Derelict, flashes */
 
     /* Weather satellites (LRPT imagery) */
     pic_sat_add(&satellites, "meteor_m2",  "Meteor-M 2",   40069);
@@ -1344,9 +1681,17 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_basemap, 0, 1.0, black_marble);
     pic_layer_stack_add(&stack, "daylight",
                         pic_layer_render_daylight, 60, 1.0, blue_marble);
+    add_feature_layer(&stack, pic_feature_sst());
+    add_feature_layer(&stack, pic_feature_pch_frost());
+    add_feature_layer(&stack, pic_feature_satclouds());
+    add_feature_layer(&stack, pic_feature_pch_clouds());
+    add_feature_layer(&stack, pic_feature_pch_smoke());
+    add_feature_layer(&stack, pic_feature_lightpollution());
     if (borders_loaded)
         pic_layer_stack_add(&stack, "borders",
                             pic_layer_render_borders, 0, 1.0, &borders);
+    add_feature_layer(&stack, pic_feature_localmap());
+    add_feature_layer(&stack, pic_feature_twilight());
     pic_layer_stack_add(&stack, "grid",
                         pic_layer_render_grid, 0, 1.0, NULL);
     if (timezones_loaded)
@@ -1368,28 +1713,66 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_dxspots, 5, 1.0, &dxspots);
     pic_layer_stack_add(&stack, "earthquakes",
                         pic_layer_render_earthquake, 1, 1.0, &earthquakes);
+    pic_layer_stack_add(&stack, "volcanoes",
+                        pic_layer_render_volcano, 60, 1.0, &volcanoes);
+    add_feature_layer(&stack, pic_feature_drought());
+    add_feature_layer(&stack, pic_feature_fires());
     pic_layer_stack_add(&stack, "precip",
                         pic_layer_render_precip, 60, 1.0, &wind);
+    pic_layer_stack_add(&stack, "radar",
+                        pic_layer_render_radar, 60, 0.8, &radar);
+    add_feature_layer(&stack, pic_feature_pch_nowcast());
+    add_feature_layer(&stack, pic_feature_rainfall());
+    add_feature_layer(&stack, pic_feature_spc());
+    add_feature_layer(&stack, pic_feature_rivers());
+    add_feature_layer(&stack, pic_feature_lsr());
+    pic_layer_stack_add(&stack, "airquality",
+                        pic_layer_render_airquality, 60, 1.0, &airquality);
+    add_feature_layer(&stack, pic_feature_ships());
+    add_feature_layer(&stack, pic_feature_ebird());
+    add_feature_layer(&stack, pic_feature_pch_birds());
+    add_feature_layer(&stack, pic_feature_darksites());
     pic_layer_stack_add(&stack, "qth",
                         pic_layer_render_qth, 0, 1.0, NULL);
     pic_layer_stack_add(&stack, "wind",
                         pic_layer_render_wind, 60, 1.0, &wind);
+    add_feature_layer(&stack, pic_feature_pch_gust());
     pic_layer_stack_add(&stack, "lightning",
                         pic_layer_render_lightning, 1, 1.0, &lightning);
 
     /* ── Atmosphere ───────────────────────────────────────── */
     pic_layer_stack_add(&stack, "cloud",
                         pic_layer_render_cloud, 60, 1.0, &wind);
+    pic_layer_stack_add(&stack, "storms",
+                        pic_layer_render_storm, 60, 1.0, &storms);
+    pic_layer_stack_add(&stack, "aircraft",
+                        pic_layer_render_aircraft, 5, 1.0, &aircraft);
+    pic_layer_stack_add(&stack, "wxalerts",
+                        pic_layer_render_nwsalert, 30, 1.0, &wxalerts);
 
     /* ── Space (orbit / magnetosphere) ────────────────────── */
     pic_layer_stack_add(&stack, "aurora",
                         pic_layer_render_aurora, 60, 1.0, &aurora);
+    add_feature_layer(&stack, pic_feature_aurorawatch());
     pic_layer_stack_add(&stack, "satellites",
                         pic_layer_render_satellite, 5, 1.0, &satellites);
+    pic_layer_stack_add(&stack, "starlink",
+                        pic_layer_render_starlink, 10, 1.0, &starlink);
+    add_feature_layer(&stack, pic_feature_geobelt());
+    add_feature_layer(&stack, pic_feature_debris());
+    add_feature_layer(&stack, pic_feature_reentries());
+    add_feature_layer(&stack, pic_feature_conjunctions());
+    add_feature_layer(&stack, pic_feature_passes());
+    add_feature_layer(&stack, pic_feature_overhead());
+    add_feature_layer(&stack, pic_feature_launches());
+    add_feature_layer(&stack, pic_feature_events());   /* legend-only strip */
+    add_feature_layer(&stack, pic_feature_dsn());
     pic_layer_stack_add(&stack, "sun",
                         pic_layer_render_sun, 60, 1.0, NULL);
     pic_layer_stack_add(&stack, "moon",
                         pic_layer_render_moon, 60, 1.0, NULL);
+    add_feature_layer(&stack, pic_feature_planets());
+    add_feature_layer(&stack, pic_feature_eclipse());
 
     /* ── HUD (always on top) ──────────────────────────────── */
     pic_layer_stack_add(&stack, "ticker",
@@ -1404,7 +1787,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     {
         static const char *off_by_default[] = {
             "grid", "cqzone", "maidenhead", "dxspots",
-            "satellites", "lightning", "earthquakes", "precip",
+            "satellites", "lightning", "earthquakes", "volcanoes", "storms", "wxalerts", "radar", "airquality", "starlink", "aircraft", "precip",
             "cloud", "wind", "aurora",
             "sun", "moon", "ticker", NULL
         };
@@ -1426,6 +1809,21 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                          pic_layer_render_dxspots_legend);
     pic_layer_set_legend(&stack, "bandconditions",
                          pic_layer_render_propagation_legend);
+    pic_layer_set_legend(&stack, "wxalerts",
+                         pic_layer_render_nwsalert_banner);
+    pic_layer_set_legend(&stack, "aircraft",
+                         pic_layer_render_aircraft_legend);
+    pic_layer_set_legend(&stack, "lightning",
+                         pic_layer_render_lightning_near);
+    pic_layer_set_legend(&stack, "airquality",
+                         pic_layer_render_airquality_badge);
+    {
+        int fi;
+        for (fi = 0; fi < nfeatures; fi++)
+            if (features[fi]->layer && features[fi]->legend)
+                pic_layer_set_legend(&stack, features[fi]->name,
+                                     features[fi]->legend);
+    }
 
     /* Apply layer settings from config file (if it exists).
      * This overrides the defaults above with the user's saved prefs. */
@@ -1548,6 +1946,34 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 stack.layers[li].enabled) {
                 pic_aurora_start(&aurora);
             }
+            if (strcmp(stack.layers[li].name, "volcanoes") == 0 &&
+                stack.layers[li].enabled) {
+                pic_volcano_start(&volcanoes);
+            }
+            if (strcmp(stack.layers[li].name, "storms") == 0 &&
+                stack.layers[li].enabled) {
+                pic_storm_start(&storms);
+            }
+            if (strcmp(stack.layers[li].name, "wxalerts") == 0 &&
+                stack.layers[li].enabled) {
+                pic_nws_start(&wxalerts);
+            }
+            if (strcmp(stack.layers[li].name, "radar") == 0 &&
+                stack.layers[li].enabled) {
+                pic_radar_start(&radar);
+            }
+            if (strcmp(stack.layers[li].name, "airquality") == 0 &&
+                stack.layers[li].enabled) {
+                pic_aq_start(&airquality);
+            }
+            if (strcmp(stack.layers[li].name, "starlink") == 0 &&
+                stack.layers[li].enabled) {
+                pic_sl_start(&starlink);
+            }
+            if (strcmp(stack.layers[li].name, "aircraft") == 0 &&
+                stack.layers[li].enabled) {
+                pic_ac_start(&aircraft);
+            }
         }
     }
 
@@ -1566,6 +1992,40 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     pic_applet_stack_add(&applets, "solar", "Solar Weather",
                          pic_applet_render_solar, 60,
                          175, APPLET_SIDE_LEFT, &solar);
+    pic_applet_stack_add(&applets, "astro", "Tonight's Sky",
+                         pic_applet_render_astro, 60,
+                         240, APPLET_SIDE_LEFT, &astro);
+    register_feature(pic_feature_tides());
+    register_feature(pic_feature_backyard());
+    register_feature(pic_feature_coast());
+    register_feature(pic_feature_seasons());
+    register_feature(pic_feature_analemma());
+    register_feature(pic_feature_hanotify());   /* no layer or applet */
+    register_feature(pic_feature_health());     /* vital-signs log */
+    register_feature(pic_feature_crew());       /* people aboard the stations */
+    register_feature(pic_feature_worlds());     /* Moon / Mars / Jupiter data */
+    register_feature(pic_feature_spacedata());  /* Space-Track: reentries, close approaches... */
+    /* Legends of features added after the first pass above */
+    {
+        int fi;
+        for (fi = 0; fi < nfeatures; fi++)
+            if (features[fi]->layer && features[fi]->legend)
+                pic_layer_set_legend(&stack, features[fi]->name, features[fi]->legend);
+    }
+    register_feature(pic_feature_localbase());  /* regional imagery     */
+    register_feature(pic_feature_season());     /* current-season day map */
+    {
+        int fi;
+        for (fi = 0; fi < nfeatures; fi++)
+            if (features[fi]->applet)
+                pic_applet_stack_add(&applets, features[fi]->name,
+                                     features[fi]->label,
+                                     features[fi]->applet,
+                                     features[fi]->interval,
+                                     features[fi]->applet_w,
+                                     features[fi]->side,
+                                     features[fi]->data);
+    }
 
     /* System info applet — init and populate static fields */
     pic_sysinfo_init(&sysinfo, VERSION);
@@ -1595,6 +2055,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     }
 
     pic_applet_load_config(&applets);
+    sync_astro_fetcher(&applets, &astro);
+    sync_features(&stack, &applets);
 
     /*
      * Smooth ticker rendering thread.
@@ -1670,6 +2132,18 @@ static int pic_display_run_framebuffer(const char *maps_dir,
         fprintf(stderr, "display: ticker thread failed to start\n");
     }
 
+    sargs.fb_mem = fb_mem;
+    sargs.fb_stride = fb_stride;
+    sargs.width = width;
+    sargs.height = height;
+    sargs.drm_fd = drm_fd;
+    sargs.ticker = &ticker;
+    sargs.quit = &g_quit;
+    if (pthread_create(&sprite_thread, NULL, sprite_thread_func, &sargs) == 0)
+        sprite_thread_started = 1;
+    else
+        fprintf(stderr, "display: sprite thread failed to start\n");
+
     printf("display: entering framebuffer render loop at %dx%d\n",
            width, height);
 
@@ -1707,6 +2181,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 pic_config.qth_lat    = rconf.qth_lat;
                 pic_config.qth_lon    = rconf.qth_lon;
                 pic_config.rotate180  = (rconf.rotate == 180) ? 1 : 0;
+                pic_view_reload(time(NULL));
+                pic_season_reload();
                 pic_config_recompute_viewport();
                 printf("display: center_lon=%.1f map_zoom=%.0f%% "
                        "view_center=(%.2f,%.2f) span=(%.1f,%.1f)°\n",
@@ -1748,6 +2224,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 int li2;
                 int light_on = 0, quake_on = 0, wind_on = 0;
                 int cloud_on = 0, precip_on = 0, aurora_on = 0;
+                int volcano_on = 0, storm_on = 0, wx_on = 0;
+                int radar_on = 0, aq_on = 0, sl_on = 0, ac_on = 0;
                 for (li2 = 0; li2 < stack.count; li2++) {
                     if (strcmp(stack.layers[li2].name, "lightning") == 0)
                         light_on = stack.layers[li2].enabled;
@@ -1761,6 +2239,20 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         precip_on = stack.layers[li2].enabled;
                     if (strcmp(stack.layers[li2].name, "aurora") == 0)
                         aurora_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "volcanoes") == 0)
+                        volcano_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "storms") == 0)
+                        storm_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "wxalerts") == 0)
+                        wx_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "radar") == 0)
+                        radar_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "airquality") == 0)
+                        aq_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "starlink") == 0)
+                        sl_on = stack.layers[li2].enabled;
+                    if (strcmp(stack.layers[li2].name, "aircraft") == 0)
+                        ac_on = stack.layers[li2].enabled;
                 }
                 if (light_on) {
                     pic_lightning_reload(&lightning);
@@ -1784,8 +2276,53 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 } else {
                     pic_aurora_stop();
                 }
+                if (volcano_on) {
+                    pic_volcano_reload(&volcanoes);
+                    pic_volcano_start(&volcanoes);
+                } else {
+                    pic_volcano_stop();
+                }
+                if (storm_on) {
+                    pic_storm_reload(&storms);
+                    pic_storm_start(&storms);
+                } else {
+                    pic_storm_stop();
+                }
+                if (wx_on) {
+                    pic_nws_reload(&wxalerts);
+                    pic_nws_start(&wxalerts);
+                } else {
+                    pic_nws_stop();
+                }
+                if (radar_on) {
+                    pic_radar_reload(&radar);
+                    pic_radar_start(&radar);
+                } else {
+                    pic_radar_stop();
+                }
+                if (aq_on) {
+                    pic_aq_reload(&airquality);
+                    pic_aq_start(&airquality);
+                } else {
+                    pic_aq_stop();
+                }
+                if (sl_on) {
+                    pic_sl_reload(&starlink);
+                    pic_sl_start(&starlink);
+                } else {
+                    pic_sl_stop();
+                }
+                if (ac_on) {
+                    pic_ac_reload(&aircraft);
+                    pic_ac_start(&aircraft);
+                } else {
+                    pic_ac_stop();
+                }
             }
             pic_applet_load_config(&applets);
+            pic_astro_reload(&astro);
+            sync_astro_fetcher(&applets, &astro);
+            sync_features(&stack, &applets);
             pic_ticker_load_config(&ticker);
             pic_sat_load_config(&satellites);
 
@@ -1827,6 +2364,28 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             base_valid = 0;
         }
 
+        /* Global/local view cycle, or new regional imagery: redraw
+         * everything through the new viewport. */
+        {
+            static unsigned last_reg_gen;
+            static int last_vs = -99;
+            unsigned rg = pic_regional_generation();
+            int switched = pic_view_update(now);
+            /* -2 another world, -1 fixed view, 0/1 global/local in the cycle;
+             * also re-applied when a settings change alters it */
+            int vs = pic_view_world() ? -2 : pic_view_is_cycling() ? pic_view_is_local() : -1;
+            if (switched || rg != last_reg_gen || vs != last_vs) {
+                int li;
+                last_reg_gen = rg;
+                last_vs = vs;
+                pic_layer_stack_apply_view(&stack, vs);
+                pic_qth_invalidate();
+                for (li = 0; li < stack.count; li++)
+                    stack.layers[li].last_rendered = 0;
+                base_valid = 0;
+            }
+        }
+
         /* Export ticker position for legend stacking — read under
          * the ticker mutex to prevent torn double reads on
          * multi-core ARM (Pi 3/4/5). */
@@ -1850,6 +2409,36 @@ static int pic_display_run_framebuffer(const char *maps_dir,
          *
          * At 4K this saves ~400 MB of pixel reads per second.
          */
+        /* Sprite mode while "Satellites Overhead Now" is on screen.
+         * The four extra full-screen surfaces are made the first time. */
+        {
+            int want = 0, li2;
+            for (li2 = 0; li2 < stack.count; li2++)
+                if (strcmp(stack.layers[li2].name, "overhead") == 0)
+                    want = stack.layers[li2].enabled && !stack.layers[li2].view_hidden;
+            if (want && !overlay_surface) {
+                if (!applet_surface)
+                    applet_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                overlay_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                sp_under = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                sp_over = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                if (cairo_surface_status(applet_surface) || cairo_surface_status(overlay_surface) ||
+                    cairo_surface_status(sp_under) || cairo_surface_status(sp_over)) {
+                    printf("display: no memory for smooth sprites\n");
+                    sprites_failed = 1;
+                }
+            }
+            if (sprites_failed) want = 0;
+            pic_sprites_enable(want);
+            if (want != sprite_mode) {
+                sprite_mode = want;
+                base_valid = 0;            /* panels move between surfaces */
+                for (li2 = 0; li2 < stack.count; li2++)
+                    if (strcmp(stack.layers[li2].name, "overhead") == 0)
+                        stack.layers[li2].last_rendered = 0;
+            }
+        }
+
         {
             int base_dirty = 0;
             int li;
@@ -1867,45 +2456,122 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 }
             }
 
+            /* Another world on screen: it is redrawn every few seconds
+             * (orbiters move, the rover drive replays) in place of the
+             * Earth layers and panels */
+            {
+                static time_t world_at;
+                if (pic_view_world()) {
+                    if (!base_valid || now - world_at >= 2 || now < world_at) {
+                        cairo_t *bcr = cairo_create(base_surface);
+                        pic_planetview_render(bcr, width, height, pic_view_world(), now);
+                        cairo_destroy(bcr);
+                        cairo_surface_flush(base_surface);
+                        world_at = now;
+                        base_rebuilt = 1;
+                    }
+                    base_valid = 1;
+                    base_dirty = 0;
+                } else if (world_at) {
+                    world_at = 0;
+                    base_valid = 0;
+                }
+            }
+
             /* Rebuild base composite if any base layer changed */
             if (base_dirty || !base_valid) {
+                static const char *const skip[] = { "hud", "ticker", NULL };
+                static time_t applets_at;
+                int force = !base_valid;
                 cairo_t *bcr = cairo_create(base_surface);
                 cairo_set_source_rgb(bcr, 0, 0, 0);
                 cairo_paint(bcr);
 
-                for (li = 0; li < stack.count; li++) {
-                    pic_layer_t *layer = &stack.layers[li];
-                    if (!layer->enabled || !layer->surface) continue;
-                    /* Skip HUD and ticker — they're handled separately */
-                    if (strcmp(layer->name, "hud") == 0) continue;
-                    if (strcmp(layer->name, "ticker") == 0) continue;
-                    cairo_set_source_surface(bcr, layer->surface, 0, 0);
-                    cairo_paint_with_alpha(bcr, layer->opacity);
-                }
+                /* Layers, with slow-changing runs cached (layer.c): a
+                 * once-a-second layer no longer re-blends every layer */
+                pic_layer_stack_composite_cached(&stack, bcr, skip, force);
 
-                /* Render applets into the base cache too */
-                pic_applet_stack_render(&applets, bcr, width, height, now);
+                /* Panels: on their own surface (made on first use),
+                 * redrawn every 5 s or when the frame is rebuilt from
+                 * scratch rather than every second. Composited into the
+                 * base, or in sprite mode kept separate so moving
+                 * sprites pass under them. */
+                if (!applet_surface) {
+                    applet_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+                    if (cairo_surface_status(applet_surface) != CAIRO_STATUS_SUCCESS) {
+                        cairo_surface_destroy(applet_surface);
+                        applet_surface = NULL;
+                    }
+                    force = 1;
+                }
+                if (applet_surface && (force || now - applets_at >= 5 || now < applets_at)) {
+                    cairo_t *acr = cairo_create(applet_surface);
+                    cairo_set_operator(acr, CAIRO_OPERATOR_CLEAR);
+                    cairo_paint(acr);
+                    cairo_set_operator(acr, CAIRO_OPERATOR_OVER);
+                    pic_applet_stack_render(&applets, acr, width, height, now);
+                    cairo_destroy(acr);
+                    cairo_surface_flush(applet_surface);
+                    applets_at = now;
+                }
+                if (!sprite_mode) {
+                    if (applet_surface) {
+                        cairo_set_source_surface(bcr, applet_surface, 0, 0);
+                        cairo_paint(bcr);
+                    } else {
+                        pic_applet_stack_render(&applets, bcr, width, height, now);
+                    }
+                }
 
                 cairo_destroy(bcr);
                 cairo_surface_flush(base_surface);
                 base_valid = 1;
+                base_rebuilt = 1;
             }
 
-            /* Build final frame: base cache + legends + HUD on top */
-            cr = cairo_create(frame_surface);
-            cairo_set_source_surface(cr, base_surface, 0, 0);
-            cairo_paint(cr);
+            /* Build final frame: base cache + legends + HUD on top.
+             * Sprite mode: map, then the sprites at this instant, then
+             * an "over" surface with the panels, legends and clock. */
+            {
+                cairo_t *ocr;
+                cr = cairo_create(frame_surface);
+                cairo_set_source_surface(cr, base_surface, 0, 0);
+                cairo_paint(cr);
+                if (sprite_mode) {
+                    struct timespec tsn;
+                    clock_gettime(CLOCK_REALTIME, &tsn);
+                    frame_tf = tsn.tv_sec + tsn.tv_nsec / 1e9;
+                    pic_sprites_draw(cr, frame_tf, width, height);
+                    ocr = cairo_create(overlay_surface);
+                    cairo_set_operator(ocr, CAIRO_OPERATOR_CLEAR);
+                    cairo_paint(ocr);
+                    cairo_set_operator(ocr, CAIRO_OPERATOR_OVER);
+                    cairo_set_source_surface(ocr, applet_surface, 0, 0);
+                    cairo_paint(ocr);
+                } else {
+                    ocr = cairo_reference(cr);
+                }
 
-            /* Draw legends at full opacity — not affected by layer opacity */
-            pic_layer_stack_render_legends(&stack, cr, now);
+                /* Draw legends at full opacity — not affected by layer opacity */
+                if (!pic_view_world()) {
+                    pic_layer_stack_render_legends(&stack, ocr, now);
+                    pic_map_key_draw(ocr, width, height, pic_ticker_bar_top);
+                }
 
-            /* Paint just the HUD layer — clock text, very cheap */
-            for (li = 0; li < stack.count; li++) {
-                if (strcmp(stack.layers[li].name, "hud") == 0 &&
-                    stack.layers[li].enabled) {
-                    cairo_set_source_surface(cr, stack.layers[li].surface, 0, 0);
-                    cairo_paint_with_alpha(cr, stack.layers[li].opacity);
-                    break;
+                /* Paint just the HUD layer — clock text, very cheap */
+                for (li = 0; li < stack.count; li++) {
+                    if (strcmp(stack.layers[li].name, "hud") == 0 &&
+                        stack.layers[li].enabled) {
+                        cairo_set_source_surface(ocr, stack.layers[li].surface, 0, 0);
+                        cairo_paint_with_alpha(ocr, stack.layers[li].opacity);
+                        break;
+                    }
+                }
+                cairo_destroy(ocr);
+                if (sprite_mode) {
+                    cairo_surface_flush(overlay_surface);
+                    cairo_set_source_surface(cr, overlay_surface, 0, 0);
+                    cairo_paint(cr);
                 }
             }
 
@@ -1924,6 +2590,29 @@ static int pic_display_run_framebuffer(const char *maps_dir,
          * the blit so their console isn't overwritten. Rendering
          * continues internally so the display is instantly correct
          * when they switch back to tty7 (Ctrl+Alt+F7). */
+        /* Hand the sprite thread this second's map and overlay, and
+         * keep it off the framebuffer while the whole frame goes out */
+        pthread_mutex_lock(&fb_lock);
+        if (sprite_mode) {
+            size_t bytes = (size_t)cairo_image_surface_get_stride(base_surface) * height;
+            if (base_rebuilt || !sargs.under) {
+                memcpy(cairo_image_surface_get_data(sp_under),
+                       cairo_image_surface_get_data(base_surface), bytes);
+                cairo_surface_mark_dirty(sp_under);
+            }
+            memcpy(cairo_image_surface_get_data(sp_over),
+                   cairo_image_surface_get_data(overlay_surface), bytes);
+            cairo_surface_mark_dirty(sp_over);
+            sargs.under = sp_under;
+            sargs.over = sp_over;
+            sargs.nprev = pic_sprites_rects(frame_tf, width, height, sargs.prev,
+                                            PIC_SPRITES_MAX);
+        } else {
+            sargs.under = sargs.over = NULL;
+            sargs.nprev = 0;
+        }
+        base_rebuilt = 0;
+
         if (!vt_is_active()) goto skip_blit;
 
         /* Blit the frame to the framebuffer, skipping the ticker
@@ -1984,6 +2673,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
         }
 
 skip_blit:
+        pthread_mutex_unlock(&fb_lock);
         /* Sleep precisely until the next second boundary.
          * Using clock_gettime + nanosleep instead of sleep(1) ensures
          * the clock never drifts regardless of rendering time. On a
@@ -2026,10 +2716,25 @@ skip_blit:
     pic_earthquake_stop();
     pic_wind_stop();
     pic_aurora_stop();
+    pic_volcano_stop();
+    pic_storm_stop();
+    pic_nws_stop();
+    pic_radar_stop();
+    pic_astro_stop();
+    pic_aq_stop();
+    pic_sl_stop();
+    pic_ac_stop();
+    stop_features();
     pic_sat_stop();
     pic_ticker_stop();
     if (ticker_thread_started)
         pthread_join(ticker_render_thread, NULL);
+    if (sprite_thread_started)
+        pthread_join(sprite_thread, NULL);
+    if (applet_surface) cairo_surface_destroy(applet_surface);
+    if (overlay_surface) cairo_surface_destroy(overlay_surface);
+    if (sp_under) cairo_surface_destroy(sp_under);
+    if (sp_over) cairo_surface_destroy(sp_over);
     if (drm_fd >= 0)
         close(drm_fd);
     if (ctydb) pic_ctydat_free(ctydb);

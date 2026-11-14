@@ -21,7 +21,7 @@
     --bg-input: #ffffff;
     --text-primary: #2a2420;
     --text-secondary: #6b5e52;
-    --text-muted: #a89888;
+    --text-muted: #77685a;   /* 5:1 on white; help text was 2.8:1 */
     --border: #e0d8cc;
     --accent: #a88a3c;
     --accent-hover: #8a7030;
@@ -42,7 +42,7 @@
     --bg-input: #333030;
     --text-primary: #e8e0d4;
     --text-secondary: #a09888;
-    --text-muted: #6b6360;
+    --text-muted: #b0a698;   /* 4.7:1 on the card; help text was 1.9:1 */
     --border: #504a46;
     --accent: #c9a84c;
     --accent-hover: #dbb85c;
@@ -300,6 +300,88 @@ select.form-control {
 .layer-row:last-child {
     border-bottom: none;
 }
+
+.layer-view {
+    flex-shrink: 0;
+    width: 104px;
+    box-sizing: border-box;
+    padding: 3px 4px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+}
+
+.layer-view option { color: #000; }
+
+.layer-view-spacer { border: none; visibility: hidden; }
+
+@media (max-width: 640px) {
+    /* Phones: name on the first line, view menu + opacity under it */
+    .layer-row { flex-wrap: wrap; row-gap: 4px; }
+    .layer-name { flex: 1 1 calc(100% - 92px); min-width: 0; }
+    .layer-view { width: auto; flex: 1 1 auto; max-width: 140px; font-size: 12px; margin-left: 48px; }
+    .layer-view-spacer { display: none; }
+    .layer-opacity { width: auto; flex: 1 1 80px; }
+}
+
+.layer-view-hint {
+    font-size: 12px;
+    margin: 0 0 10px;
+    line-height: 1.5;
+}
+
+.layer-view-hint .btn { margin-left: 4px; padding: 2px 8px; }
+
+.layer-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+}
+
+.layer-group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    padding: 0 10px;
+}
+
+.layer-group > summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 0;
+    cursor: pointer;
+    font-weight: 600;
+    list-style: none;
+}
+
+.layer-group > summary::-webkit-details-marker { display: none; }
+
+.layer-group > summary::before {
+    content: "\25B8";
+    margin-right: 8px;
+    transition: transform 0.15s;
+}
+
+.layer-group[open] > summary::before { transform: rotate(90deg); }
+
+.layer-group > summary > span:first-child { flex: 1; }
+
+.layer-group-count {
+    font-weight: 400;
+    font-size: 12px;
+    opacity: 0.65;
+}
+
+.layer-group[open] > summary { border-bottom: 1px solid var(--border); }
 
 /*
  * Toggle switch — pure CSS sliding toggle built from a hidden checkbox
@@ -856,3 +938,43 @@ select.form-control {
 
 .upgrade-step.error { color: var(--danger); }
 .upgrade-step.error .step-icon .icon-state-error { display: inline-block; }
+
+/*
+ * Inline checkbox rows for layer settings cards. Kept outside
+ * .form-group so the block-level `.form-group label` rule doesn't
+ * stack the checkbox above its caption.
+ */
+.check-row {
+    margin-bottom: 12px;
+}
+
+.checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+/* Data Sources card */
+.data-status { display: flex; flex-direction: column; gap: 6px; }
+.ds-row { display: flex; align-items: flex-start; gap: 10px; }
+.ds-text { min-width: 0; }
+.ds-name { font-weight: 600; overflow-wrap: anywhere; }
+.ds-detail { font-size: 0.85em; }
+.ds-badge { flex: 0 0 auto; min-width: 52px; text-align: center; font-size: 0.75em; font-weight: 700;
+            padding: 2px 6px; border-radius: 4px; color: #fff; margin-top: 2px; }
+.ds-ok { background: var(--success); }
+.ds-warn { background: var(--warning); color: #222; }
+.ds-down { background: var(--danger); }
+
+/* Pi Health card */
+.health-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.hc { background: var(--bg-elevated, rgba(0,0,0,0.04)); border-radius: 6px; padding: 8px 10px; }
+.hc-title { font-size: 0.8em; font-weight: 600; display: flex; justify-content: space-between; }
+.hc-title span:last-child { font-weight: 400; opacity: 0.8; }
+.hc svg { width: 100%; height: 56px; display: block; margin-top: 4px; }
+.hc-restart { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 2 2; }
+.hc-line { fill: none; stroke: var(--primary, #3a6fd8); stroke-width: 1.5; }
+.hc-area { fill: var(--primary, #3a6fd8); opacity: 0.12; }
+.text-danger { color: var(--danger); }

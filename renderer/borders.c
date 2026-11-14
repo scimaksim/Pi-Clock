@@ -84,8 +84,7 @@ int pic_borders_load(const char *path, pic_borders_t *borders)
 
         /* Validate point count and guard against size_t overflow on
          * 32-bit ARM where num_points * sizeof(float) can wrap. */
-        if (poly->num_points > 500000 ||
-            (size_t)poly->num_points > SIZE_MAX / sizeof(float)) {
+        if (poly->num_points > 500000) {   /* also keeps n*sizeof(float) from wrapping on 32-bit */
             fprintf(stderr, "borders: polygon %u has suspicious "
                     "point count %u\n", i, poly->num_points);
             goto fail;

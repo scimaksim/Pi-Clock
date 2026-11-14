@@ -24,11 +24,65 @@ var layerExtraMb = {
     'wind':           4,
     'aurora':         4,
     'satellites':     2,
+    'overhead':       5,
     'lightning':      2,
     'dxspots':        1,
     'bandconditions': 1,
     'ticker':         1,
-    'earthquakes':    1
+    'earthquakes':    1,
+    'volcanoes':      1,
+    'storms':         8,
+    'wxalerts':       8,
+    'radar':          10,
+    'airquality':     1,
+    'starlink':       2,
+    'aircraft':       4,
+    'spc':            3,
+    'fires':          3,
+    'launches':       1,
+    'dsn':            1,
+    'ships':          2,
+    'planets':        0,
+    'eclipse':        1,
+    'satclouds':      12,
+    'aurorawatch':    2,
+    'lightpollution': 8,
+    'localmap':       6,
+    'passes':         1,
+    'lsr':            4,
+    'rainfall':       10,
+    'rivers':         4,
+    'ebird':          1,
+    'drought':        6,
+    'darksites':      2
+};
+
+/* Layers whose settings card uses the generic /api/renderer-settings
+ * endpoint. Inputs inside the card carry data-conf="KEY"; checkboxes
+ * map to "1"/"0", selects and text inputs map to their value. */
+var rendererSettingCards = {
+    'volcanoes': 'volcano-card',
+    'storms':    'storm-card',
+    'wxalerts':  'wxalert-card',
+    'radar':     'radar-card',
+    'airquality': 'aq-card',
+    'starlink':  'starlink-card',
+    'aircraft':  'aircraft-card',
+    'spc':       'spc-card',
+    'fires':     'fires-card',
+    'satclouds': 'satclouds-card',
+    'launches':  'launches-card',
+    'planets':   'planets-card',
+    'ships':     'ships-card',
+    'aurorawatch': 'aurorawatch-card',
+    'lightpollution': 'lightpollution-card',
+    'lsr':       'lsr-card',
+    'rainfall':  'rainfall-card',
+    'rivers':    'rivers-card',
+    'ebird':     'ebird-card',
+    'darksites': 'darksites-card',
+    'passes':    'passtracks-card',
+    'eclipse':   'eclipse-card'
 };
 
 /* Calculate total memory cost of all enabled layers */
@@ -283,7 +337,9 @@ function loadSystemInfo() {
                 if (sel) {
                     resOrder.forEach(function(res, i) {
                         var opt = sel.querySelector('option[value="' + res + '"]');
-                        if (opt && i > maxIdx) {
+                        /* once only: this runs every 30 s and the note used
+                         * to be appended again each time */
+                        if (opt && i > maxIdx && !opt.disabled) {
                             opt.disabled = true;
                             opt.textContent += ' \u2014 not supported on this hardware';
                             if (sel.value === res) sel.value = info.max_resolution;
@@ -490,7 +546,12 @@ function osUpgrade() {
             return;
         }
         if (!response.ok) {
-            finishUpgrade(true, 'Server error (' + response.status + ')');
+            /* show the server's own reason when it gives one */
+            response.json().then(function(j) {
+                finishUpgrade(true, (j && j.error) || 'Server error (' + response.status + ')');
+            }).catch(function() {
+                finishUpgrade(true, 'Server error (' + response.status + ')');
+            });
             return;
         }
         if (!response.body) {
@@ -600,6 +661,8 @@ function loadLayers() {
         var requiredLayers = {'basemap': true, 'daylight': true};
         /* Layers with no useful opacity control */
         var noOpacity = {'ticker': true};
+        /* Layers that only make sense in every view */
+        var noViewChoice = {'hud': true, 'ticker': true, 'qth': true};
 
         /* Map layer names to their config card IDs — defined once
          * outside the loop to avoid rebuilding on every iteration. */
@@ -611,10 +674,107 @@ function loadLayers() {
             'lightning': 'lightning-card',
             'earthquakes': 'earthquake-card'
         };
+        for (var rsName in rendererSettingCards) {
+            configCards[rsName] = rendererSettingCards[rsName];
+        }
+
+        /* Search box + collapsible category groups. Rows go into the
+         * group for layer.category; groups appear in a fixed order and
+         * the open/closed state is remembered per browser. */
+        var search = document.createElement('input');
+        search.type = 'search';
+        search.className = 'layer-search';
+        search.placeholder = 'Search layers…';
+        search.setAttribute('aria-label', 'Search layers');
+        container.appendChild(search);
+
+        /* Suggested views: marked with a star in each menu; one click
+         * fills them all in (nothing is saved until Save Layers). */
+        var hint = document.createElement('div');
+        hint.className = 'layer-view-hint text-muted';
+        hint.textContent = 'When Map View auto-switches, each layer can show in both views, only the world view or only the local view (with a fixed view every enabled layer shows). \u2605 marks the suggested view: local detail (rivers, storm reports, radar, aircraft) when zoomed in, planet-wide layers (earthquakes, launches, satellites, zones) for the world. ';
+        var sugBtn = document.createElement('button');
+        sugBtn.type = 'button';
+        sugBtn.className = 'btn btn-sm';
+        sugBtn.textContent = 'Use suggested views';
+        sugBtn.addEventListener('click', function() {
+            var n = 0;
+            container.querySelectorAll('select[data-suggest]').forEach(function(sel) {
+                if (sel.value !== sel.getAttribute('data-suggest')) n++;
+                sel.value = sel.getAttribute('data-suggest');
+            });
+            toast(n ? n + ' layer views changed \u2014 press Save Layers to apply' : 'Already using the suggested views');
+        });
+        hint.appendChild(sugBtn);
+        container.appendChild(hint);
+
+        var catOrder = ['Base Map', 'Weather', 'Hazards', 'Sky & Space',
+                        'Traffic & Wildlife', 'Overlays & Clock', 'Ham Radio', 'Other'];
+        var openCats = {};
+        try { openCats = JSON.parse(localStorage.getItem('piclock.layerCats') || '{}'); } catch (e) {}
+        var groups = {};
+        function groupFor(cat) {
+            if (groups[cat]) return groups[cat];
+            var det = document.createElement('details');
+            det.className = 'layer-group';
+            det.setAttribute('data-cat', cat);
+            det.open = openCats[cat] !== false;
+            var sum = document.createElement('summary');
+            var title = document.createElement('span');
+            title.textContent = cat;
+            var count = document.createElement('span');
+            count.className = 'layer-group-count';
+            sum.appendChild(title);
+            sum.appendChild(count);
+            det.appendChild(sum);
+            det.addEventListener('toggle', function() {
+                if (det.getAttribute('data-searching')) return;
+                openCats[cat] = det.open;
+                try { localStorage.setItem('piclock.layerCats', JSON.stringify(openCats)); } catch (e) {}
+            });
+            groups[cat] = det;
+            return det;
+        }
+        function updateCounts() {
+            Object.keys(groups).forEach(function(cat) {
+                var det = groups[cat];
+                var rows = det.querySelectorAll('.layer-row');
+                var on = 0;
+                rows.forEach(function(r) {
+                    var cb = r.querySelector('input[type="checkbox"]');
+                    if (!cb || cb.checked) on++;
+                });
+                det.querySelector('.layer-group-count').textContent = on + ' / ' + rows.length + ' on';
+            });
+        }
+        search.addEventListener('input', function() {
+            var q = this.value.trim().toLowerCase();
+            Object.keys(groups).forEach(function(cat) {
+                var det = groups[cat];
+                var shown = 0;
+                det.querySelectorAll('.layer-row').forEach(function(r) {
+                    var hit = !q || (r.getAttribute('data-search') || '').indexOf(q) >= 0;
+                    r.style.display = hit ? '' : 'none';
+                    if (hit) shown++;
+                });
+                det.style.display = shown ? '' : 'none';
+                if (q) {
+                    det.setAttribute('data-searching', '1');
+                    det.open = true;
+                } else if (det.getAttribute('data-searching')) {
+                    det.open = openCats[cat] !== false;
+                    /* toggle fires async; clear the flag after it */
+                    setTimeout(function() { det.removeAttribute('data-searching'); }, 0);
+                }
+            });
+        });
+        container.addEventListener('change', updateCounts);
 
         layers.forEach(function(layer) {
             var row = document.createElement('div');
             row.className = 'layer-row';
+            row.setAttribute('data-search',
+                (layer.label + ' ' + layer.name + ' ' + (layer.category || '')).toLowerCase());
 
             var opacityPct = Math.round(layer.opacity * 100);
 
@@ -632,6 +792,30 @@ function loadLayers() {
 
             /* Layer name */
             row.appendChild(buildLabel(layer.label));
+
+            /* Which view the layer shows in: when Map View cycles,
+             * local-only layers appear while zoomed in on home and
+             * global-only ones while showing the whole map. */
+            if (!requiredLayers[layer.name] && !noViewChoice[layer.name]) {
+                var vs = document.createElement('select');
+                vs.className = 'layer-view';
+                vs.setAttribute('data-layer-view', layer.name);
+                vs.setAttribute('aria-label', 'Show ' + layer.label + ' in');
+                vs.title = 'Which map view this layer shows in (used when Map View is set to cycle between global and local)';
+                if (layer.suggest) vs.setAttribute('data-suggest', layer.suggest);
+                [['any', 'Both views'], ['global', 'Global only'], ['local', 'Local only']].forEach(function(o) {
+                    var opt = document.createElement('option');
+                    opt.value = o[0];
+                    opt.textContent = o[1] + (layer.suggest === o[0] ? ' \u2605' : '');
+                    if ((layer.view || 'any') === o[0]) opt.selected = true;
+                    vs.appendChild(opt);
+                });
+                row.appendChild(vs);
+            } else {
+                var vsp = document.createElement('span');
+                vsp.className = 'layer-view layer-view-spacer';
+                row.appendChild(vsp);
+            }
 
             if (!noOpacity[layer.name]) {
                 /* Opacity slider */
@@ -700,7 +884,7 @@ function loadLayers() {
                 }
             }
 
-            container.appendChild(row);
+            groupFor(layer.category || 'Other').appendChild(row);
             layerState[layer.name] = layer.enabled;
 
             /* Link satellite/ticker card visibility to layer toggles */
@@ -740,6 +924,15 @@ function loadLayers() {
                     if (this.checked) loadLightningSettings();
                 });
             }
+            if (rendererSettingCards[layer.name]) {
+                (function(cardId) {
+                    setCardVisibility(cardId, layer.enabled);
+                    cb.addEventListener('change', function() {
+                        setCardVisibility(cardId, this.checked);
+                        if (this.checked) loadRendererSettings(cardId);
+                    });
+                })(rendererSettingCards[layer.name]);
+            }
             if (layer.name === 'earthquakes') {
                 setCardVisibility('earthquake-card', layer.enabled);
                 cb.addEventListener('change', function() {
@@ -761,6 +954,11 @@ function loadLayers() {
             }
         });
 
+        catOrder.concat(Object.keys(groups)).forEach(function(cat) {
+            if (groups[cat] && !groups[cat].parentNode) container.appendChild(groups[cat]);
+        });
+        updateCounts();
+
         /* Check RAM budget now that all toggles are built */
         updateRamWarning();
 
@@ -776,10 +974,12 @@ function saveLayers() {
     document.querySelectorAll('[data-layer]').forEach(function(toggle) {
         var name = toggle.getAttribute('data-layer');
         var slider = document.querySelector('[data-layer-opacity="' + name + '"]');
+        var vsel = document.querySelector('[data-layer-view="' + name + '"]');
         layers.push({
             name: name,
             enabled: toggle.checked,
-            opacity: slider ? parseInt(slider.value) / 100 : 1.0
+            opacity: slider ? parseInt(slider.value) / 100 : 1.0,
+            view: vsel ? vsel.value : 'any'
         });
     });
 
@@ -1012,6 +1212,382 @@ function saveLightningSettings() {
     }).catch(function() {
         toast('Save failed', 'error');
     });
+}
+
+// ── Generic renderer settings ──────────────────────────────
+function loadRendererSettings(cardId) {
+    var card = document.getElementById(cardId);
+    if (!card) return;
+    apiCall('GET', '/api/renderer-settings').then(function(settings) {
+        card.querySelectorAll('[data-conf]').forEach(function(el) {
+            var v = settings[el.getAttribute('data-conf')];
+            if (v === undefined) return;
+            if (el.type === 'checkbox') el.checked = (v === '1');
+            else {
+                /* A stored value that isn't one of the menu's choices
+                 * (imported or hand-edited) is added as an option, so
+                 * saving the card doesn't send an empty value. */
+                if (el.tagName === 'SELECT' && v !== '' &&
+                    !Array.prototype.some.call(el.options, function(o) { return o.value === v; })) {
+                    var opt = document.createElement('option');
+                    opt.value = v;
+                    opt.textContent = v + ' (custom)';
+                    el.appendChild(opt);
+                }
+                el.value = v;
+            }
+        });
+        card.setAttribute('data-conf-loaded', '1');
+        card.dispatchEvent(new Event('conf-loaded'));
+    }).catch(function() {
+        /* The card still shows the page's defaults, not the clock's
+         * settings: saving it now would overwrite the real ones. */
+        card.removeAttribute('data-conf-loaded');
+        toast('Could not load settings \u2014 reload the page before saving', 'error');
+    });
+}
+
+// Map view card: the world checkboxes stand for one VIEW_WORLDS list
+function setViewWorlds() {
+    var boxes = document.querySelectorAll('#view_worlds_boxes input'), list = [];
+    boxes.forEach(function(b) { if (b.checked) list.push(b.value); });
+    document.getElementById('view_worlds').value = list.join(',');
+    saveRendererSettings('view-card', 'Map view');
+}
+document.addEventListener('DOMContentLoaded', function() {
+    var card = document.getElementById('view-card');
+    if (!card) return;
+    card.addEventListener('conf-loaded', function() {
+        var v = (document.getElementById('view_worlds').value || '').split(',');
+        document.querySelectorAll('#view_worlds_boxes input').forEach(function(b) {
+            b.checked = v.indexOf(b.value) >= 0;
+        });
+    });
+});
+
+function saveRendererSettings(cardId, label) {
+    var card = document.getElementById(cardId);
+    if (!card) return;
+    var body = {};
+    if (card.getAttribute('data-conf-loaded') !== '1') {
+        toast('Settings were not loaded \u2014 reload the page first', 'error');
+        return;
+    }
+    card.querySelectorAll('[data-conf]').forEach(function(el) {
+        var k = el.getAttribute('data-conf');
+        body[k] = (el.type === 'checkbox') ? (el.checked ? '1' : '0')
+                                           : String(el.value).trim();
+    });
+    apiCall('PUT', '/api/renderer-settings', body).then(function() {
+        toast((label || 'Layer') + ' settings saved');
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+// ── PC helper ────────────────────────────────────────────────
+function loadPCHelperStatus() {
+    var el = document.getElementById('pchelper-status');
+    if (!el) return;
+    apiCall('GET', '/api/pchelper-status').then(function(r) {
+        if (!r.configured) { el.textContent = 'Not set up.'; return; }
+        if (!r.reachable) { el.textContent = 'Not reachable: ' + (r.error || '') + ' (is the PC on?)'; return; }
+        var jobs = (r.status && r.status.jobs) || {}, parts = [];
+        Object.keys(jobs).sort().forEach(function(k) {
+            var j = jobs[k];
+            parts.push(k + ': ' + (j.state === 'ok' ? 'OK' : (j.state || '?')) +
+                       (j.error ? ' (' + j.error + ')' : ''));
+        });
+        el.textContent = 'Connected. ' + (parts.join(' \u00b7 ') || 'starting');
+    }).catch(function() { el.textContent = ''; });
+}
+
+// ── Data sources: last success / failures per host ─────────
+function escapeHtml(t) {
+    return String(t).replace(/[&<>"']/g, function(c) {
+        return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+}
+
+function agoText(now, t) {
+    if (!t) return 'never';
+    var d = Math.max(0, now - t);
+    if (d < 90) return 'just now';
+    if (d < 5400) return Math.round(d / 60) + ' min ago';
+    if (d < 172800) return Math.round(d / 3600) + ' h ago';
+    return Math.round(d / 86400) + ' days ago';
+}
+
+function loadDataStatus() {
+    var el = document.getElementById('data-status');
+    if (!el) return;
+    apiCall('GET', '/api/data-status').then(function(r) {
+        if (!r.available) {
+            el.innerHTML = '<span class="text-muted">No data yet (the clock writes this a minute or two after it starts).</span>';
+            return;
+        }
+        var rows = (r.sources || []).map(function(s) {
+            var badge, detail;
+            if (s.state === 'ok') {
+                badge = '<span class="ds-badge ds-ok">OK</span>';
+                detail = 'Last worked ' + agoText(r.now, s.last_ok);
+            } else {
+                badge = '<span class="ds-badge ' + (s.state === 'down' ? 'ds-down' : 'ds-warn') + '">' +
+                        (s.state === 'down' ? 'Down' : 'Failing') + '</span>';
+                detail = 'Failing since ' + agoText(r.now, s.fail_since) + ' (' + s.streak +
+                         ' in a row' + (s.error ? ': ' + escapeHtml(s.error) : '') + ')' +
+                         ' \u00b7 last worked ' + agoText(r.now, s.last_ok);
+            }
+            var users = (s.users || []).length ? ' <span class="text-muted">\u00b7 used by ' +
+                        escapeHtml(s.users.join(', ')) + '</span>' : '';
+            return '<div class="ds-row">' + badge + '<div class="ds-text"><div class="ds-name">' +
+                   escapeHtml(s.name) + users + '</div><div class="ds-detail text-muted">' +
+                   detail + '</div></div></div>';
+        });
+        el.innerHTML = rows.join('') || '<span class="text-muted">No downloads yet.</span>';
+    }).catch(function() { el.innerHTML = '<span class="text-muted">Could not load.</span>'; });
+}
+
+// ── Pi health: a week of vital signs as sparklines ─────────
+function sparkline(samples, key, starts, lo, hi) {
+    if (!samples.length) return '';
+    var W = 300, H = 56, t0 = samples[0].t, t1 = samples[samples.length - 1].t || t0 + 1;
+    var vals = samples.map(function(s) { return s[key]; }).filter(function(v) { return v >= 0; });
+    if (lo === undefined) lo = Math.min.apply(null, vals);
+    if (hi === undefined) hi = Math.max.apply(null, vals);
+    if (hi <= lo) hi = lo + 1;
+    var X = function(t) { return ((t - t0) / Math.max(1, t1 - t0)) * W; };
+    var Y = function(v) { return H - 2 - ((v - lo) / (hi - lo)) * (H - 6); };
+    var d = '', first = true;
+    samples.forEach(function(s) {
+        if (s[key] < 0) return;
+        d += (first ? 'M' : 'L') + X(s.t).toFixed(1) + ' ' + Y(s[key]).toFixed(1) + ' ';
+        first = false;
+    });
+    var area = d ? d + 'L' + W + ' ' + H + ' L0 ' + H + ' Z' : '';
+    var marks = (starts || []).filter(function(st) { return st.t >= t0 && st.t <= t1; }).map(function(st) {
+        return '<line class="hc-restart" x1="' + X(st.t).toFixed(1) + '" y1="0" x2="' + X(st.t).toFixed(1) + '" y2="' + H + '"/>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' +
+           '<path class="hc-area" d="' + area + '"/><path class="hc-line" d="' + d + '"/>' + marks + '</svg>';
+}
+
+function loadHealth() {
+    var sum = document.getElementById('health-summary'), ch = document.getElementById('health-charts');
+    if (!sum || !ch) return;
+    apiCall('GET', '/api/health').then(function(r) {
+        if (!r.available || !r.samples || !r.samples.length) {
+            sum.textContent = 'No history yet (the first sample is written 5 minutes after the clock starts).';
+            ch.innerHTML = '';
+            return;
+        }
+        var s = r.samples, last = s[s.length - 1], span = (last.t - s[0].t) / 3600;
+        var up = last.uptime_s, upTxt = up > 172800 ? Math.round(up / 86400) + ' days' :
+                 up > 7200 ? Math.round(up / 3600) + ' h' : Math.round(up / 60) + ' min';
+        var mem = 'Memory ' + last.avail_mb + ' MB free, renderer ' + last.rss_mb + ' MB';
+        var parts = ['Renderer up ' + upTxt, mem, last.temp_c + '\u00b0C',
+                     (r.restarts_24h || 0) + ' restart' + (r.restarts_24h === 1 ? '' : 's') + ' in 24 h',
+                     'History ' + (span > 48 ? Math.round(span / 24) + ' days' : Math.round(span) + ' h')];
+        sum.textContent = parts.join(' \u00b7 ');
+        sum.className = 'mb-8 ' + ((r.restarts_24h >= 2 || last.temp_c >= 80 || last.avail_mb < 60) ? 'text-danger' : 'text-muted');
+        var cards = [
+            ['Memory free (MB)', 'avail_mb', last.avail_mb, 0, undefined],
+            ['Renderer memory (MB)', 'rss_mb', last.rss_mb, 0, undefined],
+            ['CPU temperature (\u00b0C)', 'temp_c', last.temp_c, 30, 85],
+            ['Renderer CPU (%)', 'cpu_pct', Math.round(last.cpu_pct), 0, undefined],
+            ['Disk free, /data (MB)', 'data_free_mb', last.data_free_mb, 0, undefined],
+            ['Load (1 min)', 'load1', last.load1, 0, undefined]
+        ];
+        ch.innerHTML = cards.map(function(c) {
+            return '<div class="hc"><div class="hc-title"><span>' + c[0] + '</span><span>' + c[2] + '</span></div>' +
+                   sparkline(s, c[1], r.starts, c[3], c[4]) + '</div>';
+        }).join('');
+    }).catch(function() { sum.textContent = 'Could not load.'; });
+}
+
+function savePCHelper() {
+    var card = document.getElementById('pchelper-card');
+    if (!card) return;
+    var v = String(document.getElementById('pc_helper_url').value).trim();
+    apiCall('PUT', '/api/renderer-settings', {PC_HELPER_URL: v}).then(function() {
+        toast('PC helper address saved');
+        loadRendererSettings('pchelper-card');
+        setTimeout(loadPCHelperStatus, 300);
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+// ── Shared satellite orbits (a Pi-Dash server fetches for the house) ──
+function saveOrbitShare() {
+    var v = String(document.getElementById('orbit_share_url').value).trim();
+    apiCall('PUT', '/api/renderer-settings', {ORBIT_SHARE_URL: v}).then(function() {
+        toast(v ? 'Orbits now come from ' + v : 'Fetching orbits directly');
+        loadRendererSettings('orbitshare-card');
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+// ── Space-Track account (write-only) ───────────────────────
+function loadSpaceTrack() {
+    apiCall('GET', '/api/spacetrack').then(function(st) {
+        var el = document.getElementById('st_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? 'Account saved (' + st.user + '). Stored only on this Pi, never shown again.'
+            : 'No account saved. Create a free one at space-track.org.';
+    });
+}
+
+function saveSpaceTrack() {
+    var u = document.getElementById('st_user'), p = document.getElementById('st_pass');
+    if (!u.value.trim() || !p.value) { toast('Enter the username and password', 'error'); return; }
+    apiCall('PUT', '/api/spacetrack', {identity: u.value.trim(), password: p.value}).then(function() {
+        u.value = '';
+        p.value = '';
+        toast('Space-Track account saved');
+        loadSpaceTrack();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function testSpaceTrack() {
+    var el = document.getElementById('st_status');
+    var at = function() { return new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); };
+    if (el) el.textContent = 'Signing in to Space-Track\u2026';
+    toast('Signing in to Space-Track\u2026');
+    apiCall('POST', '/api/spacetrack/test', {}).then(function() {
+        if (el) el.textContent = '\u2713 Space-Track accepted the account (' + at() + ').';
+        toast('Space-Track accepted the account');
+    }).catch(function(e) {
+        if (el) el.textContent = '\u2717 ' + e.message + ' (' + at() + ')';
+        toast(e.message, 'error');
+    });
+}
+
+function removeSpaceTrack() {
+    apiCall('PUT', '/api/spacetrack', {identity: '', password: ''}).then(function() {
+        toast('Space-Track account removed');
+        loadSpaceTrack();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+// ── Astrospheric key (write-only) ──────────────────────────
+function loadAstroKey() {
+    apiCall('GET', '/api/astrospheric-key').then(function(st) {
+        var el = document.getElementById('astro_key_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? (st.last4 ? 'Key saved (ending ' + st.last4 + ').' : 'Key saved.') + ' Stored only on this Pi.'
+            : 'No key saved. Stored only on this Pi (root-only file).';
+    });
+    loadRendererSettings('astro-card');
+}
+
+function saveAstroKey() {
+    var input = document.getElementById('astro_key');
+    var key = input ? input.value.trim() : '';
+    if (!key) { toast('Paste your API key first', 'error'); return; }
+    apiCall('PUT', '/api/astrospheric-key', {key: key}).then(function() {
+        input.value = '';
+        toast('Astrospheric key saved');
+        loadAstroKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function removeAstroKey() {
+    apiCall('PUT', '/api/astrospheric-key', {key: ''}).then(function() {
+        toast('Astrospheric key removed');
+        loadAstroKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+// ── aisstream.io key (write-only, Ships layer) ─────────────
+function loadAISKey() {
+    apiCall('GET', '/api/aisstream-key').then(function(st) {
+        var el = document.getElementById('ais_key_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? (st.last4 ? 'Key saved (ending ' + st.last4 + ').' : 'Key saved.') + ' Stored only on this Pi.'
+            : 'No key saved. Get a free key at aisstream.io (sign in with GitHub).';
+    });
+}
+
+function saveAISKey() {
+    var input = document.getElementById('ais_key');
+    var key = input ? input.value.trim() : '';
+    if (!key) { toast('Paste your API key first', 'error'); return; }
+    apiCall('PUT', '/api/aisstream-key', {key: key}).then(function() {
+        input.value = '';
+        toast('aisstream.io key saved');
+        loadAISKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function removeAISKey() {
+    apiCall('PUT', '/api/aisstream-key', {key: ''}).then(function() {
+        toast('aisstream.io key removed');
+        loadAISKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+// ── eBird key (write-only, Rare Birds layer) ───────────────
+function loadEBirdKey() {
+    apiCall('GET', '/api/ebird-key').then(function(st) {
+        var el = document.getElementById('ebird_key_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? (st.last4 ? 'Key saved (ending ' + st.last4 + ').' : 'Key saved.') + ' Stored only on this Pi.'
+            : 'No key saved. Get a free key at ebird.org/api/keygen (eBird account needed).';
+    });
+}
+
+function saveEBirdKey() {
+    var input = document.getElementById('ebird_key');
+    var key = input ? input.value.trim() : '';
+    if (!key) { toast('Paste your API key first', 'error'); return; }
+    apiCall('PUT', '/api/ebird-key', {key: key}).then(function() {
+        input.value = '';
+        toast('eBird key saved');
+        loadEBirdKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function removeEBirdKey() {
+    apiCall('PUT', '/api/ebird-key', {key: ''}).then(function() {
+        toast('eBird key removed');
+        loadEBirdKey();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+// ── Home Assistant alerts ──────────────────────────────────
+function loadHAWebhook() {
+    apiCall('GET', '/api/ha-webhook').then(function(st) {
+        var el = document.getElementById('ha_webhook_status');
+        if (!el) return;
+        el.textContent = st.configured
+            ? (st.last4 ? 'Webhook saved (ID ending ' + st.last4 + ').' : 'Webhook saved.')
+            : 'No webhook saved.';
+    });
+    loadRendererSettings('ha-card');
+}
+
+function saveHAWebhook() {
+    var input = document.getElementById('ha_webhook');
+    var url = input ? input.value.trim() : '';
+    if (!url) { toast('Paste the webhook URL first', 'error'); return; }
+    apiCall('PUT', '/api/ha-webhook', {key: url}).then(function() {
+        input.value = '';
+        toast('Home Assistant webhook saved');
+        loadHAWebhook();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function removeHAWebhook() {
+    apiCall('PUT', '/api/ha-webhook', {key: ''}).then(function() {
+        toast('Home Assistant webhook removed');
+        loadHAWebhook();
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function testHAWebhook() {
+    apiCall('POST', '/api/ha-webhook/test', {}).then(function() {
+        toast('Test alert sent to Home Assistant');
+    }).catch(function(e) { toast(e.message, 'error'); });
 }
 
 // ── Earthquake settings ────────────────────────────────────
@@ -1398,7 +1974,10 @@ function checkForUpdates() {
     apiCall('GET', '/api/system/update-check').then(function(data) {
         var el = document.getElementById('sys-update-available');
         if (!el) return;
-        if (data.update) {
+        if (data.fork) {
+            el.textContent = 'fork build ' + (data.installed || '') + ' \u2014 stock image updates are off';
+            el.style.color = '';
+        } else if (data.update) {
             el.textContent = data.available + ' (update available)';
             el.style.color = 'var(--warning)';
         } else if (data.available) {
@@ -1601,10 +2180,27 @@ document.addEventListener('DOMContentLoaded', function() {
         if (layerState.satellites) loadSatellites();
         if (layerState.lightning) loadLightningSettings();
         if (layerState.earthquakes) loadEarthquakeSettings();
+        for (var rsLayer in rendererSettingCards) {
+            if (layerState[rsLayer]) loadRendererSettings(rendererSettingCards[rsLayer]);
+        }
         if (layerState.ticker) loadTickerSources();
     });
 
     setupMapZoom();
+    loadSpaceTrack();
+    loadAstroKey();
+    loadAISKey();
+    loadRendererSettings('panels-card');
+    loadHAWebhook();
+    loadRendererSettings('view-card');
+    loadEBirdKey();
+    loadRendererSettings('coast-card');
+    loadRendererSettings('pchelper-card');
+    loadRendererSettings('orbitshare-card');
+    loadPCHelperStatus();
+    loadDataStatus();
+    loadHealth();
+    setInterval(function() { if (!document.hidden) { loadDataStatus(); loadHealth(); } }, 60000);
 
     setInterval(loadSystemInfo, 30000);
 });
@@ -1642,4 +2238,55 @@ function setupMapZoom() {
             toast('Failed to save zoom', 'error');
         });
     });
+}
+
+
+// ── Backup & restore ────────────────────────────────────────
+function exportSettings() {
+    var keys = document.getElementById('backup-keys');
+    var url = '/api/settings/export' + (keys && keys.checked ? '?keys=1' : '');
+    fetch(url, {credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}})
+    .then(function(r) {
+        if (r.status === 401) { window.location.href = '/login'; throw new Error('unauthorized'); }
+        if (!r.ok) throw new Error('Export failed');
+        var cd = r.headers.get('Content-Disposition') || '';
+        var m = cd.match(/filename="([^"]+)"/);
+        return r.blob().then(function(b) { return {blob: b, name: m ? m[1] : 'pi-clock-settings.json'}; });
+    }).then(function(res) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(res.blob);
+        a.download = res.name;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        toast('Settings exported');
+    }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+function importSettings(input) {
+    var file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > 256 * 1024) { toast('That file is too large to be a settings file', 'error'); return; }
+    var reader = new FileReader();
+    reader.onload = function() {
+        var data;
+        try { data = JSON.parse(reader.result); } catch (e) {
+            toast('That isn\'t a Pi-Clock settings file', 'error'); return;
+        }
+        if (!data || data.format !== 'pi-clock-settings') {
+            toast('That isn\'t a Pi-Clock settings file', 'error'); return;
+        }
+        var msg = 'Apply the settings in ' + file.name + ' to this Pi-Clock? Layers, panels, satellites and ticker are replaced; other settings in the file overwrite the ones here';
+        if (data.host) msg += ' (from ' + data.host + ')';
+        msg += '?';
+        if (data.secrets && Object.keys(data.secrets).length) msg += '\n\nThe file also contains API keys; they will be installed.';
+        if (!confirm(msg)) return;
+        apiCall('POST', '/api/settings/import', data).then(function(res) {
+            var skipped = (res.skipped && res.skipped.length) ? ' (skipped invalid: ' + res.skipped.join(', ') + ')' : '';
+            toast('Imported ' + res.settings + ' settings' + (res.keys ? ' and ' + res.keys + ' keys' : '') + skipped + '. Reloading\u2026');
+            setTimeout(function() { window.location.reload(); }, 1500);
+        }).catch(function(e) { toast(e.message, 'error'); });
+    };
+    reader.readAsText(file);
 }

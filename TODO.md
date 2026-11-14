@@ -86,6 +86,40 @@
 - [x] Wind tmpfs cleanup — delete gfs.bin.gz/gfs.bin after parsing (saves 1.6MB)
 - [x] Post-composite legend rendering (independent of layer opacity)
 
+## Renderer — Geochron-style layers (scimaksim fork)
+- [x] Naked-eye satellites (Tiangong, Hubble, BlueWalker 3, Envisat)
+- [x] Volcanoes — Smithsonian/USGS weekly report
+- [x] Hurricanes / tropical storms — GDACS (NHC forecasts in the Atlantic)
+- [x] NWS weather alerts — warning polygons + home QTH banner
+- [x] Live US radar — IEM NEXRAD N0Q mosaic
+- [x] Air quality — Open-Meteo US AQI field + QTH badge
+- [x] Starlink trains with visible-pass prediction
+- [x] Aircraft — adsb.lol or local readsb/dump1090
+- [x] Tonight's Sky applet — Astrospheric cloud/transparency/seeing, sun/moon times
+- [x] SPC convective outlook with QTH risk note
+- [x] Rocket launches (Launch Library 2) with nearby-pad highlight + panel
+- [x] Deep Space Network live antennas + panel
+- [x] Visible ISS / Tiangong / Hubble passes panel (NORAD IDs configurable)
+- [x] Satellite IR clouds (GIBS GOES-East/West, Himawari)
+- [x] Wildfire detections (NASA FIRMS, US) and smoke plumes (NOAA HMS)
+- [x] Tides panel (NOAA CO-OPS, nearest reference station)
+- [x] Planets overhead points + Planets & Events panel (showers, eclipses)
+- [x] Ships (aisstream.io AIS, user key)
+- [x] Aurora Watch — SWPC view line from OVATION, Kp-forecast home alerts, Astrospheric clouds
+- [x] Light pollution — skyglow model from VIIRS night lights, home Bortle + nearest dark site
+- [x] Home Assistant webhook alerts — visible passes, aurora now/forecast (docs/home-assistant.md)
+- [x] World / local / auto-switch map view; GIBS hi-res regional base maps; Natural Earth 1:10m Local Detail layer (towns, states)
+- [x] Local layers: storm reports, MRMS rain totals, NWPS river gauges, US Drought Monitor, eBird rare birds, dark-sky sites tonight, twilight lines, visible-pass ground tracks
+- [x] Panels: Backyard (frost watch, soil temp, rain), Coast (NDBC buoys)
+- [ ] Lake Wheeler ECONet station (needs a free NC State Climate Office API hash)
+- [ ] BirdCast migration (no open API found)
+- [ ] Global radar fallback outside the US (e.g. RainViewer)
+- [ ] Satellite clouds over Europe/Africa (no free Meteosat feed on GIBS)
+- [ ] Global FIRMS fires (needs a free MAP_KEY)
+- [ ] Solar eclipse local visibility (currently listed without it)
+- [ ] Move lightning.c onto the shared ws.c client
+- [ ] Full SGP4 (drag terms) for longer TLE ages and pass accuracy
+
 ## Renderer — Next
 - [ ] DXCC entity boundaries
 - [ ] POTA/SOTA active spots
