@@ -20,7 +20,7 @@
 
 typedef struct {
     char   icon[32];          /* satellite name for pic_draw_sat_icon     */
-    char   label[48];
+    char   label[64];
     unsigned char known;      /* 2 landmark icon, 1 icon, 0 dot           */
     unsigned char up;         /* above 10 deg at home                     */
     unsigned char ring;       /* sunlit, up, home dark: "look up"         */

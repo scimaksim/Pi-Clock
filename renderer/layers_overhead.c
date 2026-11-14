@@ -37,6 +37,7 @@
 #include "config.h"
 #include "fetch.h"
 #include "spacetrack.h"
+#include "gcat.h"
 #include <ctype.h>
 #include <time.h>
 #include <math.h>
@@ -65,6 +66,7 @@ double pic_sat_look_angles(const pic_sat_t *s, time_t t, double qlat,
 typedef struct {
     pic_sat_t sat;
     char      label[24];
+    char      note[32];       /* "defunct Apr 2012" from GCAT, or ""  */
 } ov_sat_t;
 
 static struct {
@@ -347,10 +349,39 @@ static int refresh_satnogs(void)
     return 0;
 }
 
+/* GCAT rows are matched to the list through an index in catalogue
+ * order, so the list keeps its own order (brightest first for labels) */
+typedef struct { int norad, i; } ov_idx_t;
+typedef struct { ov_sat_t *list; ov_idx_t *idx; int n, hits; } ov_note_t;
+
+static int by_norad(const void *a, const void *b)
+{
+    int x = ((const ov_idx_t *)a)->norad, y = ((const ov_idx_t *)b)->norad;
+    return (x > y) - (x < y);
+}
+
+static void add_note(int norad, const char *note, void *ud)
+{
+    ov_note_t *c = ud;
+    ov_idx_t key = { norad, 0 }, *e;
+    e = bsearch(&key, c->idx, (size_t)c->n, sizeof(*c->idx), by_norad);
+    if (!e) return;
+    snprintf(c->list[e->i].note, sizeof(c->list[e->i].note), "%s", note);
+    c->hits++;
+}
+
+/* The name as drawn: with the end-of-life note in the local view */
+static const char *ov_text(const ov_sat_t *e, int local, char *buf, size_t n)
+{
+    if (!local || !e->note[0]) return e->label;
+    snprintf(buf, n, "%s \xc2\xb7 %s", e->label, e->note);
+    return buf;
+}
+
 static int overhead_work(pic_feature_t *f)
 {
     ov_sat_t *list;
-    int n = 0, got = 0;
+    int n = 0, got = 0, cat;
 
     (void)f;
     pic_skycover_refresh(time(NULL));
@@ -364,6 +395,19 @@ static int overhead_work(pic_feature_t *f)
     n = load_tles(OV_VISUAL, list, n, OV_MAX);
     n = load_tles(OV_SATNOGS, list, n, OV_MAX);
     n = load_tles(OV_AMSAT, list, n, OV_MAX);
+    /* Which of them no longer work, and since when (GCAT) */
+    cat = pic_gcat_refresh();
+    if (cat && n > 0) {
+        ov_note_t c = { list, calloc((size_t)n, sizeof(ov_idx_t)), n, 0 };
+        if (c.idx) {
+            int k;
+            for (k = 0; k < n; k++) { c.idx[k].norad = list[k].sat.norad_id; c.idx[k].i = k; }
+            qsort(c.idx, (size_t)n, sizeof(*c.idx), by_norad);
+            if (pic_gcat_each(add_note, &c) >= 0)
+                printf("overhead: %d of %d marked no longer working (GCAT)\n", c.hits, n);
+            free(c.idx);
+        }
+    }
     pthread_mutex_lock(&ov.mutex);
     free(ov.sats);
     ov.sats = list;
@@ -519,7 +563,11 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                             double la1, lo1, al1;
                             memset(q, 0, sizeof(*q));
                             snprintf(q->icon, sizeof(q->icon), "%s", st->name);
-                            snprintf(q->label, sizeof(q->label), "%s", ov.sats[vis[j].i].label);
+                            {
+                                char tb[64];
+                                snprintf(q->label, sizeof(q->label), "%s",
+                                         ov_text(&ov.sats[vis[j].i], span <= 60, tb, sizeof(tb)));
+                            }
                             q->known = (unsigned char)known;
                             q->up = (unsigned char)up;
                             q->ring = (unsigned char)(lit && up && home_dark && sky == PIC_SKY_CLEAR);
@@ -561,7 +609,8 @@ void pic_layer_render_overhead(cairo_t *cr, int width, int height,
                 } else {
                     cairo_text_extents_t e;
                     double lx, ly, bx[4];
-                    const char *lab = ov.sats[vis[j].i].label;
+                    char tb[64];
+                    const char *lab = ov_text(&ov.sats[vis[j].i], span <= 60, tb, sizeof(tb));
                     int q, clash = 0;
                     if ((pass == 1) != (up || known == 2)) continue;
                     if (x < 0 || x > width || y < 0 || y > height) continue;

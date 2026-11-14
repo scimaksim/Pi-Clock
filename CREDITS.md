@@ -58,6 +58,12 @@ its box score, fetched with the owner's own account and only displayed
 on the clock, per the Space-Track user agreement.
 https://www.space-track.org/
 
+**GCAT: General Catalog of Artificial Space Objects** — Jonathan
+C. McDowell. The payload catalogue's end-of-transmission and
+end-of-operations dates mark satellites that no longer work in the
+local view ("defunct Apr 2012"). Fetched every three days. CC-BY.
+https://planet4589.org/space/gcat
+
 **Smithsonian / USGS Weekly Volcanic Activity Report** — Smithsonian
 Institution Global Volcanism Program and USGS Volcano Hazards Program.
 CAP feed of volcanoes with new or continuing activity.
