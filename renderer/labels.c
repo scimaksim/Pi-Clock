@@ -88,6 +88,30 @@ void pic_labels_claim(int owner, const double box[4])
     memcpy(own[owner].box[own[owner].n++], box, sizeof(double) * 4);
 }
 
+/* Side panels and the stack of notes at the bottom, from the last frame
+ * (weak: absent in small test builds) */
+extern double pic_panel_rect[2][4] __attribute__((weak));
+double pic_legend_top(int height) __attribute__((weak));
+
+/* The clocks, the side panels and the notes/key at the bottom: a label
+ * there would be hidden or would cover them */
+static int on_furniture(const double *b, int w, int h)
+{
+    double keep[3][4] = {
+        { 0, 0, w * 0.21, h * 0.115 },              /* UTC clock */
+        { w * 0.79, 0, w, h * 0.13 },               /* local clock, date, address */
+        { 0, h * 0.905, w, h },                     /* notes and key */
+    };
+    int i;
+    if (pic_legend_top && pic_legend_top(h) < keep[2][1]) keep[2][1] = pic_legend_top(h);
+    for (i = 0; i < 3; i++)
+        if (hits(b, keep[i])) return 1;
+    if (&pic_panel_rect)
+        for (i = 0; i < 2; i++)
+            if (pic_panel_rect[i][2] > pic_panel_rect[i][0] && hits(b, pic_panel_rect[i])) return 1;
+    return 0;
+}
+
 int pic_labels_place(int owner, double ax, double ay, double gap,
                      double bw, double bh, int w, int h,
                      double *ox, double *oy)
@@ -104,7 +128,7 @@ int pic_labels_place(int owner, double ax, double ay, double gap,
         b[2] = b[0] + bw;
         b[3] = b[1] + bh;
         if (b[0] < 2 || b[1] < 2 || b[2] > w - 2 || b[3] > h - 2) continue;
-        if (!pic_labels_clear(owner, b)) continue;
+        if (on_furniture(b, w, h) || !pic_labels_clear(owner, b)) continue;
         pic_labels_claim(owner, b);
         *ox = b[0];
         *oy = b[1];

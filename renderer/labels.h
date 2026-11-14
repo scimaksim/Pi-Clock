@@ -32,8 +32,8 @@ void pic_labels_claim(int owner, const double box[4]);
 
 /* Find room for a bw x bh box beside the point (ax, ay), `gap` away:
  * right, left, then above and below on either side. The box must lie
- * inside the w x h screen, clear of other owners' boxes and of this
- * owner's own. On success claims it, returns 1 and its top-left corner.
+ * inside the w x h screen, off the clocks, side panels and bottom notes,
+ * clear of other owners' boxes and of this owner's own. On success claims it, returns 1 and its top-left corner.
  * With no room returns 0 and the first (right-hand) position, unclaimed,
  * for callers that would rather overlap than drop the label. */
 int pic_labels_place(int owner, double ax, double ay, double gap,
