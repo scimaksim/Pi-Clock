@@ -52,6 +52,8 @@
 #include <unistd.h>
 
 #define SEASON_DAYS 12
+#define SEASON_LOOKBACK 30   /* how far back to look for the newest day with imagery */
+#define SEASON_MIN_OBS  3    /* views of a pixel needed to tell ground from cloud */
 #define GIBS_WMTS "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best"
 #define SR_LAYER  "L3_SurfaceReflectance_BandsM5-M4-M3_Daily"
 
@@ -210,6 +212,7 @@ typedef struct {
     int r0, r1, c0, c1;                 /* tile range                */
     unsigned char *m1, *m2;             /* two darkest blue values   */
     unsigned char *rgb, *cnt, *land;    /* result, uses, land alpha  */
+    unsigned char *nobs;                /* observations per pixel    */
 } comp_t;
 
 /* Target pixel rectangle covered by tile (r, c) */
@@ -292,6 +295,7 @@ static void apply_tile(comp_t *c, const unsigned char *px, int r, int col, int p
             if (p[0] + p[1] + p[2] < 24) continue;     /* no data */
             b = p[2];
             if (pass == 1) {
+                if (c->nobs[i] < 255) c->nobs[i]++;
                 if (b < c->m1[i]) { c->m2[i] = c->m1[i]; c->m1[i] = (unsigned char)b; }
                 else if (b < c->m2[i]) c->m2[i] = (unsigned char)b;
                 continue;
@@ -367,11 +371,47 @@ int pic_season_composite(cairo_surface_t *dst, double lon0, double lat0,
     c.m2 = malloc(n);
     c.cnt = calloc(n, 1);
     c.land = calloc(n, 1);
+    c.nobs = calloc(n, 1);
     c.rgb = malloc(n * 3);
-    if (!c.m1 || !c.m2 || !c.cnt || !c.land || !c.rgb) goto out;
+    if (!c.m1 || !c.m2 || !c.cnt || !c.land || !c.rgb || !c.nobs) goto out;
     memset(c.m1, 255, n);
     memset(c.m2, 255, n);
 
+    /*
+     * The window ends on the newest day GIBS has imagery for, not on
+     * yesterday. The product can lag or stop for days; with the window
+     * tied to the calendar it then held only a day or two of views,
+     * too few to tell cloud from ground, and the map filled with cloud
+     * cut off at tile edges. Probe one central tile per day, newest
+     * first (misses are remembered, so this is cheap).
+     */
+    {
+        int back, found = -1, rr = (c.r0 + c.r1) / 2, cc = (c.c0 + c.c1) / 2;
+        for (back = 0; back <= SEASON_LOOKBACK && found < 0; back++) {
+            time_t t = now - (time_t)(back + 1) * 86400, de;
+            struct tm tm;
+            char day[16];
+            gmtime_r(&t, &tm);
+            strftime(day, sizeof(day), "%Y-%m-%d", &tm);
+            tm.tm_hour = tm.tm_min = tm.tm_sec = 0;
+            de = timegm(&tm) + 86400;
+            for (s = 0; s < NSATS && found < 0; s++) {
+                char url[300], path[256];
+                if (f && pic_feature_interrupted(f)) goto out;
+                snprintf(url, sizeof(url), "%s/VIIRS_%s_%s/default/%s/500m/%d/%d/%d.jpg",
+                         GIBS_WMTS, sats[s], SR_LAYER, day, c.level, rr, cc);
+                snprintf(path, sizeof(path), "%s/%s_%s_%d_%d_%d.jpg",
+                         cache_dir, sats[s], day, c.level, rr, cc);
+                if (get_tile(&dl, url, path, 1, de) == 0) found = back;
+            }
+        }
+        if (found < 0) {
+            printf("season: no imagery in the last %d days\n", SEASON_LOOKBACK);
+            goto out;
+        }
+        if (found > 0) printf("season: newest imagery is %d days old\n", found + 1);
+        now -= (time_t)found * 86400;
+    }
     for (d = 0; d < SEASON_DAYS; d++) {
         time_t t = now - (time_t)(d + 1) * 86400;
         struct tm tm;
@@ -428,7 +468,8 @@ int pic_season_composite(cairo_surface_t *dst, double lon0, double lat0,
         for (x = 0; x < c.w; x++) {
             size_t i = (size_t)y * c.w + x;
             const unsigned char *q = c.rgb + i * 3;
-            int mn, mx, ok = c.land[i] && c.cnt[i];
+            /* fewer than SEASON_MIN_OBS views: can't tell cloud from ground */
+            int mn, mx, ok = c.land[i] && c.cnt[i] && c.nobs[i] >= SEASON_MIN_OBS;
             if (ok && trop) {
                 mn = q[0] < q[1] ? q[0] : q[1];
                 mx = q[0] > q[1] ? q[0] : q[1];
@@ -488,7 +529,7 @@ int pic_season_composite(cairo_surface_t *dst, double lon0, double lat0,
     ok = 0;
 
 out:
-    free(c.m1); free(c.m2); free(c.cnt); free(c.land); free(c.rgb);
+    free(c.m1); free(c.m2); free(c.cnt); free(c.land); free(c.rgb); free(c.nobs);
     pthread_mutex_unlock(&build_mutex);
     return ok;
 }
