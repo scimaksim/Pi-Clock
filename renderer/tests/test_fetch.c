@@ -67,6 +67,8 @@ int main(void)
           "for a; do u=$a; done\n"
           "case $u in\n"
           "  */ok) printf hello ;;\n"
+          "  */cut) printf part; exit 4 ;;\n"
+          "  */big) i=0; while [ $i -lt 4000 ]; do printf '%0100d' 7 || exit 1; i=$((i+1)); done ;;\n"
           "  https://celestrak.org/*) echo x >> /tmp/pic_fake_wget/ct.count;"
           " case $u in *fail*) exit 4 ;; *) printf '1 x\\n2 y\\n' ;; esac ;;\n"
           "  */orphan) printf data; sleep 30 & echo $! > /tmp/pic_fake_wget/orphan.pid ;;\n"
@@ -85,6 +87,19 @@ int main(void)
 
     n = pic_fetch_to_buf("http://x/ok", buf, sizeof(buf));
     CHECK(n == 5 && !strcmp(buf, "hello"), "plain reply: %d '%s'", n, buf);
+
+    /* wget failed part-way: what arrived is not a whole reply */
+    n = pic_fetch_to_buf("http://x/cut", buf, sizeof(buf));
+    CHECK(n <= 0, "cut-off reply rejected: %d", n);
+
+    /* reply longer than the buffer: the first part is returned, even
+     * though wget then dies on the closed pipe (the news feeds and
+     * other small-buffer callers rely on this) */
+    {
+        char small[2048];
+        n = pic_fetch_to_buf("http://x/big", small, sizeof(small));
+        CHECK(n == (int)sizeof(small) - 1 && small[0] == '0', "long reply truncated, not failed: %d", n);
+    }
 
     /* wget exits but its child keeps stdout open: return promptly with
      * the data, and the leftover child is killed */

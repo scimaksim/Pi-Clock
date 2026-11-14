@@ -1472,7 +1472,7 @@ function loadAstroKey() {
         var el = document.getElementById('astro_key_status');
         if (!el) return;
         el.textContent = st.configured
-            ? 'Key saved (ending ' + st.last4 + '). Stored only on this Pi.'
+            ? (st.last4 ? 'Key saved (ending ' + st.last4 + ').' : 'Key saved.') + ' Stored only on this Pi.'
             : 'No key saved. Stored only on this Pi (root-only file).';
     });
     loadRendererSettings('astro-card');
@@ -1502,7 +1502,7 @@ function loadAISKey() {
         var el = document.getElementById('ais_key_status');
         if (!el) return;
         el.textContent = st.configured
-            ? 'Key saved (ending ' + st.last4 + '). Stored only on this Pi.'
+            ? (st.last4 ? 'Key saved (ending ' + st.last4 + ').' : 'Key saved.') + ' Stored only on this Pi.'
             : 'No key saved. Get a free key at aisstream.io (sign in with GitHub).';
     });
 }
@@ -1531,7 +1531,7 @@ function loadEBirdKey() {
         var el = document.getElementById('ebird_key_status');
         if (!el) return;
         el.textContent = st.configured
-            ? 'Key saved (ending ' + st.last4 + '). Stored only on this Pi.'
+            ? (st.last4 ? 'Key saved (ending ' + st.last4 + ').' : 'Key saved.') + ' Stored only on this Pi.'
             : 'No key saved. Get a free key at ebird.org/api/keygen (eBird account needed).';
     });
 }
@@ -1560,7 +1560,7 @@ function loadHAWebhook() {
         var el = document.getElementById('ha_webhook_status');
         if (!el) return;
         el.textContent = st.configured
-            ? 'Webhook saved (ID ending ' + st.last4 + ').'
+            ? (st.last4 ? 'Webhook saved (ID ending ' + st.last4 + ').' : 'Webhook saved.')
             : 'No webhook saved.';
     });
     loadRendererSettings('ha-card');

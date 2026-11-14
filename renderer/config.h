@@ -243,5 +243,7 @@ typedef struct {
 void pic_load_renderer_conf(pic_renderer_conf_t *conf);
 
 int pic_wait_for_network(const char *label, const volatile int *running);
+/* As above, but returns 0 after two minutes offline (caller has a cache) */
+int pic_wait_for_network_once(const char *label, const volatile int *running);
 
 #endif /* PIC_CONFIG_H */

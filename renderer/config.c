@@ -391,14 +391,14 @@ void pic_load_renderer_conf(pic_renderer_conf_t *conf)
  *
  * Returns 1 if network is ready, 0 if *running was cleared.
  */
-int pic_wait_for_network(const char *label, const volatile int *running)
+static int wait_for_network(const char *label, const volatile int *running, int forever)
 {
     int attempts = 0;
 
     /* Never gives up: a fetcher that returned here stayed dead until
      * the layer was toggled (router slower to boot than the Pi, or the
      * test URL down). After 2 minutes it tries once a minute. */
-    while (*running) {
+    while (*running && (forever || attempts < 24)) {
         /* Test connectivity with a lightweight fetch */
         int ret = pic_fetch_to_file(
             "https://services.swpc.noaa.gov/products/summary/10cm-flux.json",
@@ -419,5 +419,18 @@ int pic_wait_for_network(const char *label, const volatile int *running)
         }
         attempts++;
     }
-    return 0;      /* stopped while waiting */
+    return 0;      /* stopped while waiting, or (once) still offline */
+}
+
+int pic_wait_for_network(const char *label, const volatile int *running)
+{
+    return wait_for_network(label, running, 1);
+}
+
+/* For fetchers that can carry on from a cache: gives up after two
+ * minutes (returns 0) so they can show what they have and retry on
+ * their own schedule. */
+int pic_wait_for_network_once(const char *label, const volatile int *running)
+{
+    return wait_for_network(label, running, 0);
 }

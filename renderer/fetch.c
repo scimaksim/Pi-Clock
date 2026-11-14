@@ -385,7 +385,10 @@ static int fetch_impl(const char *url, const char *header, char *buf,
         if (killed) n = 0;   /* cut off part-way: not a whole reply */
         /* wget failed part-way (connection dropped mid-body): what
          * arrived is not a whole reply either */
-        if (n > 0 && WIFEXITED(status) && WEXITSTATUS(status) != 0) n = 0;
+        /* ...unless it only stopped because our buffer was full (it
+         * gets EPIPE when we close the pipe): callers with small
+         * buffers have always taken the first part of a long reply. */
+        if (n > 0 && n < (long)buf_size - 1 && WIFEXITED(status) && WEXITSTATUS(status) != 0) n = 0;
         read_err(errfd[0], err, sizeof(err));
         if (n <= 0 && !err[0] && WIFEXITED(status) && WEXITSTATUS(status) == 0)
             snprintf(err, sizeof(err), "empty reply");

@@ -136,8 +136,14 @@ func (c *RendererConfig) saveUnlocked() error {
 		"MAP_ZOOM": true, "DISPLAY_ROTATE": true,
 	}
 
+	// A read error other than "no file yet" must stop the save: writing
+	// on would drop every setting this function does not manage.
 	var extra []string
-	if data, err := os.ReadFile(rendererConfPath); err == nil {
+	data, err := os.ReadFile(rendererConfPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", rendererConfPath, err)
+	}
+	if err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -170,7 +176,19 @@ DISPLAY_ROTATE=%s
 	/* Atomic write: write to temp file then rename. Prevents corrupt
 	 * config if power is lost mid-write (common on Pi appliances). */
 	tmp := rendererConfPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(content); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil { // on the card before the rename
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, rendererConfPath)

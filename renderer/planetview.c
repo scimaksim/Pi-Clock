@@ -3085,7 +3085,8 @@ static int render_zoom(cairo_t *cr, frame_t *F, rover_t *r, double t)
     char title[64], line[256];
     int k;
     const int A_R = 90, A_G = 230, A_B = 255;     /* box A colour */
-    if (!map || !r->have || !r->photo_cur) return 0;   /* new picture still downloading */
+    /* a picture is named but the one on disk is not it yet: wait for it */
+    if (!map || !r->have || (r->photo_url[0] && !r->photo_cur)) return 0;
     dem_load(r);
     footprint_calc(r, &fp);
     mpp = 2 * M_PI * R_MARS_EQ * cos(r->lat * D2R) / (256.0 * (1 << ZOOM_Z)) / sc;   /* m per screen px */

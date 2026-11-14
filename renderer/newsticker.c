@@ -478,7 +478,7 @@ static void *ticker_thread_func(void *arg)
     if (nice(15) == -1) { /* priority unchanged: fine */ }
 
     if (ticker_layer_enabled()) {
-        if (pic_wait_for_network("ticker", &ticker_running)) {
+        if (pic_wait_for_network_once("ticker", &ticker_running)) {
             fetch_ticker_data();
         }
     }

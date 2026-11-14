@@ -359,7 +359,7 @@ static void *solar_thread_func(void *arg)
     mkdir("/tmp/pi-clock-cache", 0700);
 
     /* Wait for network before first fetch */
-    if (!pic_wait_for_network("solar", &solar_running)) {
+    if (!pic_wait_for_network_once("solar", &solar_running)) {
         printf("solar: will retry in %d seconds\n", FETCH_TICK);
     } else {
         /* First run — fetch everything */
