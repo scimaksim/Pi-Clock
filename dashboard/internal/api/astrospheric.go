@@ -55,14 +55,16 @@ func (k secretKey) get() http.HandlerFunc {
 
 func (k secretKey) put() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// "key" must be present: an empty key removes the stored one, so a
+		// body without it (null, {}, something else) must not count as that.
 		var req struct {
-			Key string `json:"key"`
+			Key *string `json:"key"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Key == nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 			return
 		}
-		key := strings.TrimSpace(req.Key)
+		key := strings.TrimSpace(*req.Key)
 		if key == "" {
 			if err := os.Remove(*k.path); err != nil && !os.IsNotExist(err) {
 				internalError(w, "remove "+k.label+" key", err)
@@ -199,14 +201,17 @@ func GetSpaceTrack() http.HandlerFunc {
 // PutSpaceTrack saves the account, or removes it when both are empty.
 func PutSpaceTrack() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Identity string `json:"identity"`
-			Password string `json:"password"`
+		// Both fields must be present: two empty ones remove the account,
+		// so a body without them must not count as that.
+		var in struct {
+			Identity *string `json:"identity"`
+			Password *string `json:"password"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Identity == nil || in.Password == nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 			return
 		}
+		req := struct{ Identity, Password string }{*in.Identity, *in.Password}
 		id := strings.TrimSpace(req.Identity)
 		if id == "" && req.Password == "" {
 			if err := os.Remove(spaceTrackPath); err != nil && !os.IsNotExist(err) {

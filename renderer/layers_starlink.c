@@ -11,6 +11,7 @@
  */
 
 #include "layer.h"
+#include "labels.h"
 #include "config.h"
 #include "starlink.h"
 #include <cairo/cairo.h>
@@ -44,9 +45,10 @@ void pic_layer_render_starlink(cairo_t *cr, int width, int height,
     double r = height / 420.0 + 1.0;
     double fs = height / 105.0;
     double wrap = pic_wrap_threshold_px(width);
-    int ti, k;
+    int ti, k, lbl = pic_labels_owner("starlink");
 
     if (!d) return;
+    pic_labels_begin(lbl);
 
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                            CAIRO_FONT_WEIGHT_BOLD);
@@ -112,6 +114,17 @@ void pic_layer_render_starlink(cairo_t *cr, int width, int height,
             w = (e1.x_advance > e2.x_advance ? e1.x_advance : e2.x_advance);
             h = fs * 2.3;
             if (x + w + pad > width) x = lx - r * 4 - w;
+            {   /* a spot no other layer's label has taken, if there is one */
+                double ox, oy;
+                if (pic_labels_place(lbl, lx, ly, r * 4 - pad, w + pad * 2, h + pad * 2,
+                                     width, height, &ox, &oy)) {
+                    x = ox + pad;
+                    y = oy + pad;
+                } else {
+                    double b[4] = { x - pad, y - pad, x + w + pad, y + h + pad };
+                    pic_labels_claim(lbl, b);
+                }
+            }
 
             cairo_set_source_rgba(cr, 0, 0, 0, 0.65);
             cairo_rectangle(cr, x - pad, y - pad, w + pad * 2, h + pad * 2);

@@ -119,6 +119,7 @@ static void *radar_thread_func(void *arg)
     while (radar_running) {
         char url[512];
         int w, h, i, sw, wait = RETRY_INTERVAL;
+        const char *why = "download failed";
         unsigned int gen = pic_config.viewport_gen;
         cairo_surface_t *img = NULL;
         double new_ext[4] = { 0, 0, 0, 0 }, new_span = 0;
@@ -135,10 +136,18 @@ static void *radar_thread_func(void *arg)
                 memcpy(ext, full, sizeof(ext));
                 request_size(sw, &w, &h);
             }
+            {   /* the request carries one decimal: place the image on
+                 * exactly the box that was asked for */
+                int q;
+                for (q = 0; q < 4; q++) ext[q] = round(ext[q] * 10.0) / 10.0;
+            }
             snprintf(url, sizeof(url), RADAR_WMS_FMT,
                      ext[0], ext[1], ext[2], ext[3], w, h);
-            if (pic_fetch_to_file(url, RADAR_TMP, 30) == 0)
+            why = "download failed";
+            if (pic_fetch_to_file(url, RADAR_TMP, 60) == 0) {   /* the server can take over 30 s */
                 img = pic_radar_decode_png(RADAR_TMP);
+                why = "reply was not a usable image";
+            }
             unlink(RADAR_TMP);
             if (img) {
                 memcpy(new_ext, ext, sizeof(ext));
@@ -160,7 +169,7 @@ static void *radar_thread_func(void *arg)
             wait = FETCH_INTERVAL;
             printf("radar: mosaic updated (%dx%d)\n", w, h);
         } else {
-            printf("radar: fetch/decode failed, retrying in %ds\n", wait);
+            printf("radar: %s, retrying in %ds\n", why, wait);
         }
 
         /* Sleep, but refetch early if the zoom/pan changed so the

@@ -17,6 +17,7 @@
  */
 
 #include "feature.h"
+#include "labels.h"
 #include "sat_icons.h"
 #include "config.h"
 #include "fetch.h"
@@ -494,9 +495,10 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
     double s = height / 70.0, fs = height / 80.0, H = s * 4.0;
     struct { double x, y; int first, n, idx[MAX_LAUNCHES]; } site[MAX_LAUNCHES];
     double rects[MAX_LAUNCHES * 2][4];
-    int nsite = 0, nrect = 0, i, k;
+    int nsite = 0, nrect = 0, i, k, lbl = pic_labels_owner("launches");
 
     (void)ud;
+    pic_labels_begin(lbl);
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                            CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, fs);
@@ -555,6 +557,7 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
         cairo_restore(cr);
         rects[nrect][0] = x - s * 0.8; rects[nrect][1] = y - H * 1.12;
         rects[nrect][2] = x + s * 0.8; rects[nrect][3] = y + s * 0.3;
+        pic_labels_claim(lbl, rects[nrect]);         /* other layers' labels keep off the rocket */
         nrect++;
     }
 
@@ -576,18 +579,23 @@ void pic_layer_render_launches(cairo_t *cr, int width, int height,
                 cairo_text_extents(cr, lines[j], &e);
                 if (e.x_advance > w) w = e.x_advance;
             }
-            /* Candidate spots: right, left, below-right */
-            for (pos = 0; pos < 3; pos++) {
+            /* Candidate spots: right, left, below-right, then above and
+             * below-left; clear of this layer's rockets and labels and
+             * of every other layer's labels */
+            for (pos = 0; pos < 5; pos++) {
                 if (pos == 0)      { bx = x + s * 0.9;          by = y - s * 0.4; }
                 else if (pos == 1) { bx = x - s * 0.9 - w;      by = y - s * 0.4; }
-                else               { bx = x + s * 0.9;          by = y + fs * 1.6; }
+                else if (pos == 2) { bx = x + s * 0.9;          by = y + fs * 1.6; }
+                else if (pos == 3) { bx = x + s * 0.9;          by = y - H * 1.12 - lh * (nl - 1); }
+                else               { bx = x - s * 0.9 - w;      by = y + fs * 1.6; }
                 r[0] = bx - fs * 0.4; r[1] = by - fe.ascent - fs * 0.3;
                 r[2] = bx + w + fs * 0.4; r[3] = by + lh * (nl - 1) + fe.descent + fs * 0.3;
                 if (r[0] < 0 || r[2] > width || r[1] < 0 || r[3] > height) continue;
-                if (!rect_hits(r, rects, nrect, k)) break;   /* rect k: own rocket */
+                if (!rect_hits(r, rects, nrect, k) && pic_labels_free(lbl, r)) break;   /* rect k: own rocket */
             }
-            if (pos == 3) continue;                 /* no room: rocket only */
+            if (pos == 5) continue;                 /* no room: rocket only */
             memcpy(rects[nrect++], r, sizeof(r));
+            pic_labels_claim(lbl, r);
             if (last_nlabel < MAX_LAUNCHES) memcpy(last_label[last_nlabel++], r, sizeof(r));
             for (j = 0; j < nl; j++) {
                 int more = j == nl - 1 && site[k].n > 2;

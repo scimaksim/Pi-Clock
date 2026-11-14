@@ -80,7 +80,7 @@ void pic_layer_render_radar(cairo_t *cr, int width, int height,
 
             localtime_r(&d->fetched, &lt);
             strftime(hm, sizeof(hm), "%I:%M %p", &lt);
-            snprintf(label, sizeof(label), "NEXRAD %s",
+            snprintf(label, sizeof(label), "NEXRAD fetched %s",       /* download time, not scan time */
                      hm[0] == '0' ? hm + 1 : hm);
 
             cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,

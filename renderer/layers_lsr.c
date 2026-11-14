@@ -18,6 +18,7 @@
 #include "fetch.h"
 #include "json.h"
 #include "nwsalert.h"   /* pic_nws_parse_time */
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +33,7 @@ typedef struct {
     char   type;          /* IEM single-letter code */
     time_t t;
     char   city[32], unit[8];
+    char   text[20];      /* the report's own type wording, e.g. "Waterspout" */
 } lsr_t;
 
 static struct {
@@ -55,6 +57,13 @@ int pic_lsr_parse(const char *js, size_t len, lsr_t *out, int max)
         pic_json_str(&j, pic_json_get(&j, p, "type"), ty, sizeof(ty));
         pic_json_str(&j, pic_json_get(&j, p, "valid"), t, sizeof(t));
         r.type = ty[0];
+        {   /* NWS's own name for the event, as "Tornado" not "TORNADO" */
+            char tt[40] = "";
+            size_t q;
+            pic_json_str(&j, pic_json_get(&j, p, "typetext"), tt, sizeof(tt));
+            for (q = 0; tt[q] && q + 1 < sizeof(r.text); q++)
+                r.text[q] = (char)(q ? tolower((unsigned char)tt[q]) : toupper((unsigned char)tt[q]));
+        }
         r.lat = (float)pic_json_num(&j, pic_json_get(&j, p, "lat"), 999);
         r.lon = (float)pic_json_num(&j, pic_json_get(&j, p, "lon"), 999);
         r.mag = (float)pic_json_num(&j, pic_json_get(&j, p, "magf"), 0);
@@ -111,8 +120,10 @@ static void lsr_reload(pic_feature_t *f)
 static const char *lsr_kind(char t, int minor, double *r, double *g, double *b)
 {
     switch (t) {
-    case 'T': case 'C': case 'W': case 'Q':
-        *r = 1.0; *g = 0.15; *b = 0.25; return t == 'C' ? "Funnel" : "Tornado";
+    case 'T': case 'C': case 'W':
+        *r = 1.0; *g = 0.15; *b = 0.25;
+        return t == 'C' ? "Funnel" : t == 'W' ? "Waterspout" : "Tornado";
+    case 'Q': *r = 1.0; *g = 0.65; *b = 0.15; return "Tropical storm";
     case 'H': *r = 0.3; *g = 0.85; *b = 1.0; return "Hail";
     case 'D': case 'G': case 'M': case 'O':
         *r = 1.0; *g = 0.65; *b = 0.15; return "Wind";
@@ -148,6 +159,9 @@ void pic_layer_render_lsr(cairo_t *cr, int width, int height, time_t now,
         const lsr_t *r = &ls.r[i];
         double cr_, cg, cb, x, y, age, a;
         const char *k = lsr_kind(r->type, ls.show_minor, &cr_, &cg, &cb);
+        /* tornado-family and tropical reports: use the report's own
+         * wording rather than a name guessed from the one-letter code */
+        if (k && r->text[0] && strchr("TCWQ", r->type)) k = r->text;
         char lab[64];
         if (!k) continue;
         x = pic_lon_to_x(r->lon, width);

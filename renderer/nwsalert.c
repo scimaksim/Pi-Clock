@@ -167,9 +167,12 @@ static void read_props(const pic_json_t *j, int props, pic_nws_alert_t *a)
 
     /* "ends" is the end of the hazard; "expires" is when this message
      * lapses. Prefer ends when present. */
+    a->ends_known = 1;
     if (pic_json_str(j, pic_json_get(j, props, "ends"), t, sizeof(t)) <= 0 ||
-        strcmp(t, "null") == 0)
+        strcmp(t, "null") == 0) {
         pic_json_str(j, pic_json_get(j, props, "expires"), t, sizeof(t));
+        a->ends_known = 0;
+    }
     a->expires = pic_nws_parse_time(t);
 
     pic_nws_event_colour(a->event, a->severity, &a->r, &a->g, &a->b);
@@ -185,9 +188,12 @@ int pic_nws_parse_map(const char *js, size_t len, pic_nws_t *out,
 
     out->nmap = 0;
     out->nvert = 0;
-    if (pic_json_parse(&j, js, len) != 0) return 0;
+    /* -1: not a usable reply (cut short, an error page). The caller
+     * keeps the alerts it has instead of showing "none". */
+    if (pic_json_parse(&j, js, len) != 0) return -1;
 
     feats = pic_json_get(&j, 0, "features");
+    if (feats < 0 || !pic_json_is_array(&j, feats)) { pic_json_free(&j); return -1; }
     n = pic_json_size(&j, feats);
 
     for (i = 0; i < n && out->nmap < NWS_MAX_MAP_ALERTS; i++) {
@@ -243,9 +249,10 @@ int pic_nws_parse_home(const char *js, size_t len,
     pic_json_t j;
     int feats, i, n, count = 0;
 
-    if (pic_json_parse(&j, js, len) != 0) return 0;
+    if (pic_json_parse(&j, js, len) != 0) return -1;
 
     feats = pic_json_get(&j, 0, "features");
+    if (feats < 0 || !pic_json_is_array(&j, feats)) { pic_json_free(&j); return -1; }
     n = pic_json_size(&j, feats);
 
     for (i = 0; i < n; i++) {
@@ -260,7 +267,10 @@ int pic_nws_parse_home(const char *js, size_t len,
          * keep one entry per event name, with the latest end time. */
         for (k = 0; k < count; k++) {
             if (strcmp(out[k].event, a.event) == 0) {
-                if (a.expires > out[k].expires) out[k].expires = a.expires;
+                if (a.expires > out[k].expires) {
+                    out[k].expires = a.expires;
+                    out[k].ends_known = a.ends_known;
+                }
                 dup = 1;
                 break;
             }
@@ -311,22 +321,30 @@ static void *nws_thread_func(void *arg)
         radius = cfg_data->radius_km;
         pthread_mutex_unlock(&cfg_data->mutex);
 
-        n = pic_fetch_to_buf(NWS_MAP_URL, buf, MAX_RESPONSE - 1);
-        if (n > 0) {
-            buf[n] = '\0';
-            pic_nws_parse_map(buf, (size_t)n, &temp, qlat, qlon, radius);
-            map_ok = 1;
+        /* api.weather.gov times out often: one more try before giving
+         * up for this round. A reply that does not parse is a failure
+         * too, so the alerts on screen stay until a good reply or
+         * their own end times. */
+        for (i = 0; i < 2 && !map_ok && nws_running; i++) {
+            if (i) sleep(5);
+            n = pic_fetch_to_buf(NWS_MAP_URL, buf, MAX_RESPONSE - 1);
+            if (n > 0 && n < MAX_RESPONSE - 2) {
+                buf[n] = '\0';
+                map_ok = pic_nws_parse_map(buf, (size_t)n, &temp, qlat, qlon, radius) >= 0;
+            }
         }
 
         temp.nhome = 0;
         if (qlat != 0.0 || qlon != 0.0) {
             snprintf(url, sizeof(url), NWS_POINT_FMT, qlat, qlon);
-            n = pic_fetch_to_buf(url, buf, MAX_RESPONSE - 1);
-            if (n > 0) {
+            for (i = 0; i < 2 && !home_ok && nws_running; i++) {
+                int nh;
+                if (i) sleep(5);
+                n = pic_fetch_to_buf(url, buf, MAX_RESPONSE - 1);
+                if (n <= 0) continue;
                 buf[n] = '\0';
-                temp.nhome = pic_nws_parse_home(buf, (size_t)n, temp.home,
-                                                NWS_MAX_HOME_ALERTS);
-                home_ok = 1;
+                nh = pic_nws_parse_home(buf, (size_t)n, temp.home, NWS_MAX_HOME_ALERTS);
+                if (nh >= 0) { temp.nhome = nh; home_ok = 1; }
             }
         }
 
@@ -343,11 +361,14 @@ static void *nws_thread_func(void *arg)
             cfg_data->nhome = temp.nhome;
         }
         if (map_ok || home_ok) cfg_data->last_fetched = time(NULL);
+        if (home_ok) cfg_data->home_fetched = time(NULL);
+        i = cfg_data->nmap;
+        n = cfg_data->nhome;
         pthread_mutex_unlock(&cfg_data->mutex);
 
-        printf("nwsalert: %d map polygons, %d alerts at QTH%s\n",
-               temp.nmap, temp.nhome,
-               (map_ok && home_ok) ? "" : " (partial fetch failure)");
+        printf("nwsalert: %d map polygons, %d alerts at QTH%s%s\n", i, n,
+               map_ok ? "" : " (map update failed, kept)",
+               home_ok ? "" : " (home update failed, kept)");
 
         for (i = 0; i < FETCH_INTERVAL && nws_running; i++)
             sleep(1);

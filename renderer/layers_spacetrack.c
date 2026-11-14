@@ -35,6 +35,7 @@
 #include "features_all.h"
 #include "spacedata.h"
 #include "spacelayers.h"
+#include "labels.h"
 #include "satellite.h"
 #include "config.h"
 #include <cairo/cairo.h>
@@ -268,10 +269,12 @@ static void stopped_deb(pic_feature_t *f)
 
 /* ================================================================ labels */
 
-#define MAXBOX 48
-static double boxes[P_N][MAXBOX][4];
-static int nbox[P_N];
-static time_t box_at[P_N];         /* when each part last drew */
+/* Label boxes are shared with the other layers (labels.c) */
+static int lown(int part)
+{
+    static const char *const nm[P_N] = { "reentries", "conjunctions", "geobelt", "debris" };
+    return pic_labels_owner(nm[part]);
+}
 
 static int hits(const double *a, const double *b)
 {
@@ -286,7 +289,7 @@ static int clear_at(const double *bx, int w, int h, int part)
         { 0, fmin(h * 0.905, pic_legend_top(h)), w, h },   /* notes and key at the bottom */
         { 0, 0, 0, 0 },
     };
-    int i, p;
+    int i;
     if (bx[0] < 3 || bx[1] < 3 || bx[2] > w - 3 || bx[3] > h - 3) return 0;
     if (&pic_ticker_bar_top && pic_ticker_bar_top > 0) keep[3][1] = pic_ticker_bar_top - h * 0.06, keep[3][2] = w, keep[3][3] = h;
     for (i = 0; i < 4; i++)
@@ -294,12 +297,7 @@ static int clear_at(const double *bx, int w, int h, int part)
     if (&pic_panel_rect)
         for (i = 0; i < 2; i++)
             if (pic_panel_rect[i][2] > pic_panel_rect[i][0] && hits(bx, pic_panel_rect[i])) return 0;
-    for (p = 0; p < P_N; p++) {
-        if (p != part && time(NULL) - box_at[p] > 300) continue;   /* layer no longer drawn */
-        for (i = 0; i < nbox[p]; i++)
-            if (hits(bx, boxes[p][i])) return 0;
-    }
-    return 1;
+    return pic_labels_clear(lown(part), bx);
 }
 
 static void halo_text(cairo_t *cr, double x, double y, const char *s,
@@ -352,7 +350,7 @@ static void label2(cairo_t *cr, int w, int h, int part, double x, double y,
         found = clear_at(bx, w, h, part);
     }
     if (!found) return;                     /* nowhere to put it: icon only */
-    if (nbox[part] < MAXBOX) memcpy(boxes[part][nbox[part]++], bx, sizeof(bx));
+    pic_labels_claim(lown(part), bx);
 
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, fs);
@@ -517,8 +515,7 @@ static void render_reentries(cairo_t *cr, int w, int h, time_t now, void *ud)
     double wrap = pic_wrap_threshold_px(w), s = scale_of(h);
     int i;
     (void)ud;
-    nbox[P_RE] = 0;
-    box_at[P_RE] = time(NULL);
+    pic_labels_begin(lown(P_RE));
     pthread_mutex_lock(&st.mutex);
     for (i = 0; i < st.nre; i++) {
         sl_reentry_t *r = &st.re[i];
@@ -613,8 +610,7 @@ static void render_conj(cairo_t *cr, int w, int h, time_t now, void *ud)
     double wrap = pic_wrap_threshold_px(w), s = scale_of(h);
     int i, shown = 0, flashing = 0;
     (void)ud;
-    nbox[P_CJ] = 0;
-    box_at[P_CJ] = time(NULL);
+    pic_labels_begin(lown(P_CJ));
     pthread_mutex_lock(&st.mutex);
     for (i = 0; i < st.ncj && shown < 5; i++) {
         sl_conj_t *c = &st.cj[i];
@@ -710,8 +706,7 @@ static void render_geo(cairo_t *cr, int w, int h, time_t now, void *ud)
     double a0 = 999, a1 = -999, l;
     int i, nvis = 0;
     (void)ud;
-    nbox[P_GEO] = 0;
-    box_at[P_GEO] = time(NULL);
+    pic_labels_begin(lown(P_GEO));
 
     /* the part of the belt above home's horizon */
     for (l = -180; l < 180; l += 0.5)
@@ -782,8 +777,7 @@ static void render_debris(cairo_t *cr, int w, int h, time_t now, void *ud)
     double s = scale_of(h), fs = h / 72.0;
     int i, labelled[SL_MAX_GRP] = { 0 };
     (void)ud;
-    nbox[P_DEB] = 0;
-    box_at[P_DEB] = time(NULL);
+    pic_labels_begin(lown(P_DEB));
     pthread_mutex_lock(&st.mutex);
 
     /* the pieces, where they are now */
@@ -812,7 +806,7 @@ static void render_debris(cairo_t *cr, int w, int h, time_t now, void *ud)
         cairo_fill(cr);
         {
             double bx[4] = { x, y, x + pw, y + ph };
-            if (nbox[P_DEB] < MAXBOX) memcpy(boxes[P_DEB][nbox[P_DEB]++], bx, sizeof(bx));
+            pic_labels_claim(lown(P_DEB), bx);
         }
         icon_debris(cr, x + fs * 1.3, y + fs * 1.2, .9 * s);
         cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
@@ -890,7 +884,7 @@ static int idle_part(int part)
     pthread_mutex_lock(&st.mutex);
     n = part == P_RE ? st.nre : part == P_CJ ? st.ncj : st.ngeo;
     pthread_mutex_unlock(&st.mutex);
-    if (n == 0) nbox[part] = 0;        /* nothing drawn: its labels are gone */
+    if (n == 0) pic_labels_begin(lown(part));     /* nothing drawn: its labels are gone */
     return n == 0;
 }
 static int idle_re(time_t now, void *d)  { (void)now; (void)d; return idle_part(P_RE); }

@@ -171,8 +171,20 @@ void pic_layer_render_nwsalert_banner(cairo_t *cr, int width, int height,
         for (k = 0; a->event[k] && k < (int)sizeof(ev) - 1; k++)
             ev[k] = (char)toupper((unsigned char)a->event[k]);
         ev[k] = '\0';
-        format_until(a->expires, now, until, sizeof(until));
-        snprintf(text, sizeof(text), "%s   %s", ev, until);
+        /* "until" only when NWS gives the hazard's end; a message's own
+         * expiry is not when the hazard ends */
+        format_until(a->ends_known ? a->expires : 0, now, until, sizeof(until));
+        if (d->home_fetched && now - d->home_fetched > 30 * 60) {
+            /* updates failing: say how old this is */
+            char hm[16];
+            struct tm lt;
+            localtime_r(&d->home_fetched, &lt);
+            strftime(hm, sizeof(hm), "%I:%M %p", &lt);
+            snprintf(text, sizeof(text), "%s   %s%sas of %s", ev, until, until[0] ? " \xc2\xb7 " : "",
+                     hm[0] == '0' ? hm + 1 : hm);
+        } else {
+            snprintf(text, sizeof(text), "%s   %s", ev, until);
+        }
 
         cairo_text_extents(cr, text, &ext);
         w = icon + pad + ext.x_advance + pad * 2;

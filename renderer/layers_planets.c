@@ -22,6 +22,7 @@
 
 #define _GNU_SOURCE  /* timegm */
 #include "feature.h"
+#include "labels.h"
 #include "sky_icons.h"
 #include "solar.h"
 #include "astro.h"
@@ -295,9 +296,10 @@ void pic_layer_render_planets(cairo_t *cr, int width, int height,
                               time_t now, void *ud)
 {
     double fs = height / 90.0, r = height / 200.0;
-    int i, labels;
+    int i, labels, lbl = pic_labels_owner("planets");
 
     (void)ud;
+    pic_labels_begin(lbl);
     pthread_mutex_lock(&pl_mutex);
     labels = pl_labels;
     pthread_mutex_unlock(&pl_mutex);
@@ -330,9 +332,20 @@ void pic_layer_render_planets(cairo_t *cr, int width, int height,
             planet_look(naked[i].idx, now, &phase, &tilt);
             pic_draw_planet(cr, naked[i].idx, x, y, pr, ang, phase, tilt, now);
         }
-        if (labels)
-            pic_draw_text_pill(cr, x + r * 4.6, y + fs * 0.35, naked[i].name,
+        if (labels) {
+            /* beside the planet, wherever no other label already is */
+            cairo_text_extents_t te;
+            cairo_font_extents_t fe;
+            double pad, ox, oy, pb[4] = { x - r * 3, y - r * 3, x + r * 3, y + r * 3 };
+            cairo_font_extents(cr, &fe);
+            cairo_text_extents(cr, naked[i].name, &te);
+            pad = fe.ascent * 0.3;
+            pic_labels_claim(lbl, pb);                       /* the planet itself */
+            pic_labels_place(lbl, x, y, r * 4.6 - pad, te.x_advance + pad * 2,
+                             fe.ascent + fe.descent + pad, width, height, &ox, &oy);
+            pic_draw_text_pill(cr, ox + pad, oy + fe.ascent + pad * 0.5, naked[i].name,
                                naked[i].r, naked[i].g, naked[i].b, 0.5);
+        }
     }
 }
 

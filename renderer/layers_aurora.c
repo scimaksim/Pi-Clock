@@ -28,6 +28,7 @@
  */
 
 #include "layer.h"
+#include "feature.h"
 #include "config.h"
 #include "aurora.h"
 #include <cairo/cairo.h>
@@ -98,11 +99,10 @@ void pic_layer_render_aurora(cairo_t *cr, int width, int height,
     time_t fetched;
     int need_redraw = 0;
 
-    (void)now;
     if (!data) return;
 
     pthread_mutex_lock(&data->mutex);
-    if (!data->valid) {
+    if (!data->valid || pic_data_stale(data->last_fetched, now, 2 * 3600)) {
         pthread_mutex_unlock(&data->mutex);
         return;
     }

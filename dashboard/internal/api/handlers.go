@@ -196,6 +196,10 @@ func PutConfig(cfg *config.RendererConfig) http.HandlerFunc {
 			})
 			return
 		}
+		if len(values) == 0 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "nothing to save"})
+			return
+		}
 
 		if err := cfg.Update(values); err != nil {
 			internalError(w, "save config", err)
@@ -407,6 +411,11 @@ func PutLayers() http.HandlerFunc {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{
 				"error": "invalid JSON",
 			})
+			return
+		}
+		if len(layers) == 0 {
+			// an empty list would erase every saved layers setting
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "empty list: nothing was saved"})
 			return
 		}
 
@@ -1708,6 +1717,11 @@ func PutApplets() http.HandlerFunc {
 			})
 			return
 		}
+		if len(applets) == 0 {
+			// an empty list would erase every saved panels setting
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "empty list: nothing was saved"})
+			return
+		}
 
 		/* Guard against two request bugs by dropping anything
 		 * we don't recognise from appletDefs — a client that
@@ -1902,6 +1916,11 @@ func PutSatellites() http.HandlerFunc {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 			return
 		}
+		if len(sats) == 0 {
+			// an empty list would erase every saved satellites setting
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "empty list: nothing was saved"})
+			return
+		}
 
 		var lines []string
 		lines = append(lines, "# Pi-Clock satellite configuration")
@@ -2001,6 +2020,12 @@ func PutTickerSources() http.HandlerFunc {
 			return
 		}
 
+		if len(req.Sources) == 0 {
+			// a body without the list would erase the saved sources
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "no sources given: nothing was saved"})
+			return
+		}
+
 		var lines []string
 		lines = append(lines, "# Pi-Clock ticker source configuration")
 		lines = append(lines, fmt.Sprintf("mode=%d", req.Mode))
@@ -2065,6 +2090,12 @@ func PutDxSettings(cfg *config.RendererConfig) http.HandlerFunc {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{
 				"error": "invalid JSON",
 			})
+			return
+		}
+
+		if settings.DxDistance == "" || settings.DxBands == "" || settings.DxSpotAge == "" {
+			// a body without the fields would blank the saved values
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "missing DX settings"})
 			return
 		}
 

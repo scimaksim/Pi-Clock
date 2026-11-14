@@ -84,14 +84,32 @@ static void iso(char *out, size_t n, time_t t)
     strftime(out, n, "%Y-%m-%dT%H:%M:%SZ", &tm);
 }
 
+/* While Home Assistant is not answering, unsent notices used to be
+ * retried every 30 s for as long as it took (hundreds an hour). Back
+ * off instead: 1, 2, 4 ... 30 minutes between tries, reset on success. */
+static time_t post_next_try;
+static int post_fail_streak;
+
 static int post(const char *json)
 {
     char url[300], reply[256];
+    time_t now = time(NULL);
     int r;
+    if (now < post_next_try) return -1;
     if (read_webhook(url, sizeof(url)) != 0) return -1;
     r = pic_fetch_post_json(url, json, reply, sizeof(reply));
     memset(url, 0, sizeof(url));
-    printf("hanotify: sent %.60s... (%s)\n", json, r >= 0 ? "ok" : "failed");
+    if (r >= 0) {
+        post_fail_streak = 0;
+        post_next_try = 0;
+        printf("hanotify: sent %.60s... (ok)\n", json);
+    } else {
+        long wait = 60L << (post_fail_streak < 5 ? post_fail_streak : 5);
+        if (wait > 1800) wait = 1800;
+        post_fail_streak++;
+        post_next_try = now + wait;
+        printf("hanotify: sent %.60s... (failed, next try in %ld min)\n", json, wait / 60);
+    }
     return r >= 0 ? 0 : -1;
 }
 

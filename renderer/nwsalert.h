@@ -35,6 +35,8 @@ typedef struct {
     char   event[48];         /* e.g. "Tornado Warning"                */
     int    severity;          /* NWS_SEV_*                             */
     time_t expires;           /* When it ends (0 = unknown)            */
+    int    ends_known;        /* 1: hazard end time; 0: only when this
+                               * message lapses (hazard may go on)     */
     float  r, g, b;           /* Display colour                        */
     int    first_vertex;      /* Index into the shared vertex pool     */
     int    nvertex;           /* Polygon ring length (0 = no polygon)  */
@@ -58,6 +60,7 @@ typedef struct {
     int    radius_km;         /* Map: only alerts within this distance
                                * of QTH (0 = nationwide)               */
     time_t last_fetched;
+    time_t home_fetched;      /* last good reply for home's alerts */
     pthread_mutex_t mutex;
 } pic_nws_t;
 

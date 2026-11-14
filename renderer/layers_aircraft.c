@@ -113,6 +113,10 @@ void pic_layer_render_aircraft(cairo_t *cr, int width, int height,
 
     pthread_mutex_lock(&d->mutex);
     dt = difftime(now, d->t_pos);
+    if (dt > 180) {          /* feed down: don't leave aircraft frozen in the sky */
+        pthread_mutex_unlock(&d->mutex);
+        return;
+    }
     if (dt < 0) dt = 0;
     if (dt > MAX_EXTRAPOLATE_S) dt = MAX_EXTRAPOLATE_S;
 

@@ -54,6 +54,7 @@ typedef struct {
     float  vl_n[360], vl_s[360];  /* View line lat by lon (999 = none) */
     float  pmax_n[360];
     int    have_ovation;
+    time_t ov_at;              /* when the oval was last fetched */
     kpf_t  kpf[MAX_KPF];
     int    nkpf;
     float  kp_now;
@@ -202,6 +203,7 @@ static int aw_work(pic_feature_t *f)
         memcpy(aw.vl_s, vs, sizeof(vs));
         memcpy(aw.pmax_n, pm, sizeof(pm));
         aw.have_ovation = 1;
+        aw.ov_at = time(NULL);
     }
     if (nk > 0) {
         memcpy(aw.kpf, kpf, (size_t)nk * sizeof(kpf_t));
@@ -260,7 +262,8 @@ static void home_status(time_t now, int *status_now, double *vl_here,
     int li = ((int)floor(lon) % 360 + 360) % 360, i;
 
     *status_now = 0;
-    *vl_here = aw.have_ovation ? aw.vl_n[li] : 999;
+    /* "now" needs an oval from the last hour, not an old file */
+    *vl_here = aw.have_ovation && !pic_data_stale(aw.ov_at, now, 3600) ? aw.vl_n[li] : 999;
     if (lat >= 0 && *vl_here < 900 && is_dark(now, lat, lon)) {
         if (lat >= *vl_here) *status_now = 2;
         else if (lat >= *vl_here - aw.margin) *status_now = 1;

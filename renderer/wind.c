@@ -41,6 +41,7 @@
 
 /* Fetch interval: 2 hours (7200 seconds) */
 #define WIND_FETCH_INTERVAL 7200
+#define WIND_RETRY_INTERVAL 900     /* after a failed download */
 
 /* Maximum raw (decompressed) file size.
  * 28-byte header + 2 * 360 * 181 * 4 = 521,308 bytes.
@@ -252,7 +253,7 @@ static void *wind_thread_func(void *arg)
     mkdir("/tmp/pi-clock-cache", 0755); /* EEXIST is expected and harmless */
 
     while (wind_running) {
-        int ok;
+        int ok, failed = 0;
 
         printf("wind: fetching from %s\n", WIND_DATA_URL);
         ok = pic_fetch_to_file(WIND_DATA_URL, WIND_CACHE_PATH, 60);
@@ -269,14 +270,14 @@ static void *wind_thread_func(void *arg)
                 printf("wind: decompression failed\n");
             }
         } else {
-            printf("wind: fetch failed, retrying in %ds\n",
-                   WIND_FETCH_INTERVAL);
+            printf("wind: fetch failed, retrying in %ds\n", WIND_RETRY_INTERVAL);
+            failed = 1;
         }
 
         /* Sleep in 1-second chunks for responsive shutdown */
         {
             int s;
-            for (s = 0; s < WIND_FETCH_INTERVAL && wind_running; s++)
+            for (s = 0; s < (failed ? WIND_RETRY_INTERVAL : WIND_FETCH_INTERVAL) && wind_running; s++)
                 sleep(1);
         }
     }

@@ -33,7 +33,7 @@
 #define AIS_PATH     "/v0/stream"
 #define AIS_KEY_PATH "/data/etc/pi-clock-aisstream.key"
 #define MAX_SHIPS    3000
-#define STALE_S      (30 * 60)
+#define STALE_S      (10 * 60)   /* a ship report older than this is not drawn */
 
 typedef struct {
     int    mmsi;
@@ -273,7 +273,7 @@ void pic_layer_render_ships(cairo_t *cr, int width, int height,
     double fs = height / 95.0;
     int i, labels;
 
-    (void)now; (void)ud;
+    (void)ud;
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                            CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, fs);
@@ -285,6 +285,7 @@ void pic_layer_render_ships(cairo_t *cr, int width, int height,
         double x = pic_lon_to_x(v->lon, width), y = pic_lat_to_y(v->lat, height);
         double dir;
         if (x < -5 || x > width + 5 || y < -5 || y > height + 5) continue;
+        if (now - v->seen >= STALE_S) continue;     /* stream down: pruning has stopped */
 
         if (v->sog < 0.5) {
             cairo_set_source_rgba(cr, 0.6, 0.65, 0.7, 0.8);

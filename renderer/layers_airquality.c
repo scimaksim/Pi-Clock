@@ -13,6 +13,7 @@
  */
 
 #include "layer.h"
+#include "feature.h"
 #include "config.h"
 #include "airquality.h"
 #include <cairo/cairo.h>
@@ -69,8 +70,14 @@ void pic_layer_render_airquality(cairo_t *cr, int width, int height,
     double span, ppd, cx, x0, y0, y1, w_px, world;
     int rep;
 
-    (void)now;
     if (!d) return;
+    {   /* readings more than 3 h old are not the air now */
+        time_t at;
+        pthread_mutex_lock(&d->mutex);
+        at = d->fetched;
+        pthread_mutex_unlock(&d->mutex);
+        if (pic_data_stale(at, now, 3 * 3600)) return;
+    }
 
     img = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, AQ_NX, AQ_NY);
     if (cairo_surface_status(img) != CAIRO_STATUS_SUCCESS) {
@@ -142,8 +149,14 @@ void pic_layer_render_airquality_badge(cairo_t *cr, int width, int height,
     cairo_text_extents_t ext;
     int aqi;
 
-    (void)now;
     if (!d) return;
+    {   /* readings more than 3 h old are not the air now */
+        time_t at;
+        pthread_mutex_lock(&d->mutex);
+        at = d->fetched;
+        pthread_mutex_unlock(&d->mutex);
+        if (pic_data_stale(at, now, 3 * 3600)) return;
+    }
     if (pic_config.qth_lat == 0.0 && pic_config.qth_lon == 0.0) return;
 
     pthread_mutex_lock(&d->mutex);

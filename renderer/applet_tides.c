@@ -324,7 +324,8 @@ double pic_applet_render_tides(cairo_t *cr, double width, time_t now,
             cairo_arc(cr, x, y + graph_h - (v - vmin) / (vmax - vmin) * graph_h * 0.9,
                       fs * 0.25, 0, 2 * M_PI);
             cairo_fill(cr);
-            snprintf(line, sizeof(line), "Now %.1f %s %s", v, unit,
+            /* interpolated between the predicted high and low: an estimate */
+            snprintf(line, sizeof(line), "Now about %.1f %s %s", v, unit,
                      v2 >= v ? "rising" : "falling");
             cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                                    CAIRO_FONT_WEIGHT_BOLD);

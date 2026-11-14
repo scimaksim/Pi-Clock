@@ -121,6 +121,13 @@ void pic_draw_legend_line(cairo_t *cr, int width, int height, int slot,
  * Reserve `rows` legend rows (height/72*1.75 px each) in the same
  * stack and return the y of the lowest row's text baseline.
  */
+/* Live data older than max_age seconds is no longer "now": layers hide
+ * it rather than show it as current (at = 0: never fetched). */
+static inline int pic_data_stale(time_t at, time_t now, long max_age)
+{
+    return at == 0 || now - at > max_age;
+}
+
 double pic_legend_take(int height, double rows);
 double pic_legend_top(int height);      /* top of last frame's notes */
 

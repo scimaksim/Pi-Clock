@@ -20,6 +20,8 @@
  */
 
 #include "layer.h"
+#include "labels.h"
+#include "feature.h"
 #include "config.h"
 #include "storm.h"
 #include <cairo/cairo.h>
@@ -233,6 +235,10 @@ static void draw_label(cairo_t *cr, double x_right, double x_left,
 
     x = x_right;
     if (x + w + pad > screen_w) x = x_left - w;
+    {   /* storms keep their place; other layers' labels move aside */
+        double b[4] = { x - pad, y - pad, x + w + pad, y + h + pad };
+        pic_labels_claim(pic_labels_owner("storm"), b);
+    }
 
     cairo_new_path(cr);
     cairo_arc(cr, x + w + pad - rr, y - pad + rr, rr, -PI / 2, 0);
@@ -264,13 +270,17 @@ void pic_layer_render_storm(cairo_t *cr, int width, int height,
     double fs = height / 95.0;
     int i;
 
-    (void)now;
     if (!data) return;
 
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
                            CAIRO_FONT_WEIGHT_BOLD);
 
+    pic_labels_begin(pic_labels_owner("storm"));
     pthread_mutex_lock(&data->mutex);
+    if (pic_data_stale(data->last_fetched, now, 12 * 3600)) {   /* positions no longer current */
+        pthread_mutex_unlock(&data->mutex);
+        return;
+    }
 
     /* Cones first (underneath every track), then tracks, then symbols */
     if (data->show_cone) {
