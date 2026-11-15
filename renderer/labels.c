@@ -134,6 +134,20 @@ int pic_labels_place(int owner, double ax, double ay, double gap,
         *oy = b[1];
         return 1;
     }
+    /* No free spot: the first candidate that is at least on screen and
+     * off the clocks and panels (overlapping other labels), else the
+     * right-hand spot */
+    for (k = 0; k < 8; k++) {
+        double b[4];
+        b[0] = cand[k][0] > 0 ? ax + gap : cand[k][0] < 0 ? ax - gap - bw : ax - bw / 2;
+        b[1] = ay + cand[k][1] * bh - (cand[k][0] == 0 ? (cand[k][1] < 0 ? gap * 0.5 : -gap * 0.5) : 0);
+        b[2] = b[0] + bw;
+        b[3] = b[1] + bh;
+        if (b[0] < 2 || b[1] < 2 || b[2] > w - 2 || b[3] > h - 2 || on_furniture(b, w, h)) continue;
+        *ox = b[0];
+        *oy = b[1];
+        return 0;
+    }
     *ox = ax + gap;
     *oy = ay - bh * 0.5;
     return 0;

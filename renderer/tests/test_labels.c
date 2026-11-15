@@ -53,5 +53,16 @@ int main(void)
 
     /* no room at all (tiny screen): returns 0 and the right-hand spot */
     CHECK(pic_labels_place(b, 10, 10, 5, 80, 20, 60, 30, &x, &y) == 0 && x == 15, "no room reported");
+    /* all spots taken by other labels: an on-screen spot, not off the edge */
+    pic_labels_reset();
+    {
+        int c = pic_labels_owner("crowd"), d = pic_labels_owner("late");
+        double big[4] = { 1500, 300, 1920, 900 }, x2, y2;
+        pic_labels_begin(c);
+        pic_labels_claim(c, big);
+        pic_labels_begin(d);
+        CHECK(pic_labels_place(d, 1860, 600, 10, 200, 40, 1920, 1080, &x2, &y2) == 0 &&
+              x2 + 200 <= 1920 && x2 >= 0, "fallback stays on screen (x %.0f)", x2);
+    }
     return CHECK_DONE("test_labels");
 }

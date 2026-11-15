@@ -728,9 +728,24 @@ static int base_idle(time_t now, void *d)
     return !pic_view_is_closeup();
 }
 
+/* Settings saved: if the close-up was just switched on or moved, fetch
+ * its map now rather than at the next 5-minute check */
+static void base_reload(pic_feature_t *f)
+{
+    static double last_zoom = -1, last_lat, last_lon;
+    if (pic_config.closeup_zoom != last_zoom || pic_config.closeup_lat != last_lat ||
+        pic_config.closeup_lon != last_lon) {
+        last_zoom = pic_config.closeup_zoom;
+        last_lat = pic_config.closeup_lat;
+        last_lon = pic_config.closeup_lon;
+        if (last_zoom > 1.0) pic_feature_poke(f);
+    }
+}
+
 static pic_feature_t f_base = {
     .name = "closeup", .layer = base_render, .legend = base_legend, .idle = base_idle,
-    .interval = 60, .extra_mb = 18, .work = base_work, .needs_network = 1, .default_on = 1,
+    .interval = 60, .extra_mb = 18, .work = base_work, .reload = base_reload,
+    .needs_network = 1, .default_on = 1,
 };
 
 pic_feature_t *pic_feature_closeup(void)
@@ -1086,7 +1101,7 @@ static void live_render(cairo_t *cr, int w, int h, time_t now, void *ud)
         const cu_station_t *st = &lv.w.st;
         time_t at = pic_cu_local_time(st->at);
         int old = pic_data_stale(at, now, 2 * 3600);
-        double cw = 350 * s, ch = 150 * s, cx, cy, mx, my, fs = 15 * s, ang;
+        double cw = 390 * s, ch = 150 * s, cx, cy, mx, my, fs = 15 * s, ang;
         char v[6][24], hm[24] = "", t[96];
         static const char *const lab[6] = { "Air", "Soil 4 in", "Soil moisture", "Humidity", "Wind", "Sunshine" };
         double vals[6] = { st->air, st->soil, st->moist, st->rh, st->wind, st->sr };

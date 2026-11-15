@@ -35,8 +35,9 @@ void pic_labels_claim(int owner, const double box[4]);
  * right, left, then above and below on either side. The box must lie
  * inside the w x h screen, off the clocks, side panels and bottom notes,
  * clear of other owners' boxes and of this owner's own. On success claims it, returns 1 and its top-left corner.
- * With no room returns 0 and the first (right-hand) position, unclaimed,
- * for callers that would rather overlap than drop the label. */
+ * With no room returns 0 and, unclaimed, the first spot that is at least
+ * on screen and off the furniture (overlapping other labels), else the
+ * right-hand one, for callers that would rather overlap than drop it. */
 int pic_labels_place(int owner, double ax, double ay, double gap,
                      double bw, double bh, int w, int h,
                      double *ox, double *oy);

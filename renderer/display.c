@@ -598,6 +598,8 @@ static void sync_astro_fetcher(pic_applet_stack_t *applets, pic_astro_t *astro)
     else    pic_astro_stop();
 }
 
+extern double pic_panel_rect[2][4];   /* applet.c */
+
 static const struct {
     const char *name;
     int extra_mb;  /* Additional RAM beyond the surface */
@@ -2514,9 +2516,12 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     cairo_set_operator(acr, CAIRO_OPERATOR_CLEAR);
                     cairo_paint(acr);
                     cairo_set_operator(acr, CAIRO_OPERATOR_OVER);
-                    /* the close-up of home is all map: no side panels */
+                    /* the close-up of home is all map: no side panels
+                     * (nor their keep-out areas for map labels) */
                     if (!pic_view_is_closeup())
                         pic_applet_stack_render(&applets, acr, width, height, now);
+                    else
+                        memset(pic_panel_rect, 0, sizeof(pic_panel_rect));
                     cairo_destroy(acr);
                     cairo_surface_flush(applet_surface);
                     applets_at = now;
