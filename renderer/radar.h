@@ -46,9 +46,10 @@ void pic_radar_stop(void);
 void pic_radar_free(pic_radar_t *data);
 
 /* Echoes below this are dropped by default. Rain is usually 15 dBZ and
- * up; light snow can be 5-15. 10 dBZ plus speckle removal clears the
- * clear-air returns IEM keeps over large blocks in winter. */
-#define RADAR_MIN_DBZ_DEFAULT 10.0
+ * up; light snow can be 5-15 and is lost with it. Bird and insect
+ * returns on winter nights reach 10-15 dBZ in dense blocks that 10 dBZ
+ * plus speckle removal left in (14 Nov 2026, Nashville radar). */
+#define RADAR_MIN_DBZ_DEFAULT 15.0
 
 /* Keys: RADAR_TIME=0|1, RADAR_MIN_DBZ=<dBZ> (-32 keeps everything) */
 void pic_radar_reload(pic_radar_t *data);

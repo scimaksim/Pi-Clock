@@ -123,7 +123,7 @@ side panels and the bottom notes. Boxes expire with the view or after
 
 **Radar (`radar.c`).** Iowa State's NEXRAD N0Q mosaic, fetched for the
 area on screen. Each pixel's colour is mapped back to dBZ through IEM's
-colour ramp; echoes under `RADAR_MIN_DBZ` (default 10) are dropped, and
+colour ramp; echoes under `RADAR_MIN_DBZ` (default 15) are dropped, and
 in zoomed views isolated pixels (fewer than 4 of 8 neighbours kept) are
 dropped too. This removes the clear-air returns IEM leaves in over large
 blocks in winter. If the ramp stops matching, the image is shown
@@ -222,7 +222,7 @@ installs to the inactive slot; `pi-clock-rollback` returns to the other.
 
 ## History
 
-- 2026-11-14 (evening): radar drops echoes under 10 dBZ and isolated
+- 2026-11-14 (evening): radar drops echoes under 15 dBZ and isolated
   speckle; coarse world-grid layers hidden when zoomed in.
 - 2026-11-14: defunct and retired dates from GCAT in the local view;
   season map window follows the newest imagery; shared label registry;
