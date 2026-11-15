@@ -114,6 +114,13 @@ int sl_parse_tip(const char *js, time_t now, time_t keep, sl_reentry_t *out, int
     return m;
 }
 
+int sl_reentry_shown(time_t decay, time_t now, int hours)
+{
+    if (hours < 1) hours = 1;
+    if (hours > 168) hours = 168;
+    return decay > 0 && decay >= now - SL_RE_AFTER && decay <= now + (time_t)hours * 3600;
+}
+
 /* ------------------------------------------------------------ CDM */
 
 #define CDM_SCAN 64     /* pairs looked at before keeping the soonest */

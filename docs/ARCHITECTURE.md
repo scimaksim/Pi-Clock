@@ -110,6 +110,8 @@ three days saw it.
   re-entries, close approaches, the geostationary belt from home, newest
   debris and catalogue totals, using the owner's Space-Track account.
   The data is only displayed, never redistributed.
+  Re-entries are drawn only when due within `REENTRY_HOURS` (default 6)
+  and for an hour after; Space-Track's TIP list runs days ahead.
 - `layers_starlink.c`, `layers_launches.c`, `launchvis.c`: Starlink
   trains, upcoming launches (shown within `LAUNCH_DAYS`, default 1 day,
   of liftoff) and whether an ascent can be seen from home.

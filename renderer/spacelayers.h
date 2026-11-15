@@ -20,7 +20,9 @@
 #define SL_MAX_GRP   4
 #define SL_MAX_PIECE 300
 #define SL_CJ_HOURS  6      /* close approaches shown this far ahead  */
-#define SL_RE_KEEP   (24 * 3600)  /* re-entries kept on the map after */
+#define SL_RE_KEEP   (24 * 3600)  /* re-entries parsed this long after */
+#define SL_RE_AFTER  3600         /* ...and drawn this long after       */
+#define SL_RE_HOURS  6            /* default REENTRY_HOURS              */
 
 typedef struct {
     int    id;
@@ -77,6 +79,10 @@ time_t sl_parse_time(const char *s, double *frac);
 /* Latest TIP message per object; keeps re-entries after now - keep,
  * sorted by time. Returns count. */
 int sl_parse_tip(const char *js, time_t now, time_t keep, sl_reentry_t *out, int max);
+
+/* A re-entry is drawn from `hours` before its predicted time until
+ * SL_RE_AFTER after it (REENTRY_HOURS, 1-168). */
+int sl_reentry_shown(time_t decay, time_t now, int hours);
 
 /* Newest public conjunction message per pair with TCA in (now,
  * now + hours], sorted by TCA. */

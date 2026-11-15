@@ -72,6 +72,7 @@ var rendererSettingCards = {
     'fires':     'fires-card',
     'satclouds': 'satclouds-card',
     'launches':  'launches-card',
+    'reentries': 'reentries-card',
     'planets':   'planets-card',
     'ships':     'ships-card',
     'aurorawatch': 'aurorawatch-card',

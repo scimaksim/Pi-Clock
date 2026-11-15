@@ -789,6 +789,25 @@
             </div>
         </div>
 
+        <div class="card" id="reentries-card" style="display:none">
+            <div class="card-title card-title-row">Re-entries <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
+            <p class="text-muted mb-8">Satellites and rocket bodies Space-Track predicts will burn up (its TIP messages run days ahead). Each is drawn from this long before its predicted time until an hour after.</p>
+            <div class="form-group">
+                <label for="reentry_hours">Show Re-entries Due Within</label>
+                <select id="reentry_hours" class="form-control" data-conf="REENTRY_HOURS">
+                    <option value="3">3 hours</option>
+                    <option value="6">6 hours (default)</option>
+                    <option value="12">12 hours</option>
+                    <option value="24">24 hours</option>
+                    <option value="72">3 days</option>
+                    <option value="168">7 days</option>
+                </select>
+            </div>
+            <div class="mt-12">
+                <button class="btn btn-primary btn-sm" onclick="saveRendererSettings('reentries-card', 'Re-entries')">Save</button>
+            </div>
+        </div>
+
         <div class="card" id="planets-card" style="display:none">
             <div class="card-title card-title-row">Planets <button class="card-back-btn" onclick="scrollToLayers()" title="Back to Layers" aria-label="Back to layers"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-chevron-up"/></svg></button></div>
             <p class="text-muted mb-8">Marks the point on Earth where each naked-eye planet is directly overhead right now. For when and where to look from home, enable the Planets &amp; Sky Events panel in the Applets card.</p>

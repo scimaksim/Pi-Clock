@@ -39,6 +39,18 @@ int main(void)
         CHECK(re[1].id == 90001 && re[1].window_min == 660 && !re[1].descending &&
               re[1].decay == sl_parse_time("2026-11-10 02:00:00", NULL), "newest message wins");
         CHECK(sl_parse_tip("not json", now, SL_RE_KEEP, re, SL_MAX_RE) == 0, "bad json");
+        n = sl_parse_tip(js, now, SL_RE_AFTER, re, SL_MAX_RE);
+        CHECK(n == 1 && re[0].id == 90001, "1 h keep drops the one that fell hours ago (%d)", n);
+        /* drawn from REENTRY_HOURS before until an hour after */
+        CHECK(sl_reentry_shown(now + 5 * 3600, now, 6), "due in 5 h: shown");
+        CHECK(!sl_reentry_shown(now + 7 * 3600, now, 6), "due in 7 h: not yet");
+        CHECK(sl_reentry_shown(now + 7 * 3600, now, 12), "due in 7 h, 12 h setting: shown");
+        CHECK(sl_reentry_shown(now - 1800, now, 6), "fell 30 min ago: shown");
+        CHECK(!sl_reentry_shown(now - 7200, now, 6), "fell 2 h ago: gone");
+        CHECK(!sl_reentry_shown(0, now, 6), "no time: not shown");
+        CHECK(sl_reentry_shown(now + 100 * 3600, now, 168) && !sl_reentry_shown(now + 170 * 3600, now, 500),
+              "capped at a week");
+        CHECK(sl_reentry_shown(now + 1800, now, 0), "0 treated as 1 h");
     }
 
     {   /* CDM: newest message per pair (either order), 6 h window, by TCA */

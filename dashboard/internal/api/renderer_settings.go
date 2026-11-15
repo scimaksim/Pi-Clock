@@ -166,6 +166,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 
 	// Rocket launches
 	"LAUNCH_DAYS":   intSetting("1", 1, 30),
+	"REENTRY_HOURS": intSetting("6", 1, 168),
 	"LAUNCH_LABELS": boolSetting("1"),
 	"EVENTS_HOURS":  intSetting("36", 6, 168),
 

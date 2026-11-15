@@ -61,6 +61,7 @@ enum { P_RE, P_CJ, P_GEO, P_DEB, P_N };
 static struct {
     pthread_mutex_t mutex;
     time_t parsed[P_N];              /* when each part was last read   */
+    int    re_hours;                 /* REENTRY_HOURS                  */
     time_t mt[P_N][4];               /* source files' mtimes           */
     sl_reentry_t re[SL_MAX_RE];
     int nre;
@@ -212,7 +213,8 @@ static void load(int part, time_t now)
     pthread_mutex_lock(&st.mutex);
     if (part == P_RE && changed(P_RE, fre, 2, now)) {
         a = slurp("tip.json", NULL);
-        st.nre = sl_parse_tip(a, now, SL_RE_KEEP, st.re, SL_MAX_RE);
+        /* only what can be drawn, so past ones don't take the slots */
+        st.nre = sl_parse_tip(a, now, SL_RE_AFTER, st.re, SL_MAX_RE);
         free(a);
         if ((b = slurp("objects.tle", NULL)) != NULL) { int k = P_RE; each_3le(b, obj_cb, &k); free(b); }
         st.parsed[P_RE] = now;
@@ -244,7 +246,16 @@ static void load(int part, time_t now)
     pthread_mutex_unlock(&st.mutex);
 }
 
-static int work_re(pic_feature_t *f)  { (void)f; load(P_RE, time(NULL));  return 120; }
+static int work_re(pic_feature_t *f)
+{
+    int h = pic_conf_int("REENTRY_HOURS", SL_RE_HOURS);
+    (void)f;
+    pthread_mutex_lock(&st.mutex);
+    st.re_hours = h;
+    pthread_mutex_unlock(&st.mutex);
+    load(P_RE, time(NULL));
+    return 120;
+}
 static int work_cj(pic_feature_t *f)  { (void)f; load(P_CJ, time(NULL));  return 120; }
 static int work_geo(pic_feature_t *f) { (void)f; load(P_GEO, time(NULL)); return 600; }
 static int work_deb(pic_feature_t *f) { (void)f; load(P_DEB, time(NULL)); return 600; }
@@ -523,6 +534,10 @@ static void render_reentries(cairo_t *cr, int w, int h, time_t now, void *ud)
         double xs[121], ys[121];
         int k, n = 0, imminent = r->window_min <= 60;
 
+        /* Only re-entries due within REENTRY_HOURS (and for an hour
+         * after): the TIP list runs days ahead */
+        if (!sl_reentry_shown(r->decay, now, st.re_hours ? st.re_hours : SL_RE_HOURS))
+            continue;
         fmt_window(win, sizeof(win), r->window_min);
         pic_fmt_when(when, sizeof(when), now, r->decay);
 
