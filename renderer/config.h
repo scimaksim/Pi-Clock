@@ -73,6 +73,12 @@ typedef struct {
      * on the QTH in both latitude and longitude. */
     double local_zoom;
 
+    /* Close-up view (VIEW_CLOSEUP_MIN): its zoom factor, and the point
+     * it centres on (0,0 = home). A viewport at exactly this zoom uses
+     * that centre; localview.c sets these from the settings. */
+    double closeup_zoom;
+    double closeup_lat, closeup_lon;
+
     /* Display output rotation. 0 = normal, 1 = 180° flip. Applied at
      * the framebuffer-write stage (and to snapshot output), so it works
      * on every Pi generation and display type without config.txt/KMS

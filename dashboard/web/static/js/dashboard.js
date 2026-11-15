@@ -663,7 +663,7 @@ function loadLayers() {
         /* Layers with no useful opacity control */
         var noOpacity = {'ticker': true};
         /* Layers that only make sense in every view */
-        var noViewChoice = {'hud': true, 'ticker': true, 'qth': true};
+        var noViewChoice = {'hud': true, 'ticker': true, 'qth': true, 'closeup': true, 'watershed': true};
 
         /* Map layer names to their config card IDs — defined once
          * outside the loop to avoid rebuilding on every iteration. */

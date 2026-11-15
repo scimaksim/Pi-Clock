@@ -274,6 +274,8 @@ var layerDefs = []struct {
 	{"wxalerts", "NWS Weather Alerts (US)", false, 1.0},
 	{"spc", "Severe Storm Outlook (SPC)", false, 1.0},
 	{"lsr", "Storm Reports (last 24 h)", false, 1.0},
+	{"closeup", "Close-up of Home: aerial photo, lakes, creeks, roads (close-up view)", false, 1.0},
+	{"watershed", "Creek Gauges, Field-Lab Weather, Fires (close-up view, via Pi-Dash)", false, 1.0},
 	{"rainfall", "Rain Totals (US, radar + gauges)", false, 0.8},
 	{"rivers", "River & Creek Gauges", false, 1.0},
 	{"drought", "Drought Monitor (US)", false, 1.0},
@@ -368,7 +370,7 @@ func GetLayers() http.HandlerFunc {
 var layerViewSuggest = map[string]string{
 	// Detailed or local data that is clutter (or invisible) at world scale
 	"localmap": "local", "passes": "local", "overhead": "local",
-	"lsr": "local", "rainfall": "local", "rivers": "local", "radar": "local",
+	"lsr": "local", "closeup": "local", "watershed": "local", "rainfall": "local", "rivers": "local", "radar": "local",
 	"aircraft": "local", "ships": "local", "ebird": "local",
 	"darksites": "local", "airquality": "local", "spc": "local",
 	"lightpollution": "local", "nowcast": "local", "hrrr_clouds": "local",

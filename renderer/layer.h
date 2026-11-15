@@ -131,6 +131,11 @@ void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local);
  */
 int pic_layer_too_coarse(const char *name, double span_lon);
 
+/* True for layers drawn only in the close-up of home ("closeup",
+ * "watershed"). With local == 2, pic_layer_stack_apply_view shows only
+ * the layers that work at that scale. */
+int pic_layer_closeup_only(const char *name);
+
 /*
  * pic_layer_stack_init - Initialise a layer stack.
  *

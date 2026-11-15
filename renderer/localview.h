@@ -35,6 +35,10 @@ int pic_view_is_local(void);
 /* The other world on screen (PIC_WORLD_MOON / MARS / JUPITER), 0 = Earth */
 int pic_view_world(void);
 
+/* 1 while the close-up of home (VIEW_CLOSEUP_MIN) is on screen; it is
+ * also a local view, so pic_view_is_local() is 1 too. */
+int pic_view_is_closeup(void);
+
 /* Map View is set to auto-switch between the world and local views */
 int pic_view_is_cycling(void);
 

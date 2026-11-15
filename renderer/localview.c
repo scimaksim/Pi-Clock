@@ -114,6 +114,15 @@ static int next_due_world(int from, time_t now)
 static double local_zoom = 8;
 static int    global_min = 5, local_min = 5;
 static int    showing_local;
+/*
+ * Close-up of home (VIEW_CLOSEUP_MIN minutes, 0 = off): after the local
+ * view, a view CLOSEUP_SPAN degrees of longitude wide (default 0.7,
+ * about 60 km) centred on CLOSEUP_CENTER ("lat,lon", default home).
+ * It counts as a local view (showing_local stays 1).
+ */
+static int    closeup_min;
+static double closeup_zoom_v;
+static int    showing_closeup;
 static time_t switch_at;
 static int    cycle_started;     /* switch_at is live for the cycle */
 
@@ -168,6 +177,25 @@ void pic_view_reload(time_t now)
                 world_days[k] = d;
         }
     }
+    closeup_min = pic_conf_int("VIEW_CLOSEUP_MIN", 0);
+    if (closeup_min < 0) closeup_min = 0;
+    if (closeup_min > 30) closeup_min = 30;
+    {
+        double span = pic_conf_num("CLOSEUP_SPAN", 0.7), la = 0, lo = 0;
+        char c[48] = "";
+        if (span < 0.2) span = 0.2;
+        if (span > 3) span = 3;
+        closeup_zoom_v = 360.0 / span;
+        if (pic_conf_str("CLOSEUP_CENTER", c, sizeof(c)) && c[0] &&
+            sscanf(c, "%lf,%lf", &la, &lo) == 2 && fabs(la) <= 85 && fabs(lo) <= 180) {
+            pic_config.closeup_lat = la;
+            pic_config.closeup_lon = lo;
+        } else {
+            pic_config.closeup_lat = pic_config.closeup_lon = 0;
+        }
+        pic_config.closeup_zoom = closeup_min > 0 ? closeup_zoom_v : 0;
+        if (!closeup_min) showing_closeup = 0;
+    }
     local_zoom = pic_conf_num("LOCAL_ZOOM", 8);
     if (local_zoom < 2) local_zoom = 2;
     if (local_zoom > 30) local_zoom = 30;
@@ -183,6 +211,7 @@ void pic_view_reload(time_t now)
      */
     if (view_mode == VIEW_CYCLE) {
         time_t max_at = now + (time_t)(showing_world ? world_min :
+                                       showing_closeup ? closeup_min :
                                        showing_local ? local_min : global_min) * 60;
         if (!cycle_started || switch_at > max_at) switch_at = max_at;
         cycle_started = 1;
@@ -196,10 +225,11 @@ void pic_view_reload(time_t now)
         showing_world = view_mode == VIEW_WORLD ? fixed_world : 0;
         cycle_started = 0;
     }
-    pic_config.local_zoom = showing_local ? local_zoom : 0;
-    printf("view: mode=%s local_zoom=%.0fx global=%dmin local=%dmin\n",
+    if (view_mode != VIEW_CYCLE) showing_closeup = 0;
+    pic_config.local_zoom = showing_closeup ? closeup_zoom_v : showing_local ? local_zoom : 0;
+    printf("view: mode=%s local_zoom=%.0fx global=%dmin local=%dmin closeup=%dmin (%.2f deg)\n",
            view_mode == VIEW_LOCAL ? "local" : view_mode == VIEW_CYCLE ? "cycle" : "global",
-           local_zoom, global_min, local_min);
+           local_zoom, global_min, local_min, closeup_min, 360.0 / closeup_zoom_v);
 }
 
 /*
@@ -253,6 +283,7 @@ int pic_view_update(time_t now)
             /* something local is happening: leave the other world now */
             showing_world = 0;
             showing_local = 1;
+            showing_closeup = 0;
             hold_since = now;
             snprintf(hold_why, sizeof(hold_why), "%s", why);
             switch_at = now + (time_t)local_min * 60;
@@ -280,11 +311,21 @@ int pic_view_update(time_t now)
         if (k >= 0) { show_world(k, now); return 1; }
         showing_world = 0;
         showing_local = 0;
+    } else if (showing_local && !showing_closeup && closeup_min > 0) {
+        /* local -> close-up of home */
+        showing_closeup = 1;
+        switch_at = now + (time_t)closeup_min * 60;
+        pic_config.local_zoom = closeup_zoom_v;
+        pic_config_recompute_viewport();
+        printf("view: switched to close-up view\n");
+        return 1;
     } else if (showing_local && nworlds && next_due_world(0, now) >= 0) {
+        showing_closeup = 0;
         show_world(next_due_world(0, now), now);
         return 1;
     } else
         showing_local = !showing_local;
+    showing_closeup = 0;
     switch_at = now + (time_t)(showing_local ? local_min : global_min) * 60;
     pic_config.local_zoom = showing_local ? local_zoom : 0;
     pic_config_recompute_viewport();
@@ -295,6 +336,11 @@ int pic_view_update(time_t now)
 int pic_view_is_local(void)
 {
     return showing_local;
+}
+
+int pic_view_is_closeup(void)
+{
+    return showing_closeup;
 }
 
 int pic_view_world(void)

@@ -455,6 +455,30 @@ static const char *const COARSE[] = {
     "wind", "cloud", "precip", "aurora", "bandconditions", NULL
 };
 
+/*
+ * The close-up of home (about 60 km across) shows only layers whose
+ * data means something at that scale; everything drawn for wider views
+ * (world grids, regional maps, satellites' ground tracks...) is hidden.
+ * "closeup" and "watershed" are drawn only there.
+ */
+static const char *const CLOSEUP_SHOW[] = {
+    "closeup", "watershed", "radar", "nowcast", "lightning", "lsr",
+    "wxalerts", "qth", "hud", "ticker", NULL
+};
+static const char *const CLOSEUP_ONLY[] = { "closeup", "watershed", NULL };
+
+static int in_list(const char *const *l, const char *name)
+{
+    for (; *l; l++)
+        if (strcmp(*l, name) == 0) return 1;
+    return 0;
+}
+
+int pic_layer_closeup_only(const char *name)
+{
+    return in_list(CLOSEUP_ONLY, name);
+}
+
 int pic_layer_too_coarse(const char *name, double span_lon)
 {
     int k;
@@ -478,10 +502,12 @@ void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local)
          * This runs right after the viewport changes and before any
          * layer draws, so a hidden layer never appears in the new
          * view, not even for one frame. */
-        int coarse = local != -2 &&
+        /* local == 2: the close-up of home, with its own short list */
+        int coarse = local != -2 && local != 2 &&
                      pic_layer_too_coarse(l->name, pic_config.view_span_lon);
         int hide = local == -2 ? strcmp(l->name, "hud") != 0 && strcmp(l->name, "ticker") != 0 :
-                   coarse ||
+                   local == 2 ? !in_list(CLOSEUP_SHOW, l->name) :
+                   coarse || in_list(CLOSEUP_ONLY, l->name) ||
                    (local >= 0 &&
                     ((l->view == 1 && local) || (l->view == 2 && !local)));
         if (hide != l->view_hidden) {
@@ -495,7 +521,7 @@ void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local)
                     printf("layer: '%s' %s for the %s view\n", l->name,
                            hide ? "hidden" : "shown",
                            local == -2 ? "other-world" : local == -1 ? "fixed" :
-                           local ? "local" : "global");
+                           local == 2 ? "close-up" : local ? "local" : "global");
             }
         }
     }

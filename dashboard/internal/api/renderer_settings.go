@@ -65,9 +65,10 @@ var (
 	// An eclipse for the replay picker: S (solar) or L (lunar) + its date
 	eclipsePickRe = regexp.MustCompile(`^[SL](19|20)[0-9]{2}-[01][0-9]-[0-3][0-9]$`)
 	// Other worlds in the view cycle, e.g. "moon,mars,jupiter"
-	worldsRe    = regexp.MustCompile(`^(moon|mars|jupiter)(,(moon|mars|jupiter)){0,2}$`)
-	worldDaysRe = regexp.MustCompile(`^(moon|mars|jupiter):([1-9]|[12][0-9]|30)(,(moon|mars|jupiter):([1-9]|[12][0-9]|30)){0,2}$`)
-	buoyListRe  = regexp.MustCompile(`^[A-Za-z0-9]{3,6}(,[A-Za-z0-9]{3,6}){0,3}$`)
+	worldsRe        = regexp.MustCompile(`^(moon|mars|jupiter)(,(moon|mars|jupiter)){0,2}$`)
+	closeupCenterRe = regexp.MustCompile(`^-?[0-9]{1,2}(\.[0-9]{1,6})?,-?[0-9]{1,3}(\.[0-9]{1,6})?$`)
+	worldDaysRe     = regexp.MustCompile(`^(moon|mars|jupiter):([1-9]|[12][0-9]|30)(,(moon|mars|jupiter):([1-9]|[12][0-9]|30)){0,2}$`)
+	buoyListRe      = regexp.MustCompile(`^[A-Za-z0-9]{3,6}(,[A-Za-z0-9]{3,6}){0,3}$`)
 	// Stored as "Name:lat:lon,Name:lat:lon" with "_" for spaces, so the
 	// value is inert even if an old init script sources the file as
 	// shell (see normalizeSetting). Max 10 sites, 400 characters.
@@ -82,7 +83,7 @@ var (
 // separators become ",". Everything stored in renderer.conf stays free
 // of shell metacharacters.
 func normalizeSetting(k, v string) string {
-	if k == "PC_HELPER_URL" || k == "ORBIT_SHARE_URL" {
+	if k == "PC_HELPER_URL" || k == "ORBIT_SHARE_URL" || k == "PIDASH_URL" {
 		v = strings.TrimSpace(v)
 		if v != "" && !strings.Contains(v, "://") {
 			v = "http://" + v
@@ -196,6 +197,10 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"VIEW_GLOBAL_MIN":   intSetting("5", 1, 240),
 	"VIEW_SMART":        boolSetting("1"),
 	"VIEW_LOCAL_MIN":    intSetting("5", 1, 240),
+	"VIEW_CLOSEUP_MIN":  intSetting("0", 0, 30),
+	"CLOSEUP_SPAN":      enumSetting("0.7", "0.3", "0.45", "0.7", "1.1"),
+	"CLOSEUP_CENTER":    patternSetting("", closeupCenterRe),
+	"PIDASH_URL":        patternSetting("", pcHelperRe),
 	"LOCAL_TOWNS":       boolSetting("1"),
 	"HUD_UTC":           boolSetting("1"),
 	"HUD_IP":            boolSetting("1"),

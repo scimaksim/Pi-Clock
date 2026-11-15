@@ -87,6 +87,20 @@ aurora, band conditions) are hidden whenever the view is under 60°
 wide, whatever their view setting (`pic_layer_too_coarse`); the hiding
 is applied at the switch, before the new view draws.
 
+**Close-up of home (`layers_closeup.c`).** `VIEW_CLOSEUP_MIN` adds a
+third view after the local one: `CLOSEUP_SPAN` degrees wide (default
+0.7, about 60 km) around `CLOSEUP_CENTER` (default home). Its base map is
+the USGS aerial photo for exactly the view with NHD lakes and creeks and
+TIGER roads and town names, fetched once and kept 30 days in
+`/data/cache/pi-clock-closeup`, dimmed by the Sun's height. The live
+layer reads `PIDASH_URL` (the Pi-Dash server on the PC, which fetches
+each source once for the house and keeps the API keys): `/api/watershed`
+(USGS gauges against normal for the date, NC State Climate Office ECONet
+field-lab station) and `/api/ncorbit` (NASA FIRMS fires). Water runs
+along Swift Creek and the Neuse faster with more flow, gauges ripple,
+the station's cups turn with the wind. Only layers that work at that
+scale are drawn there, and no side panels.
+
 **Base map.** Day and night maps (Blue Marble, Black Marble) blended by
 the Sun's position. `season.c` overlays a cloud-free composite of recent
 VIIRS daily imagery from NASA GIBS so snow and leaf colour follow the

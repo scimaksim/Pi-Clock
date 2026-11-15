@@ -20,6 +20,8 @@ pic_feature_t *pic_feature_eclipse(void);   /* Live eclipse shadows    */
 pic_feature_t *pic_feature_ships(void);     /* AIS vessel positions    */
 pic_feature_t *pic_feature_aurorawatch(void);    /* Aurora view line   */
 pic_feature_t *pic_feature_hanotify(void);       /* Home Assistant alerts */
+pic_feature_t *pic_feature_closeup(void);        /* Close-up base map  */
+pic_feature_t *pic_feature_watershed(void);      /* Creeks, field lab  */
 pic_feature_t *pic_feature_lsr(void);            /* Storm reports      */
 pic_feature_t *pic_feature_rainfall(void);       /* MRMS rain totals   */
 pic_feature_t *pic_feature_rivers(void);         /* River gauges       */

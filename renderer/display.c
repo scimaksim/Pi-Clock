@@ -649,6 +649,8 @@ static const struct {
     {"passes",         1},  /* TLEs + pass list                      */
     {"overhead",       5},  /* ~1,700 TLEs (pic_sat_t ~2 KB each)    */
     {"lsr",            4},  /* Storm report JSON                     */
+    {"closeup",       18},  /* Close-up photo + map, 1920x1080 x2    */
+    {"watershed",      1},  /* Gauges, field lab, fires (Pi-Dash)    */
     {"rainfall",      10},  /* MRMS image up to 2400 px wide         */
     {"rivers",         4},  /* NWPS gauge JSON                       */
     {"ebird",          1},  /* eBird JSON                            */
@@ -1681,6 +1683,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                         pic_layer_render_basemap, 0, 1.0, black_marble);
     pic_layer_stack_add(&stack, "daylight",
                         pic_layer_render_daylight, 60, 1.0, blue_marble);
+    add_feature_layer(&stack, pic_feature_closeup());   /* close-up view only */
     add_feature_layer(&stack, pic_feature_sst());
     add_feature_layer(&stack, pic_feature_pch_frost());
     add_feature_layer(&stack, pic_feature_satclouds());
@@ -1726,6 +1729,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     add_feature_layer(&stack, pic_feature_spc());
     add_feature_layer(&stack, pic_feature_rivers());
     add_feature_layer(&stack, pic_feature_lsr());
+    add_feature_layer(&stack, pic_feature_watershed()); /* close-up view only */
     pic_layer_stack_add(&stack, "airquality",
                         pic_layer_render_airquality, 60, 1.0, &airquality);
     add_feature_layer(&stack, pic_feature_ships());
@@ -2373,7 +2377,8 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             int switched = pic_view_update(now);
             /* -2 another world, -1 fixed view, 0/1 global/local in the cycle;
              * also re-applied when a settings change alters it */
-            int vs = pic_view_world() ? -2 : pic_view_is_cycling() ? pic_view_is_local() : -1;
+            int vs = pic_view_world() ? -2 : !pic_view_is_cycling() ? -1 :
+                     pic_view_is_closeup() ? 2 : pic_view_is_local();
             if (switched || rg != last_reg_gen || vs != last_vs) {
                 int li;
                 last_reg_gen = rg;
@@ -2509,7 +2514,9 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     cairo_set_operator(acr, CAIRO_OPERATOR_CLEAR);
                     cairo_paint(acr);
                     cairo_set_operator(acr, CAIRO_OPERATOR_OVER);
-                    pic_applet_stack_render(&applets, acr, width, height, now);
+                    /* the close-up of home is all map: no side panels */
+                    if (!pic_view_is_closeup())
+                        pic_applet_stack_render(&applets, acr, width, height, now);
                     cairo_destroy(acr);
                     cairo_surface_flush(applet_surface);
                     applets_at = now;
@@ -2518,7 +2525,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                     if (applet_surface) {
                         cairo_set_source_surface(bcr, applet_surface, 0, 0);
                         cairo_paint(bcr);
-                    } else {
+                    } else if (!pic_view_is_closeup()) {
                         pic_applet_stack_render(&applets, bcr, width, height, now);
                     }
                 }

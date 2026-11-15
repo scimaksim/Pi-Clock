@@ -160,6 +160,13 @@ void pic_config_viewport_for(double local_zoom, double v[4])
         v[3] = pic_config.qth_lat;
     }
 
+    /* The close-up view may centre somewhere other than home */
+    if (local_zoom > 1.0 && local_zoom == pic_config.closeup_zoom &&
+        !(pic_config.closeup_lat == 0.0 && pic_config.closeup_lon == 0.0)) {
+        v[2] = pic_config.closeup_lon;
+        v[3] = pic_config.closeup_lat;
+    }
+
     /* Clamp so the view never exceeds either pole.
      * Example: QTH at 52°N with zoom=1 (full world) → span 180° →
      * hi=0, lo=0, view_center_lat=0 (world view). As zoom grows,

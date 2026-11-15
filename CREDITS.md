@@ -58,6 +58,14 @@ its box score, fetched with the owner's own account and only displayed
 on the clock, per the Space-Track user agreement.
 https://www.space-track.org/
 
+**Close-up of home** — aerial imagery from USGS The National Map
+(USGSImageryOnly, public domain); lakes and creeks from the USGS
+National Hydrography Dataset; roads and town names from US Census
+TIGERweb. Creek gauges from USGS Water Services; the field-lab weather
+station from the NC State Climate Office ECONet; fires seen from space
+from NASA FIRMS (VIIRS) — the last three read from the owner's Pi-Dash
+server, which fetches them once for the house.
+
 **GCAT: General Catalog of Artificial Space Objects** — Jonathan
 C. McDowell. The payload catalogue's end-of-transmission and
 end-of-operations dates mark satellites that no longer work in the
