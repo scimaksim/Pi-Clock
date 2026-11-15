@@ -77,7 +77,7 @@ rate-held because CelesTrak blocks addresses that ask too often.
 `datastatus.c` records each source's last success for the dashboard.
 
 **Views.** `VIEW_MODE=cycle` rotates: global map 5 min, local map 5 min,
-then the Moon, Mars and Jupiter 2 min each (`planetview.c`). The local
+then the Moon, Mars and Jupiter 2 min each (`planetview.c`). `VIEW_WORLD_DAYS` (e.g. `moon:3,jupiter:3`) makes a world join the cycle only once every that many days; when each was last shown is kept in `/data/cache/pi-clock-worlds-shown` so restarts don't reset it. The local
 view is a zoom around home with its own detail map (`localmap.dat`),
 towns and state lines. Layers can be limited to the global or the local
 view. `pic_config.viewport_gen` changes with every view change so cached

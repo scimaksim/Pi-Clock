@@ -46,6 +46,71 @@ static int    view_mode = VIEW_GLOBAL;
  */
 static int    worlds[4], nworlds, world_min = 2, fixed_world;
 static int    showing_world, world_idx;
+/*
+ * VIEW_WORLD_DAYS ("moon:3,jupiter:3"): a listed world joins the cycle
+ * only once every that many days; others join every cycle. When each
+ * world was last shown is kept in a small file so restarts don't reset
+ * it (PIC_VIEW_STATE overrides the path, for the tests).
+ */
+static int    world_days[PIC_WORLD_N];
+static time_t world_last[PIC_WORLD_N];
+static int    world_last_loaded;
+#define WORLD_STATE "/data/cache/pi-clock-worlds-shown"
+
+static const char *world_state_path(void)
+{
+    const char *p = getenv("PIC_VIEW_STATE");
+    return p && *p ? p : WORLD_STATE;
+}
+
+static void world_state_load(void)
+{
+    FILE *f = fopen(world_state_path(), "r");
+    char name[16];
+    long long t;
+    world_last_loaded = 1;
+    if (!f) return;
+    while (fscanf(f, "%15s %lld", name, &t) == 2) {
+        int k = pic_world_by_name(name);
+        if (k > 0 && k < PIC_WORLD_N && t > 0) world_last[k] = (time_t)t;
+    }
+    fclose(f);
+}
+
+static void world_state_save(void)
+{
+    char tmp[160];
+    FILE *f;
+    int k;
+    snprintf(tmp, sizeof(tmp), "%s.new", world_state_path());
+    f = fopen(tmp, "w");
+    if (!f) return;
+    for (k = 1; k < PIC_WORLD_N; k++)
+        if (world_last[k]) fprintf(f, "%s %lld\n", pic_world_name(k), (long long)world_last[k]);
+    if (fclose(f) == 0) rename(tmp, world_state_path());
+    else unlink(tmp);
+}
+
+/* Due when it has no day limit, or its last showing is that many days
+ * ago (less an hour, so the time of day doesn't creep later). */
+static int world_due(int k, time_t now)
+{
+    int w = worlds[k];
+    if (w <= 0 || w >= PIC_WORLD_N || world_days[w] <= 0) return 1;
+    if (!world_last_loaded) world_state_load();
+    return !world_last[w] || now < world_last[w] ||
+           now - world_last[w] >= (time_t)world_days[w] * 86400 - 3600;
+}
+
+/* Index of the first due world at or after `from`, or -1 */
+static int next_due_world(int from, time_t now)
+{
+    int k;
+    for (k = from; k < nworlds; k++)
+        if (world_due(k, now)) return k;
+    return -1;
+}
+
 static double local_zoom = 8;
 static int    global_min = 5, local_min = 5;
 static int    showing_local;
@@ -56,6 +121,21 @@ static int smart_hold = 1;          /* VIEW_SMART: hold local for events */
 static time_t hold_since;
 static char hold_why[64];
 #define VIEW_HOLD_MAX 20
+
+static void show_world(int k, time_t now)
+{
+    world_idx = k;
+    showing_world = worlds[k];
+    showing_local = 0;
+    switch_at = now + (time_t)world_min * 60;
+    if (world_days[showing_world] > 0) {
+        world_last[showing_world] = now;
+        world_state_save();
+        printf("view: switched to %s (next in %d days)\n", pic_world_name(showing_world),
+               world_days[showing_world]);
+    } else
+        printf("view: switched to %s\n", pic_world_name(showing_world));
+}
 
 void pic_view_reload(time_t now)
 {
@@ -75,6 +155,18 @@ void pic_view_reload(time_t now)
         world_min = pic_conf_int("VIEW_WORLD_MIN", 2);
         if (world_min < 1) world_min = 1;
         if (world_min > 30) world_min = 30;
+        memset(world_days, 0, sizeof(world_days));
+        w[0] = '\0';
+        pic_conf_str("VIEW_WORLD_DAYS", w, sizeof(w));
+        for (tok = strtok_r(w, ",", &sp); tok; tok = strtok_r(NULL, ",", &sp)) {
+            char *c = strchr(tok, ':');
+            int d;
+            if (!c) continue;
+            *c = '\0';
+            d = atoi(c + 1);
+            if ((k = pic_world_by_name(tok)) > 0 && k < PIC_WORLD_N && d >= 1 && d <= 30)
+                world_days[k] = d;
+        }
     }
     local_zoom = pic_conf_num("LOCAL_ZOOM", 8);
     if (local_zoom < 2) local_zoom = 2;
@@ -182,23 +274,14 @@ int pic_view_update(time_t now)
         }
     }
     if (now < switch_at) return 0;
-    /* global -> local -> each listed world -> global */
+    /* global -> local -> each listed world that is due -> global */
     if (showing_world) {
-        if (world_idx + 1 < nworlds) {
-            world_idx++;
-            showing_world = worlds[world_idx];
-            switch_at = now + (time_t)world_min * 60;
-            printf("view: switched to %s\n", pic_world_name(showing_world));
-            return 1;
-        }
+        int k = next_due_world(world_idx + 1, now);
+        if (k >= 0) { show_world(k, now); return 1; }
         showing_world = 0;
         showing_local = 0;
-    } else if (showing_local && nworlds) {
-        world_idx = 0;
-        showing_world = worlds[0];
-        showing_local = 0;
-        switch_at = now + (time_t)world_min * 60;
-        printf("view: switched to %s\n", pic_world_name(showing_world));
+    } else if (showing_local && nworlds && next_due_world(0, now) >= 0) {
+        show_world(next_due_world(0, now), now);
         return 1;
     } else
         showing_local = !showing_local;

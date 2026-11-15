@@ -139,10 +139,14 @@
                 <label>Other Worlds in the Auto-switch</label>
                 <p class="text-muted mb-8">After the local view, show each ticked world full screen: landers, rovers and crash sites at their published positions, orbiters live from JPL Horizons, day and night, moons and their shadows. Mars adds Curiosity and Perseverance on HiRISE close-ups with their latest drives. Something happening at home (a pass, a launch, aurora) brings the local view straight back.</p>
                 <input type="hidden" id="view_worlds" data-conf="VIEW_WORLDS">
+                <input type="hidden" id="view_world_days" data-conf="VIEW_WORLD_DAYS">
                 <div class="check-row" id="view_worlds_boxes">
                     <label class="checkbox-label"><input type="checkbox" value="moon" onchange="setViewWorlds()"> The Moon</label>
+                    <select class="form-control world-days" data-world="moon" aria-label="How often the Moon is shown" onchange="setViewWorlds()"><option value="0">every cycle</option><option value="1">once a day</option><option value="3">every 3 days</option><option value="7">once a week</option></select>
                     <label class="checkbox-label"><input type="checkbox" value="mars" onchange="setViewWorlds()"> Mars</label>
+                    <select class="form-control world-days" data-world="mars" aria-label="How often Mars is shown" onchange="setViewWorlds()"><option value="0">every cycle</option><option value="1">once a day</option><option value="3">every 3 days</option><option value="7">once a week</option></select>
                     <label class="checkbox-label"><input type="checkbox" value="jupiter" onchange="setViewWorlds()"> Jupiter</label>
+                    <select class="form-control world-days" data-world="jupiter" aria-label="How often Jupiter is shown" onchange="setViewWorlds()"><option value="0">every cycle</option><option value="1">once a day</option><option value="3">every 3 days</option><option value="7">once a week</option></select>
                 </div>
             </div>
             <div class="form-group">

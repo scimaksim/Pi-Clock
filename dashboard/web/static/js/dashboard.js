@@ -1261,11 +1261,16 @@ function loadRendererSettings(cardId) {
     });
 }
 
-// Map view card: the world checkboxes stand for one VIEW_WORLDS list
+// Map view card: the world checkboxes stand for one VIEW_WORLDS list,
+// and the how-often menus for VIEW_WORLD_DAYS ("moon:3,jupiter:3")
 function setViewWorlds() {
-    var boxes = document.querySelectorAll('#view_worlds_boxes input'), list = [];
+    var boxes = document.querySelectorAll('#view_worlds_boxes input'), list = [], days = [];
     boxes.forEach(function(b) { if (b.checked) list.push(b.value); });
+    document.querySelectorAll('#view_worlds_boxes select.world-days').forEach(function(s) {
+        if (s.value !== '0') days.push(s.getAttribute('data-world') + ':' + s.value);
+    });
     document.getElementById('view_worlds').value = list.join(',');
+    document.getElementById('view_world_days').value = days.join(',');
     saveRendererSettings('view-card', 'Map view');
 }
 document.addEventListener('DOMContentLoaded', function() {
@@ -1275,6 +1280,21 @@ document.addEventListener('DOMContentLoaded', function() {
         var v = (document.getElementById('view_worlds').value || '').split(',');
         document.querySelectorAll('#view_worlds_boxes input').forEach(function(b) {
             b.checked = v.indexOf(b.value) >= 0;
+        });
+        var d = {};
+        (document.getElementById('view_world_days').value || '').split(',').forEach(function(p) {
+            var kv = p.split(':');
+            if (kv.length === 2) d[kv[0]] = kv[1];
+        });
+        document.querySelectorAll('#view_worlds_boxes select.world-days').forEach(function(s) {
+            var want = d[s.getAttribute('data-world')] || '0';
+            /* a value saved by hand that isn't in the menu gets its own entry */
+            if (!s.querySelector('option[value="' + want + '"]')) {
+                var o = document.createElement('option');
+                o.value = want; o.textContent = 'every ' + want + ' days';
+                s.appendChild(o);
+            }
+            s.value = want;
         });
     });
 });
