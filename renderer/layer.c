@@ -19,6 +19,7 @@
  */
 
 #include "layer.h"
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -441,25 +442,61 @@ void pic_layer_stack_destroy(pic_layer_stack_t *stack)
     printf("layer: stack destroyed\n");
 }
 
+/*
+ * Layers drawn from a coarse world grid: 1° GFS cloud, rain and wind,
+ * the 1° OVATION aurora grid and the 2° band-conditions grid. Zoomed
+ * in, one grid cell is a hundred pixels or more across, so the layer
+ * shows blurred blobs (or, for wind, a handful of stray streaks) that
+ * say nothing about the area on screen. These are hidden whenever the
+ * view is narrower than COARSE_MIN_SPAN degrees of longitude.
+ */
+#define COARSE_MIN_SPAN 60.0
+static const char *const COARSE[] = {
+    "wind", "cloud", "precip", "aurora", "bandconditions", NULL
+};
+
+int pic_layer_too_coarse(const char *name, double span_lon)
+{
+    int k;
+    if (span_lon < 0.0001) span_lon = 360.0;
+    if (span_lon >= COARSE_MIN_SPAN) return 0;
+    for (k = 0; COARSE[k]; k++)
+        if (strcmp(COARSE[k], name) == 0) return 1;
+    return 0;
+}
+
 void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local)
 {
     int i;
     for (i = 0; i < stack->count; i++) {
         pic_layer_t *l = &stack->layers[i];
         /* local == -1: the view is fixed (not auto-switching), so the
-         * per-layer view choice doesn't apply and nothing is hidden.
+         * per-layer view choice doesn't apply and nothing is hidden
+         * but coarse layers when zoomed in.
          * local == -2: another world is on screen (planetview.c):
-         * everything but the clock and the ticker is hidden. */
+         * everything but the clock and the ticker is hidden.
+         * This runs right after the viewport changes and before any
+         * layer draws, so a hidden layer never appears in the new
+         * view, not even for one frame. */
+        int coarse = local != -2 &&
+                     pic_layer_too_coarse(l->name, pic_config.view_span_lon);
         int hide = local == -2 ? strcmp(l->name, "hud") != 0 && strcmp(l->name, "ticker") != 0 :
-                   local >= 0 &&
-                   ((l->view == 1 && local) || (l->view == 2 && !local));
+                   coarse ||
+                   (local >= 0 &&
+                    ((l->view == 1 && local) || (l->view == 2 && !local)));
         if (hide != l->view_hidden) {
             l->view_hidden = hide;
             l->last_rendered = 0;
-            if (l->enabled)
-                printf("layer: '%s' %s for the %s view\n", l->name,
-                       hide ? "hidden" : "shown",
-                       local == -2 ? "other-world" : local ? "local" : "global");
+            if (l->enabled) {
+                if (coarse)
+                    printf("layer: '%s' hidden at this zoom (its data grid is too coarse)\n",
+                           l->name);
+                else
+                    printf("layer: '%s' %s for the %s view\n", l->name,
+                           hide ? "hidden" : "shown",
+                           local == -2 ? "other-world" : local == -1 ? "fixed" :
+                           local ? "local" : "global");
+            }
         }
     }
 }

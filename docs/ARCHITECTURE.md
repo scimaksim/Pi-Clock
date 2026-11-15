@@ -82,6 +82,10 @@ view is a zoom around home with its own detail map (`localmap.dat`),
 towns and state lines. Layers can be limited to the global or the local
 view. `pic_config.viewport_gen` changes with every view change so cached
 drawings and label boxes from the old view are dropped.
+Layers drawn from 1-2° world grids (wind, cloud cover, GFS rain,
+aurora, band conditions) are hidden whenever the view is under 60°
+wide, whatever their view setting (`pic_layer_too_coarse`); the hiding
+is applied at the switch, before the new view draws.
 
 **Base map.** Day and night maps (Blue Marble, Black Marble) blended by
 the Sun's position. `season.c` overlays a cloud-free composite of recent
@@ -116,6 +120,14 @@ storms, satellites) asks for a free spot among eight candidates around
 its marker; the registry keeps labels off each other, the clocks, the
 side panels and the bottom notes. Boxes expire with the view or after
 300 s.
+
+**Radar (`radar.c`).** Iowa State's NEXRAD N0Q mosaic, fetched for the
+area on screen. Each pixel's colour is mapped back to dBZ through IEM's
+colour ramp; echoes under `RADAR_MIN_DBZ` (default 10) are dropped, and
+in zoomed views isolated pixels (fewer than 4 of 8 neighbours kept) are
+dropped too. This removes the clear-air returns IEM leaves in over large
+blocks in winter. If the ramp stops matching, the image is shown
+unfiltered.
 
 **Weather and Earth.** NWS alerts (`nwsalert.c`), SPC outlooks, storm
 reports, NEXRAD radar, rain totals, river gauges, drought, GFS rain and
@@ -210,6 +222,8 @@ installs to the inactive slot; `pi-clock-rollback` returns to the other.
 
 ## History
 
+- 2026-11-14 (evening): radar drops echoes under 10 dBZ and isolated
+  speckle; coarse world-grid layers hidden when zoomed in.
 - 2026-11-14: defunct and retired dates from GCAT in the local view;
   season map window follows the newest imagery; shared label registry;
   stale-data rule; alert, radar and Home Assistant hardening; two review

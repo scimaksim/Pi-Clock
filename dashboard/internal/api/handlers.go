@@ -355,6 +355,7 @@ func GetLayers() http.HandlerFunc {
 				"category": layerCat(def.Name),
 				"view":     layerViewName[view],
 				"suggest":  layerViewSuggestFor(def.Name),
+				"coarse":   coarseLayers[def.Name],
 			})
 		}
 
@@ -381,6 +382,14 @@ var layerViewSuggest = map[string]string{
 	"precip": "global", "wind": "global", "sst": "global", "cqzone": "global",
 	"ituzone": "global", "maidenhead": "global", "dxspots": "global",
 	"bandconditions": "global",
+}
+
+// coarseLayers are drawn from 1-2° world grids. The renderer hides them
+// whenever the map is zoomed in under 60° wide (pic_layer_too_coarse in
+// renderer/layer.c), whatever their view setting, so the dashboard
+// offers them for the world map only.
+var coarseLayers = map[string]bool{
+	"wind": true, "cloud": true, "precip": true, "aurora": true, "bandconditions": true,
 }
 
 func layerCat(name string) string {

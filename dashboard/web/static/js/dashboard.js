@@ -692,7 +692,7 @@ function loadLayers() {
          * fills them all in (nothing is saved until Save Layers). */
         var hint = document.createElement('div');
         hint.className = 'layer-view-hint text-muted';
-        hint.textContent = 'When Map View auto-switches, each layer can show in both views, only the world view or only the local view (with a fixed view every enabled layer shows). \u2605 marks the suggested view: local detail (rivers, storm reports, radar, aircraft) when zoomed in, planet-wide layers (earthquakes, launches, satellites, zones) for the world. ';
+        hint.textContent = 'When Map View auto-switches, each layer can show in both views, only the world view or only the local view (with a fixed view every enabled layer shows). \u2605 marks the suggested view: local detail (rivers, storm reports, radar, aircraft) when zoomed in, planet-wide layers (earthquakes, launches, satellites, zones) for the world. Layers drawn from coarse world grids (wind, cloud cover, rain forecast, aurora, band conditions) show on the world map only. ';
         var sugBtn = document.createElement('button');
         sugBtn.type = 'button';
         sugBtn.className = 'btn btn-sm';
@@ -796,7 +796,21 @@ function loadLayers() {
             /* Which view the layer shows in: when Map View cycles,
              * local-only layers appear while zoomed in on home and
              * global-only ones while showing the whole map. */
-            if (!requiredLayers[layer.name] && !noViewChoice[layer.name]) {
+            if (layer.coarse) {
+                /* 1-2 degree world grids: the clock hides these when
+                 * zoomed in, so the only choice is the world map */
+                var cs = document.createElement('select');
+                cs.className = 'layer-view';
+                cs.setAttribute('data-layer-view', layer.name);
+                cs.disabled = true;
+                cs.title = 'Drawn from a 1\u20132\u00b0 world grid, too coarse for the zoomed-in map, so the clock shows it on the world map only';
+                var copt = document.createElement('option');
+                copt.value = 'global';
+                copt.textContent = 'World map only';
+                copt.selected = true;
+                cs.appendChild(copt);
+                row.appendChild(cs);
+            } else if (!requiredLayers[layer.name] && !noViewChoice[layer.name]) {
                 var vs = document.createElement('select');
                 vs.className = 'layer-view';
                 vs.setAttribute('data-layer-view', layer.name);

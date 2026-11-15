@@ -38,3 +38,25 @@ func TestLayerViewRoundTrip(t *testing.T) {
 		t.Fatalf("views %v", views)
 	}
 }
+
+func TestCoarseLayersFlagged(t *testing.T) {
+	layersConfPath = filepath.Join(t.TempDir(), "layers.conf")
+	rec := httptest.NewRecorder()
+	GetLayers()(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	var got []map[string]interface{}
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	coarse := map[string]bool{}
+	for _, l := range got {
+		if c, _ := l["coarse"].(bool); c {
+			coarse[l["name"].(string)] = true
+		}
+	}
+	for _, n := range []string{"wind", "cloud", "precip", "aurora", "bandconditions"} {
+		if !coarse[n] {
+			t.Fatalf("%s not flagged coarse: %v", n, coarse)
+		}
+	}
+	if coarse["radar"] || coarse["satclouds"] || coarse["sst"] || len(coarse) != 5 {
+		t.Fatalf("unexpected coarse set %v", coarse)
+	}
+}

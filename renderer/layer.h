@@ -124,6 +124,14 @@ void pic_layer_set_interval(const char *name, int seconds);
 void pic_layer_stack_apply_view(pic_layer_stack_t *stack, int local);
 
 /*
+ * True for a layer whose data grid is too coarse to draw in a view
+ * span_lon degrees wide (1-2° world grids when zoomed in). Such
+ * layers are hidden by pic_layer_stack_apply_view whatever their
+ * view setting.
+ */
+int pic_layer_too_coarse(const char *name, double span_lon);
+
+/*
  * pic_layer_stack_init - Initialise a layer stack.
  *
  * Sets up an empty stack with the given output dimensions.
