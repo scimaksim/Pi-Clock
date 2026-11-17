@@ -304,7 +304,7 @@ static int pd_work(pic_feature_t *f)
 {
     pd_item_t got[PD_MAX];
     char base[160], url[220], *buf;
-    int n = 0, k, r, ok = 0;
+    int n = 0, k, r, ok = 0, missed = 0;
     time_t now = time(NULL);
     pthread_mutex_lock(&pd.m);
     snprintf(base, sizeof(base), "%s", pd.url);
@@ -340,7 +340,8 @@ static int pd_work(pic_feature_t *f)
     /* keep the ones whose picture is on disk */
     for (k = 0; k < n && !pic_feature_interrupted(f); ) {
         if (have_image(&got[k]) || fetch_image(base, &got[k]) == 0) { k++; continue; }
-        printf("photoday: %s picture could not be fetched\n", got[k].src);
+        printf("photoday: %s picture could not be fetched, trying again in 5 min\n", got[k].src);
+        missed = 1;
         memmove(&got[k], &got[k + 1], (size_t)(n - k - 1) * sizeof(got[0]));
         n--;
     }
@@ -355,7 +356,9 @@ static int pd_work(pic_feature_t *f)
         printf("\n");
     }
     pthread_mutex_unlock(&pd.m);
-    return 1800;
+    /* Pi-Dash fetches an image from its source on first request, which
+     * can outlast the download timeout: ask again soon */
+    return missed ? 300 : 1800;
 }
 
 static void pd_reload(pic_feature_t *f)
