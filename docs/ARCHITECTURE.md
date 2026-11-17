@@ -106,7 +106,10 @@ the Sun's position. `season.c` overlays a cloud-free composite of recent
 VIIRS daily imagery from NASA GIBS so snow and leaf colour follow the
 season: a 12-day window ending on the newest day that has imagery
 (looked for up to 30 days back), keeping a pixel only when at least
-three days saw it.
+three days saw it. The local view's sharper day and night photos come
+from NASA GIBS for the local view's area only (the close-up has its own
+photo), are fetched as a pair and replace the old pair only when both
+arrive, so a failed download never leaves half the map blurry.
 
 **Satellites.**
 - `satellite.c` propagates orbits with SGP4 and predicts passes.

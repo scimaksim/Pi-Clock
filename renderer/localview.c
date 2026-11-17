@@ -480,16 +480,15 @@ static int localbase_work(pic_feature_t *f)
         { "VIIRS_Black_Marble", "&TIME=2016-01-01" },
         { "BlueMarble_NextGeneration", "" },
     };
-    double z = pic_config.local_zoom, span_lon, span_lat, cx, cy;
+    /* Always the local (regional) view's area, whatever is on screen:
+     * the global view and the close-up don't use this imagery, and
+     * keying it to the current view made every switch to the close-up
+     * throw the regional photos away and download them again */
+    double z = local_zoom, span_lon, span_lat, cx, cy;
     double lon0, lon1, lat0, lat1;
     int sw, sh, w, h, i, s, first;
     unsigned gen = pic_config.viewport_gen;
-
-    if (z <= 1.0) {
-        /* Global view right now: compute the local area anyway so the
-         * imagery is ready when the cycle switches */
-        z = local_zoom;
-    }
+    cairo_surface_t *got[2] = { NULL, NULL };
     span_lon = 360.0 / z;
     span_lat = 180.0 / z;
     cx = pic_config.qth_lon;
@@ -533,18 +532,31 @@ static int localbase_work(pic_feature_t *f)
             img = load_jpeg_surface(REG_TMP, w);
         unlink(REG_TMP);
         if (!img) {
-            printf("localview: %s fetch failed\n", src[i].layer);
-            return 300;
+            /* Keep the imagery already on screen; publishing only one
+             * of the pair for a new area would leave the other half of
+             * the map on the stretched world map */
+            printf("localview: %s fetch failed, retrying in 2 min\n", src[i].layer);
+            if (got[0]) cairo_surface_destroy(got[0]);
+            if (got[1]) cairo_surface_destroy(got[1]);
+            return 120;
         }
-        pthread_mutex_lock(&reg_mutex);
-        if (reg[i].img) cairo_surface_destroy(reg[i].img);
-        reg[i].img = img;
-        reg[i].lon0 = lon0; reg[i].lon1 = lon1;
-        reg[i].lat0 = lat0; reg[i].lat1 = lat1;
-        pthread_mutex_unlock(&reg_mutex);
+        got[i] = img;
         printf("localview: %s %dx%d for %.1f,%.1f..%.1f,%.1f\n",
                src[i].layer, w, h, lon0, lat0, lon1, lat1);
     }
+    if (pic_feature_interrupted(f)) {
+        if (got[0]) cairo_surface_destroy(got[0]);
+        if (got[1]) cairo_surface_destroy(got[1]);
+        return 1;
+    }
+    pthread_mutex_lock(&reg_mutex);
+    for (i = first; i < 2; i++) {
+        if (reg[i].img) cairo_surface_destroy(reg[i].img);
+        reg[i].img = got[i];
+        reg[i].lon0 = lon0; reg[i].lon1 = lon1;
+        reg[i].lat0 = lat0; reg[i].lat1 = lat1;
+    }
+    pthread_mutex_unlock(&reg_mutex);
     /* Make the base maps re-render with the new imagery */
     __atomic_add_fetch(&reg_gen, 1, __ATOMIC_RELEASE);
     reg_season = 0;
