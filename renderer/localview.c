@@ -126,6 +126,37 @@ static int    showing_closeup;
 static time_t switch_at;
 static int    cycle_started;     /* switch_at is live for the cycle */
 
+/*
+ * Picture of the day (VIEW_PHOTO_MIN minutes, 0 = off): after the other
+ * worlds, one of the day's space pictures (photoday.c), a different one
+ * each cycle.
+ */
+static int    photo_min, showing_photo;
+static int  (*photo_ready)(time_t now);
+static void (*photo_next)(void);
+
+void pic_view_set_photo_source(int (*ready)(time_t now), void (*next)(void))
+{
+    photo_ready = ready;
+    photo_next = next;
+}
+
+static int photo_due(time_t now)
+{
+    return photo_min > 0 && photo_ready && photo_ready(now);
+}
+
+static void show_photo(time_t now)
+{
+    showing_photo = 1;
+    showing_world = 0;
+    showing_local = 0;
+    showing_closeup = 0;
+    switch_at = now + (time_t)photo_min * 60;
+    if (photo_next) photo_next();
+    printf("view: switched to the picture of the day\n");
+}
+
 static int smart_hold = 1;          /* VIEW_SMART: hold local for events */
 static time_t hold_since;
 static char hold_why[64];
@@ -177,6 +208,9 @@ void pic_view_reload(time_t now)
                 world_days[k] = d;
         }
     }
+    photo_min = pic_conf_int("VIEW_PHOTO_MIN", 0);
+    if (photo_min < 0) photo_min = 0;
+    if (photo_min > 10) photo_min = 10;
     closeup_min = pic_conf_int("VIEW_CLOSEUP_MIN", 0);
     if (closeup_min < 0) closeup_min = 0;
     if (closeup_min > 30) closeup_min = 30;
@@ -210,11 +244,13 @@ void pic_view_reload(time_t now)
      * the timer, only shortening it if the new duration is shorter.
      */
     if (view_mode == VIEW_CYCLE) {
-        time_t max_at = now + (time_t)(showing_world ? world_min :
+        time_t max_at = now + (time_t)(showing_photo ? photo_min :
+                                       showing_world ? world_min :
                                        showing_closeup ? closeup_min :
                                        showing_local ? local_min : global_min) * 60;
         if (!cycle_started || switch_at > max_at) switch_at = max_at;
         cycle_started = 1;
+        if (showing_photo && !photo_min) { showing_photo = 0; switch_at = now; }
         if (showing_world) {   /* a world dropped from the list: back to Earth */
             int k, still = 0;
             for (k = 0; k < nworlds; k++) still |= worlds[k] == showing_world;
@@ -223,6 +259,7 @@ void pic_view_reload(time_t now)
     } else {
         showing_local = view_mode == VIEW_LOCAL;
         showing_world = view_mode == VIEW_WORLD ? fixed_world : 0;
+        showing_photo = 0;
         cycle_started = 0;
     }
     if (view_mode != VIEW_CYCLE) showing_closeup = 0;
@@ -279,9 +316,10 @@ int pic_view_update(time_t now)
                 }
                 return 0;
             }
-        } else if (interest && showing_world) {
+        } else if (interest && (showing_world || showing_photo)) {
             /* something local is happening: leave the other world now */
             showing_world = 0;
+            showing_photo = 0;
             showing_local = 1;
             showing_closeup = 0;
             hold_since = now;
@@ -306,11 +344,15 @@ int pic_view_update(time_t now)
     }
     if (now < switch_at) return 0;
     /* global -> local -> each listed world that is due -> global */
-    if (showing_world) {
+    if (showing_photo) {
+        showing_photo = 0;
+        showing_local = 0;
+    } else if (showing_world) {
         int k = next_due_world(world_idx + 1, now);
         if (k >= 0) { show_world(k, now); return 1; }
         showing_world = 0;
         showing_local = 0;
+        if (photo_due(now)) { show_photo(now); return 1; }
     } else if (showing_local && !showing_closeup && closeup_min > 0) {
         /* local -> close-up of home */
         showing_closeup = 1;
@@ -322,6 +364,9 @@ int pic_view_update(time_t now)
     } else if (showing_local && nworlds && next_due_world(0, now) >= 0) {
         showing_closeup = 0;
         show_world(next_due_world(0, now), now);
+        return 1;
+    } else if (showing_local && photo_due(now)) {
+        show_photo(now);
         return 1;
     } else
         showing_local = !showing_local;
@@ -346,6 +391,22 @@ int pic_view_is_closeup(void)
 int pic_view_world(void)
 {
     return showing_world;
+}
+
+int pic_view_photo(void)
+{
+    return showing_photo;
+}
+
+int pic_view_offworld(void)
+{
+    return showing_world || showing_photo;
+}
+
+int pic_view_state(void)
+{
+    return pic_view_offworld() ? -2 : view_mode != VIEW_CYCLE ? -1 :
+           showing_closeup ? 2 : showing_local;
 }
 
 int pic_view_is_cycling(void)

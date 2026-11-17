@@ -1,0 +1,123 @@
+/* Picture of the day: Pi-Dash feed parsers, which series are picked,
+ * freshness, and the view in the cycle. All data made up. */
+#include "check.h"
+#include "photoday.h"
+#include "localview.h"
+#include "config.h"
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+static int ready_n;
+static int nexts;
+static int fake_ready(time_t now) { (void)now; return ready_n > 0; }
+static void fake_next(void) { nexts++; }
+
+int main(void)
+{
+    /* 2026-11-17 15:00 UTC */
+    time_t now = 1794927600;
+
+    {   /* tidy */
+        char s[200] = "  Llullaillaco volcano , more\n than  6700 m ( high ) \xe2\x80\x9c quote \xe2\x80\x9d .";
+        pic_pd_tidy(s);
+        CHECK(!strcmp(s, "Llullaillaco volcano, more than 6700 m (high) \xe2\x80\x9cquote\xe2\x80\x9d."), "tidy: '%s'", s);
+    }
+    {   /* APOD */
+        pd_item_t it;
+        const char *js = "{\"title\":\"Test Arches\",\"explanation\":\"Explanation: Two arches  meet.\","
+            "\"url\":\"https://example.org/a b.jpg\",\"media_type\":\"image\",\"date\":\"2026-11-17\","
+            "\"copyright\":\"\\nA. Person\\n\",\"_t\":1}";
+        int n = pic_pd_parse_apod(js, strlen(js), now, &it);
+        CHECK(n == 1, "apod parsed (%d)", n);
+        CHECK(!strcmp(it.title, "Test Arches") && !strcmp(it.text, "Two arches meet."), "apod text '%s'", it.text);
+        CHECK(!strcmp(it.credit, "Image: A. Person"), "apod credit '%s'", it.credit);
+        CHECK(!strcmp(it.img, "/api/img?u=https%3A%2F%2Fexample.org%2Fa%20b.jpg&w=1920"), "apod via Pi-Dash cache '%s'", it.img);
+        CHECK(pic_pd_parse_apod(js, strlen(js), now + 4 * 86400, &it) == 0, "apod 4 days old: not shown");
+        js = "{\"title\":\"Clip\",\"explanation\":\"x\",\"url\":\"https://example.org/v\",\"media_type\":\"video\",\"date\":\"2026-11-17\"}";
+        CHECK(pic_pd_parse_apod(js, strlen(js), now, &it) == 0, "apod video: not shown");
+        js = "{\"title\":\"No credit\",\"explanation\":\"x\",\"url\":\"https://example.org/p.jpg\",\"media_type\":\"image\",\"date\":\"2026-11-16\"}";
+        CHECK(pic_pd_parse_apod(js, strlen(js), now, &it) == 1 && !it.credit[0], "no copyright: no credit line");
+        CHECK(pic_pd_parse_apod("{bad", 4, now, &it) == -1, "bad json");
+    }
+    {   /* AstroBin */
+        pd_item_t it;
+        const char *js = "{\"items\":[{\"title\":\"Test Nebula\",\"by\":\"someone\",\"img\":\"/api/img?u=https%3A%2F%2Fcdn.example%2Fx.jpg&w=1280\","
+            "\"date\":\"2026-11-17\",\"text\":\"A poem.\",\"hours\":12.5,\"split\":\"Ha 6 h \\u00b7 OIII 6.5 h\",\"mount\":\"Mount X\"},"
+            "{\"title\":\"Older\",\"date\":\"2026-11-16\",\"img\":\"/api/img?u=y\"}]}";
+        int n = pic_pd_parse_astrobin(js, strlen(js), now, &it);
+        CHECK(n == 1 && !strcmp(it.title, "Test Nebula") && !strcmp(it.credit, "Image: someone"), "astrobin parsed");
+        CHECK(!strcmp(it.img, "/api/img?u=https%3A%2F%2Fcdn.example%2Fx.jpg&w=1920"), "astrobin full width '%s'", it.img);
+        CHECK(!strcmp(it.text, "12.5 hours of exposure: Ha 6 h \xc2\xb7 OIII 6.5 h \xc2\xb7 Mount X"), "astrobin caption '%s'", it.text);
+        CHECK(pic_pd_parse_astrobin("{\"items\":[]}", 12, now, &it) == 0, "astrobin empty");
+    }
+    {   /* spacefeed: newest of each series, agency news skipped, stale dropped */
+        pd_item_t it[PD_MAX];
+        char js[4000];
+        int n, k, eso = -1, nasa = -1, webb = -1, noir = -1;
+        snprintf(js, sizeof(js), "{\"releases\":["
+            "{\"src\":\"ESA\",\"title\":\"News story\",\"img\":\"https://e.example/a.webp\",\"t\":%ld},"
+            "{\"src\":\"ESO\",\"title\":\"Old week\",\"img\":\"https://cdn.eso.example/images/screen/potw2645a.jpg\",\"t\":%ld},"
+            "{\"src\":\"ESO\",\"title\":\"This week\",\"text\":\"Two lights , rising.\",\"img\":\"https://cdn.eso.example/images/screen/potw2646a.jpg\",\"t\":%ld},"
+            "{\"src\":\"ESO\",\"title\":\"Press release\",\"img\":\"https://cdn.eso.example/images/screen/eso2613d.jpg\",\"t\":%ld},"
+            "{\"src\":\"NOIRLab\",\"title\":\"Meeting photo\",\"img\":\"https://n.example/screen/IMG_1.jpg\",\"t\":%ld},"
+            "{\"src\":\"NOIRLab\",\"title\":\"Twilight\",\"img\":\"https://n.example/screen/iotw2645a.jpg\",\"t\":%ld},"
+            "{\"src\":\"NASA\",\"title\":\"Star burst\",\"about\":\"NASA Image of the Day \\u00b7 more\",\"img\":\"https://w.example/s.jpg\",\"t\":%ld},"
+            "{\"src\":\"Webb\",\"title\":\"Cauldron\",\"img\":\"https://w.example/screen/potm2610a.jpg\",\"t\":%ld},"
+            "{\"src\":\"Hubble\",\"title\":\"Last year\",\"img\":\"https://h.example/screen/potw2552a.jpg\",\"t\":%ld}"
+            "]}",
+            (long)now, (long)(now - 8 * 86400), (long)(now - 86400), (long)now, (long)now,
+            (long)(now - 6 * 86400), (long)(now - 4 * 86400), (long)(now - 26 * 86400), (long)(now - 330 * 86400));
+        n = pic_pd_parse_spacefeed(js, strlen(js), now, it, PD_MAX);
+        for (k = 0; k < n; k++) {
+            if (!strcmp(it[k].key, "eso")) eso = k;
+            if (!strcmp(it[k].key, "nasa")) nasa = k;
+            if (!strcmp(it[k].key, "webb")) webb = k;
+            if (!strcmp(it[k].key, "noirlab")) noir = k;
+        }
+        CHECK(n == 4, "four current series (%d)", n);
+        CHECK(eso >= 0 && !strcmp(it[eso].title, "This week") && !strcmp(it[eso].text, "Two lights, rising."),
+              "ESO: the newest picture of the week, not the press release");
+        CHECK(eso >= 0 && !strcmp(it[eso].src, "ESO Picture of the Week") && !it[eso].credit[0], "ESO label, no made-up credit");
+        CHECK(noir >= 0 && !strcmp(it[noir].title, "Twilight"), "NOIRLab image of the week, not other photos");
+        CHECK(nasa >= 0 && webb >= 0, "NASA image of the day and Webb picture of the month");
+        n = pic_pd_parse_spacefeed(js, strlen(js), now + 30 * 86400, it, PD_MAX);
+        CHECK(n == 0, "a month later nothing is current (%d)", n);
+    }
+    {   /* the view: after the other worlds, only while there is a picture */
+        FILE *f = fopen("/tmp/pic_test_photoday.conf", "w");
+        time_t t0 = 1794000000, t;
+        int shown = 0, secs = 0, prev = 0;
+        fprintf(f, "VIEW_MODE=cycle\nVIEW_GLOBAL_MIN=5\nVIEW_LOCAL_MIN=5\nVIEW_PHOTO_MIN=1\nVIEW_SMART=0\n"
+                   "VIEW_WORLDS=mars\nVIEW_WORLD_MIN=2\n");
+        fclose(f);
+        setenv("PIC_RENDERER_CONF", "/tmp/pic_test_photoday.conf", 1);
+        setenv("PIC_VIEW_STATE", "/tmp/pic_test_photoday_worlds", 1);
+        pic_view_set_photo_source(fake_ready, fake_next);
+        ready_n = 1;
+        pic_view_reload(t0);
+        for (t = t0; t < t0 + 3 * 13 * 60; t += 5) {
+            pic_view_update(t);
+            if (pic_view_photo()) {
+                secs += 5;
+                if (!prev) {
+                    shown++;
+                    CHECK(!pic_view_world() && !pic_view_is_local() && pic_view_offworld() && pic_view_state() == -2,
+                          "photo view state");
+                }
+            }
+            if (prev && !pic_view_photo())
+                CHECK(!pic_view_world() && !pic_view_is_local(), "photo -> world map");
+            prev = pic_view_photo();
+        }
+        CHECK(shown == 3 && nexts == 3, "once a cycle, next picture each time (%d, %d)", shown, nexts);
+        CHECK(secs >= 3 * 55 && secs <= 3 * 65, "1 min each (%d s)", secs);
+        ready_n = 0; shown = 0;
+        for (t0 = t; t < t0 + 3600; t += 5) { pic_view_update(t); shown |= pic_view_photo(); }
+        CHECK(!shown, "no picture: view skipped");
+        unlink("/tmp/pic_test_photoday.conf");
+        unlink("/tmp/pic_test_photoday_worlds");
+    }
+    return CHECK_DONE("test_photoday");
+}

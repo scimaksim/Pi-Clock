@@ -39,6 +39,21 @@ int pic_view_world(void);
  * also a local view, so pic_view_is_local() is 1 too. */
 int pic_view_is_closeup(void);
 
+/* 1 while the picture-of-the-day view (VIEW_PHOTO_MIN) is on screen */
+int pic_view_photo(void);
+
+/* Another world or the picture of the day: no Earth layers or panels */
+int pic_view_offworld(void);
+
+/* The view code pic_layer_stack_apply_view() takes for what is on
+ * screen now: -2 off Earth, -1 fixed view, 0 global, 1 local, 2 close-up */
+int pic_view_state(void);
+
+/* The picture-of-the-day view joins the cycle only while ready(now)
+ * says there is a picture to show; next() is called on each showing
+ * (photoday.c registers these, so the view code doesn't depend on it) */
+void pic_view_set_photo_source(int (*ready)(time_t now), void (*next)(void));
+
 /* Map View is set to auto-switch between the world and local views */
 int pic_view_is_cycling(void);
 

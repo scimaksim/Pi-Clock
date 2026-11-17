@@ -198,6 +198,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"VIEW_SMART":        boolSetting("1"),
 	"VIEW_LOCAL_MIN":    intSetting("5", 1, 240),
 	"VIEW_CLOSEUP_MIN":  intSetting("0", 0, 30),
+	"VIEW_PHOTO_MIN":    intSetting("0", 0, 10),
 	"CLOSEUP_SPAN":      enumSetting("0.7", "0.3", "0.45", "0.7", "1.1"),
 	"CLOSEUP_CENTER":    patternSetting("", closeupCenterRe),
 	"PIDASH_URL":        patternSetting("", pcHelperRe),

@@ -59,6 +59,7 @@
 #include "features_all.h"
 #include "localview.h"
 #include "planetview.h"
+#include "photoday.h"
 #include "spacedata.h"
 #include "season.h"
 #include "sprites.h"
@@ -1732,6 +1733,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
     add_feature_layer(&stack, pic_feature_rivers());
     add_feature_layer(&stack, pic_feature_lsr());
     add_feature_layer(&stack, pic_feature_watershed()); /* close-up view only */
+    register_feature(pic_feature_photoday());     /* picture-of-the-day view */
     pic_layer_stack_add(&stack, "airquality",
                         pic_layer_render_airquality, 60, 1.0, &airquality);
     add_feature_layer(&stack, pic_feature_ships());
@@ -2379,8 +2381,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
             int switched = pic_view_update(now);
             /* -2 another world, -1 fixed view, 0/1 global/local in the cycle;
              * also re-applied when a settings change alters it */
-            int vs = pic_view_world() ? -2 : !pic_view_is_cycling() ? -1 :
-                     pic_view_is_closeup() ? 2 : pic_view_is_local();
+            int vs = pic_view_state();
             if (switched || rg != last_reg_gen || vs != last_vs) {
                 int li;
                 last_reg_gen = rg;
@@ -2468,10 +2469,15 @@ static int pic_display_run_framebuffer(const char *maps_dir,
              * Earth layers and panels */
             {
                 static time_t world_at;
-                if (pic_view_world()) {
-                    if (!base_valid || now - world_at >= 2 || now < world_at) {
+                if (pic_view_offworld()) {
+                    /* the picture of the day drifts slowly: every second */
+                    int every = pic_view_photo() ? 1 : 2;
+                    if (!base_valid || now - world_at >= every || now < world_at) {
                         cairo_t *bcr = cairo_create(base_surface);
-                        pic_planetview_render(bcr, width, height, pic_view_world(), now);
+                        if (pic_view_photo())
+                            pic_photoday_render(bcr, width, height, now);
+                        else
+                            pic_planetview_render(bcr, width, height, pic_view_world(), now);
                         cairo_destroy(bcr);
                         cairo_surface_flush(base_surface);
                         world_at = now;
@@ -2565,7 +2571,7 @@ static int pic_display_run_framebuffer(const char *maps_dir,
                 }
 
                 /* Draw legends at full opacity — not affected by layer opacity */
-                if (!pic_view_world()) {
+                if (!pic_view_offworld()) {
                     pic_layer_stack_render_legends(&stack, ocr, now);
                     pic_map_key_draw(ocr, width, height, pic_ticker_bar_top);
                 }

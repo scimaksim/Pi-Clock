@@ -208,6 +208,15 @@
                 <p class="text-muted">After the local view: an aerial photo around home with lakes, creeks and roads, live creek gauges, the nearest weather station and fires seen from space. Only layers that work at that scale are drawn there.</p>
             </div>
             <div class="form-group">
+                <label for="view_photo_min">Auto-switch: Space Picture of the Day For</label>
+                <select id="view_photo_min" class="form-control" data-conf="VIEW_PHOTO_MIN" onchange="saveRendererSettings('view-card', 'Map view')">
+                    <option value="0">Off (default)</option><option value="1">1 minute</option>
+                    <option value="2">2 minutes</option><option value="3">3 minutes</option>
+                    <option value="5">5 minutes</option>
+                </select>
+                <p class="text-muted">After the other worlds: one of the day's space pictures (NASA APOD, AstroBin, and the ESO, NOIRLab, ESA/Hubble, ESA/Webb and NASA picture series), a different one each cycle. Needs the Pi-Dash server address below.</p>
+            </div>
+            <div class="form-group">
                 <label for="closeup_span">Close-up Width</label>
                 <select id="closeup_span" class="form-control" data-conf="CLOSEUP_SPAN" onchange="saveRendererSettings('view-card', 'Map view')">
                     <option value="0.3">About 25 km</option><option value="0.45">About 40 km</option>

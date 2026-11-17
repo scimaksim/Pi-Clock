@@ -66,6 +66,14 @@ station from the NC State Climate Office ECONet; fires seen from space
 from NASA FIRMS (VIIRS) — the last three read from the owner's Pi-Dash
 server, which fetches them once for the house.
 
+**Picture of the day** — NASA Astronomy Picture of the Day (Robert
+Nemiroff and Jerry Bonnell); AstroBin Image of the Day; NASA Image of
+the Day; ESO Picture of the Week; NSF NOIRLab Image of the Week;
+ESA/Hubble and ESA/Webb Pictures of the Week and Month. Each picture's
+copyright stays with its photographer or institution; the clock shows
+them on a private screen with the credit its feed gives, read through
+the owner's Pi-Dash server.
+
 **GCAT: General Catalog of Artificial Space Objects** — Jonathan
 C. McDowell. The payload catalogue's end-of-transmission and
 end-of-operations dates mark satellites that no longer work in the

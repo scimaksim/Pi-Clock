@@ -86,26 +86,28 @@ func TestDarkSitesNormalized(t *testing.T) {
 
 func TestWorldSettings(t *testing.T) {
 	ok := map[string][]string{
-		"VIEW_WORLDS":     {"", "moon", "mars,jupiter", "moon,mars,jupiter"},
-		"VIEW_MODE":       {"cycle", "moon", "mars", "jupiter"},
-		"JUPITER_GRS_L2":  {"-1", "0", "100", "359"},
-		"VIEW_WORLD_MIN":  {"1", "2", "30"},
+		"VIEW_WORLDS":      {"", "moon", "mars,jupiter", "moon,mars,jupiter"},
+		"VIEW_MODE":        {"cycle", "moon", "mars", "jupiter"},
+		"JUPITER_GRS_L2":   {"-1", "0", "100", "359"},
+		"VIEW_WORLD_MIN":   {"1", "2", "30"},
 		"VIEW_CLOSEUP_MIN": {"0", "3", "30"},
+		"VIEW_PHOTO_MIN":   {"0", "1", "10"},
 		"CLOSEUP_SPAN":     {"0.3", "0.7", "1.1"},
 		"CLOSEUP_CENTER":   {"", "35.691,-78.700", "-33.9,151.2"},
 		"PIDASH_URL":       {"", "http://192.168.1.93:8080"},
-		"VIEW_WORLD_DAYS": {"", "moon:3", "moon:3,jupiter:3", "moon:1,mars:30,jupiter:7"},
+		"VIEW_WORLD_DAYS":  {"", "moon:3", "moon:3,jupiter:3", "moon:1,mars:30,jupiter:7"},
 	}
 	bad := map[string][]string{
-		"VIEW_WORLDS":     {"pluto", "moon,", "moon;reboot", "moon,mars,jupiter,moon", "MOON"},
-		"VIEW_MODE":       {"venus"},
-		"JUPITER_GRS_L2":  {"360", "-2", "1.5", ""},
-		"VIEW_WORLD_MIN":  {"0", "31"},
+		"VIEW_WORLDS":      {"pluto", "moon,", "moon;reboot", "moon,mars,jupiter,moon", "MOON"},
+		"VIEW_MODE":        {"venus"},
+		"JUPITER_GRS_L2":   {"360", "-2", "1.5", ""},
+		"VIEW_WORLD_MIN":   {"0", "31"},
 		"VIEW_CLOSEUP_MIN": {"-1", "31"},
+		"VIEW_PHOTO_MIN":   {"-1", "11", "x"},
 		"CLOSEUP_SPAN":     {"0.1", "5", "abc"},
 		"CLOSEUP_CENTER":   {"35.6", "35.6;-78", "x,y", "35.6,-78.7,1"},
 		"PIDASH_URL":       {"https://x", "http://a b", "http://x/;rm"},
-		"VIEW_WORLD_DAYS": {"moon", "moon:0", "moon:31", "pluto:3", "moon:3,", "moon:3;reboot", "MOON:3"},
+		"VIEW_WORLD_DAYS":  {"moon", "moon:0", "moon:31", "pluto:3", "moon:3,", "moon:3;reboot", "MOON:3"},
 	}
 	for k, vs := range ok {
 		for _, v := range vs {
