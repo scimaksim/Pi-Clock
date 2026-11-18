@@ -371,7 +371,9 @@ double pic_applet_render_solar(cairo_t *cr, double width,
                 int age = (int)(now - updated);
                 double y = data_y_start + line_h * 10.5;
 
-                if (age < 60) {
+                if (updated == 0) {       /* values from the cache, not yet refreshed */
+                    snprintf(note, sizeof(note), "Saved values, updating");
+                } else if (age < 60) {
                     snprintf(note, sizeof(note), "Updated %ds ago", age);
                 } else {
                     snprintf(note, sizeof(note), "Updated %dm ago", age / 60);

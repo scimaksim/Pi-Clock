@@ -17,10 +17,15 @@
  */
 
 #include "layer.h"
+#include "feature.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <net/if.h>
 
 /*
  * draw_text_with_shadow - Draw text with a dark shadow for readability.
@@ -128,6 +133,34 @@ static int is_single_core(void)
 }
 
 /*
+ * The Pi's IPv4 addresses, e.g. "192.168.1.246 · WiFi 192.168.1.164"
+ * (wired first, wireless labelled). Empty when there is none.
+ */
+static void local_ips(char *out, size_t n)
+{
+    struct ifaddrs *ifa, *p;
+    char wired[64] = "", wifi[64] = "";
+
+    out[0] = '\0';
+    if (getifaddrs(&ifa) != 0) return;
+    for (p = ifa; p; p = p->ifa_next) {
+        char a[INET_ADDRSTRLEN];
+        if (!p->ifa_addr || p->ifa_addr->sa_family != AF_INET) continue;
+        if ((p->ifa_flags & IFF_LOOPBACK) || !(p->ifa_flags & IFF_UP)) continue;
+        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)p->ifa_addr)->sin_addr,
+                       a, sizeof(a)))
+            continue;
+        if (!strncmp(p->ifa_name, "wl", 2)) {
+            if (!wifi[0]) snprintf(wifi, sizeof(wifi), "WiFi %s", a);
+        } else if (!wired[0]) {
+            snprintf(wired, sizeof(wired), "%s", a);
+        }
+    }
+    freeifaddrs(ifa);
+    snprintf(out, n, "%s%s%s", wired, wired[0] && wifi[0] ? " \xc2\xb7 " : "", wifi);
+}
+
+/*
  * pic_layer_render_hud - Render the heads-up display.
  *
  * Left side:  UTC time + date
@@ -183,14 +216,25 @@ void pic_layer_render_hud(cairo_t *cr, int width, int height,
                            CAIRO_FONT_SLANT_NORMAL,
                            CAIRO_FONT_WEIGHT_BOLD);
 
-    /* ── Left side: UTC ──────────────────────────────────── */
-    cairo_set_font_size(cr, font_size_time);
-    draw_text_with_shadow(cr, utc_time_str,
-                          margin, margin + font_size_time);
+    /* ── Left side: UTC (HUD_UTC=0 hides it) ─────────────── */
+    {
+        /* The HUD redraws every second: re-read the setting every 10 s */
+        static time_t checked;
+        static int show_utc = 1;
+        if (now - checked >= 10 || now < checked) {
+            show_utc = pic_conf_int("HUD_UTC", 1) != 0;
+            checked = now;
+        }
+        if (show_utc) {
+            cairo_set_font_size(cr, font_size_time);
+            draw_text_with_shadow(cr, utc_time_str,
+                                  margin, margin + font_size_time);
 
-    cairo_set_font_size(cr, font_size_date);
-    draw_text_with_shadow(cr, utc_date_str,
-                          margin, margin + font_size_time + font_size_date + 5);
+            cairo_set_font_size(cr, font_size_date);
+            draw_text_with_shadow(cr, utc_date_str,
+                                  margin, margin + font_size_time + font_size_date + 5);
+        }
+    }
 
     /* ── Right side: Local time ──────────────────────────── */
     cairo_set_font_size(cr, font_size_time);
@@ -201,4 +245,24 @@ void pic_layer_render_hud(cairo_t *cr, int width, int height,
     draw_text_right_aligned(cr, local_date_str,
                             width - margin,
                             margin + font_size_time + font_size_date + 5);
+
+    /* Small IP address line under the date (HUD_IP=0 hides it), so the
+     * dashboard address is at hand with the System Info panel off */
+    {
+        static time_t checked;
+        static int show_ip = 1;
+        static char ips[160];
+        if (now - checked >= 30 || now < checked) {
+            show_ip = pic_conf_int("HUD_IP", 1) != 0;
+            if (show_ip) local_ips(ips, sizeof(ips));
+            checked = now;
+        }
+        if (show_ip && ips[0]) {
+            cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                                   CAIRO_FONT_WEIGHT_NORMAL);
+            cairo_set_font_size(cr, height / 90.0);
+            draw_text_right_aligned(cr, ips, width - margin,
+                                    margin + font_size_time + font_size_date * 2 + 8);
+        }
+    }
 }

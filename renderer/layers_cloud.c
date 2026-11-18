@@ -95,7 +95,9 @@ void pic_layer_render_cloud(cairo_t *cr, int width, int height,
 
         for (gy = 0; gy < PIC_WIND_NY; gy++) {
             for (gx = 0; gx < PIC_WIND_NX; gx++) {
-                double cover = data->cloud[gy][gx];
+                /* The GFS grid starts at 0°E; the surface starts at
+                 * 180°W like every other map layer */
+                double cover = data->cloud[gy][(gx + PIC_WIND_NX / 2) % PIC_WIND_NX];
                 unsigned int ia, ic;
 
                 if (cover < 5.0) {
@@ -125,7 +127,7 @@ void pic_layer_render_cloud(cairo_t *cr, int width, int height,
         cairo_paint(cc);
         cairo_set_operator(cc, CAIRO_OPERATOR_OVER);
 
-        pic_paint_viewport(cc, grid_surf, width, height);
+        pic_paint_viewport_grid(cc, grid_surf, width, height);
 
         cairo_destroy(cc);
         cairo_surface_destroy(grid_surf);

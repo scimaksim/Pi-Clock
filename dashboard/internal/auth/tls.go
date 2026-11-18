@@ -15,6 +15,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -27,9 +28,9 @@ import (
 )
 
 const (
-	defaultCertDir  = "/data/etc/pi-clock-certs"
-	certFileName    = "pi-clock-dashboard.crt"
-	keyFileName     = "pi-clock-dashboard.key"
+	defaultCertDir = "/data/etc/pi-clock-certs"
+	certFileName   = "pi-clock-dashboard.crt"
+	keyFileName    = "pi-clock-dashboard.key"
 )
 
 // EnsureTLS checks for existing TLS cert/key files and generates
@@ -45,8 +46,14 @@ func EnsureTLS(certDir string) (certPath, keyPath string, err error) {
 
 	// Check if cert and key already exist
 	if fileExists(certPath) && fileExists(keyPath) {
-		fmt.Printf("tls: using existing certificate from %s\n", certDir)
-		return certPath, keyPath, nil
+		// Power loss while these were first written leaves an empty or
+		// half-written file; regenerate rather than fail every start.
+		if _, lerr := tls.LoadX509KeyPair(certPath, keyPath); lerr == nil {
+			fmt.Printf("tls: using existing certificate from %s\n", certDir)
+			return certPath, keyPath, nil
+		} else {
+			fmt.Printf("tls: stored certificate unusable (%v), regenerating\n", lerr)
+		}
 	}
 
 	// Generate new self-signed certificate

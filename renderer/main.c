@@ -15,6 +15,9 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE   /* strptime */
+#endif
 #include "layer.h"
 #include "image.h"
 #include "config.h"

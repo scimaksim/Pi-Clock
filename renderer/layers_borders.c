@@ -27,6 +27,7 @@
 #include "layer.h"
 #include "config.h"
 #include "borders.h"
+#include "localview.h"
 #include <cairo/cairo.h>
 #include <math.h>
 
@@ -48,6 +49,8 @@ void pic_layer_render_borders(cairo_t *cr, int width, int height,
     if (!borders || borders->num_polygons == 0) {
         return;
     }
+    /* Zoomed in with Local Detail on: its 1:10m lines replace these */
+    if (pic_localmap_drawing()) return;
 
     /* Pixel distance above which two consecutive points are on
      * opposite sides of the longitudinal seam — scales with zoom. */

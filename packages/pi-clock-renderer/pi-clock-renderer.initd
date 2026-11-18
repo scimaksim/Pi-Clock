@@ -64,10 +64,14 @@ start_pre() {
 	CPU_CORES=$(get_cpu_cores)
 
 	# Read renderer config for CENTER_LON, DISPLAY_RESOLUTION, etc
+	# Read only the keys we need. The file is NOT sourced: it holds
+	# free-text dashboard settings that are not shell syntax, and
+	# sourcing it as root would run them.
 	DISPLAY_RESOLUTION=""
+	CENTER_LON=""
 	if [ -f "$RENDER_CONF" ]; then
-		# shellcheck disable=SC1090
-		. "$RENDER_CONF"
+		DISPLAY_RESOLUTION=$(sed -n 's/^DISPLAY_RESOLUTION=\([A-Za-z0-9]*\)$/\1/p' "$RENDER_CONF" | tail -n1)
+		CENTER_LON=$(sed -n 's/^CENTER_LON=\(-\{0,1\}[0-9.]*\)$/\1/p' "$RENDER_CONF" | tail -n1)
 	fi
 
 	# Apply requested resolution to config.txt if it differs
