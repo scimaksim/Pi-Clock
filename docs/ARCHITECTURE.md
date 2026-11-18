@@ -178,7 +178,9 @@ names. A picture is shown only while current (2 days for daily series, 9
 for weekly, 40 for monthly), credits only when the feed gives one, and
 the view is skipped when there is none. The photo fits the screen over a
 blurred copy of itself and drifts and zooms slowly; tall pictures get a
-caption panel, wide ones a caption along the bottom. The pictures are
+caption panel, wide ones a caption along the bottom. Captions are never
+cut off: titles and credits are shown whole (the type shrinks a little
+if needed) and the description is as many complete sentences as fit. The pictures are
 kept in `/data/cache/pi-clock-photoday`.
 
 **Dashboard (`dashboard/`, Go).** A single static binary with the web

@@ -65,6 +65,53 @@ void pic_pd_tidy(char *s)
     *w = '\0';
 }
 
+/* A sentence ends at . ! or ? (and any closing quote or bracket) followed
+ * by a space and a capital, digit or opening quote, or by the end of the
+ * text; not after an initial ("A. Person") or a common abbreviation. A
+ * text cut off mid-sentence has no end at its tail. */
+int pic_pd_sentences(const char *s, size_t *ends, int max)
+{
+    static const char *abbr[] = { "Dr", "Mr", "Mrs", "Ms", "St", "Mt", "No", "Fig",
+                                  "vs", "approx", "ca", "e.g", "i.e", "et al", "Jr", "Sr",
+                                  "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep",
+                                  "Sept", "Oct", "Nov", "Dec", NULL };
+    size_t i, len = strlen(s);
+    int n = 0, a;
+    for (i = 0; i < len && n < max; i++) {
+        size_t e = i + 1, j;
+        char c = s[i];
+        if (c != '.' && c != '!' && c != '?') continue;
+        /* closing quotes and brackets belong to the sentence */
+        for (;;) {
+            if (s[e] == '"' || s[e] == ')' || s[e] == '\'') { e++; continue; }
+            if ((unsigned char)s[e] == 0xe2 && (unsigned char)s[e + 1] == 0x80 &&
+                ((unsigned char)s[e + 2] == 0x9d || (unsigned char)s[e + 2] == 0x99)) { e += 3; continue; }
+            break;
+        }
+        if (s[e] != '\0') {
+            unsigned char nx;
+            if (s[e] != ' ') continue;
+            nx = (unsigned char)s[e + 1];
+            if (!(isupper(nx) || isdigit(nx) || nx == '"' || nx == '(' || nx == 0xe2)) continue;
+        }
+        if (c == '.') {
+            /* the word before the full stop */
+            j = i;
+            while (j > 0 && s[j - 1] != ' ' && s[j - 1] != '(') j--;
+            if (i - j == 1 && isupper((unsigned char)s[j])) continue;      /* an initial */
+            for (a = 0; abbr[a]; a++) {
+                size_t al = strlen(abbr[a]);
+                if (i >= al && !strncmp(s + i - al, abbr[a], al) &&
+                    (i == al || s[i - al - 1] == ' ' || s[i - al - 1] == '(')) break;
+            }
+            if (abbr[a]) continue;
+        }
+        ends[n++] = e;
+        i = e - 1;
+    }
+    return n;
+}
+
 int pic_pd_current(const pd_item_t *it, time_t now)
 {
     return it->t > 0 && now - it->t <= (time_t)it->max_days * 86400 + 12 * 3600 &&
@@ -126,6 +173,11 @@ int pic_pd_parse_apod(const char *js, size_t len, time_t now, pd_item_t *out)
     pic_json_str(&j, pic_json_get(&j, 0, "explanation"), out->text, sizeof(out->text));
     if (!strncmp(out->text, "Explanation:", 12))
         memmove(out->text, out->text + 12, strlen(out->text + 12) + 1);
+    {   /* the page footer that sometimes rides along */
+        char *tp = strstr(out->text, "Tomorrow's picture");
+        if (!tp) tp = strstr(out->text, "Tomorrowâs picture");
+        if (tp) *tp = '\0';
+    }
     pic_json_str(&j, pic_json_get(&j, 0, "url"), u, sizeof(u));
     if (pic_json_str(&j, pic_json_get(&j, 0, "copyright"), c, sizeof(c)) > 0) {
         pic_pd_tidy(c);
@@ -506,6 +558,49 @@ static double wrap_text(cairo_t *cr, const char *s, double x, double y, double w
     return y;
 }
 
+/* Lines `s` needs at width w in the current font (never cut) */
+static int nlines(cairo_t *cr, const char *s, double w)
+{
+    return (int)(wrap_text(cr, s, 0, 0, w, 1000, 1, 0) + .5);
+}
+
+/* The largest size from `size` down to `min` at which `s` fits in maxl
+ * lines; 0 when it doesn't fit even at `min` */
+static double fit_size(cairo_t *cr, const char *s, double w, int maxl,
+                       double size, double min, int bold)
+{
+    double step = size / 28, f;
+    for (f = size; f >= min - 1e-6; f -= step) {
+        set_font(cr, f, bold);
+        if (nlines(cr, s, w) <= maxl) return f;
+    }
+    return 0;
+}
+
+/* The description to show: the most complete sentences that fit in maxl
+ * lines at `size`; else the first sentence, shrunk down to `min` and
+ * allowed two more lines; else nothing. Returns the font size, 0 for none. */
+static double pick_text(cairo_t *cr, const char *text, char *out, size_t n,
+                        double w, int maxl, double size, double min)
+{
+    size_t ends[64];
+    int k = pic_pd_sentences(text, ends, 64), i;
+    double f;
+    out[0] = '\0';
+    set_font(cr, size, 0);
+    for (i = k - 1; i >= 0; i--) {
+        snprintf(out, n, "%.*s", (int)ends[i], text);
+        if (nlines(cr, out, w) <= maxl) return size;
+    }
+    if (k > 0) {
+        snprintf(out, n, "%.*s", (int)ends[0], text);
+        if ((f = fit_size(cr, out, w, maxl, size, min, 0)) > 0) return f;
+        if ((f = fit_size(cr, out, w, maxl + 2, min, min, 0)) > 0) return f;
+    }
+    out[0] = '\0';
+    return 0;
+}
+
 static void fmt_date(char *out, size_t n, time_t t, int date_only)
 {
     struct tm tm;
@@ -604,85 +699,94 @@ static int dr_build(const pd_item_t *it, int w, int h, int idx, int n)
     dr.over = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
     cr = cairo_create(dr.over);
     fmt_date(date, sizeof(date), it->t, !strcmp(it->key, "apod") || !strcmp(it->key, "astrobin"));
-    if (land) {
-        /* measure the block, then draw it up from the bottom */
-        double gh, tsz = 30 * s, csz = 16 * s, xsz = 16 * s, blk;
-        cw = w - 48 * s - 300 * s;
-        x0 = 48 * s;
-        blk = 36 * s + tsz * 1.25 + (it->credit[0] ? csz * 1.5 : 0) + (it->text[0] ? xsz * 1.45 : 0);
-        gh = blk + 110 * s;
-        {
-            cairo_pattern_t *g = cairo_pattern_create_linear(0, bot - gh, 0, bot);
-            cairo_pattern_add_color_stop_rgba(g, 0, .02, .03, .06, 0);
-            cairo_pattern_add_color_stop_rgba(g, .55, .02, .03, .06, .72);
-            cairo_pattern_add_color_stop_rgba(g, 1, .02, .03, .06, .9);
-            cairo_rectangle(cr, 0, bot - gh, w, gh);
-            cairo_set_source(cr, g);
-            cairo_fill(cr);
-            cairo_pattern_destroy(g);
+    {
+        /* Lay the caption out so nothing is ever cut: the title, credit
+         * and description are shown whole, shrinking the type a little if
+         * needed, and the description is as many complete sentences as
+         * fit (at least the first, or none at all). */
+        double tsz, csz, xsz, tlh, clh, xlh, blk, gh;
+        int tl, cl, xl;
+        char desc[sizeof(it->text)];
+        if (land) {
+            cw = w - 48 * s - 300 * s;
+            x0 = 48 * s;
+        } else {
+            x0 = w - pw + 30 * s;
+            cw = pw - 60 * s;
         }
-        y = bot - 22 * s - blk;
-        /* badge text (the turning icon is drawn each frame) */
-        {
-            char t[60];
-            double after;
-            set_font(cr, 18 * s, 1);
+        tsz = fit_size(cr, it->title, cw, land ? 2 : 4, (land ? 30 : 28) * s, 20 * s, 1);
+        if (tsz <= 0) tsz = 20 * s;
+        set_font(cr, tsz, 1);
+        tl = nlines(cr, it->title, cw);
+        csz = it->credit[0] ? fit_size(cr, it->credit, cw, 2, 16 * s, 13 * s, 0) : 0;
+        if (it->credit[0] && csz <= 0) csz = 13 * s;
+        cl = 0;
+        if (csz > 0) { set_font(cr, csz, 0); cl = nlines(cr, it->credit, cw); }
+        xsz = pick_text(cr, it->text, desc, sizeof(desc), cw, land ? 3 : 8, 16 * s, 13 * s);
+        xl = 0;
+        if (xsz > 0) { set_font(cr, xsz, 0); xl = nlines(cr, desc, cw); }
+        tlh = tsz * 1.22; clh = csz * 1.45; xlh = xsz * 1.45;
+
+        if (land) {
+            /* measure the block, then draw it up from the bottom */
+            blk = 36 * s + tl * tlh + cl * clh + (xl ? 4 * s + xl * xlh : 0);
+            gh = blk + 110 * s;
+            {
+                cairo_pattern_t *g = cairo_pattern_create_linear(0, bot - gh, 0, bot);
+                cairo_pattern_add_color_stop_rgba(g, 0, .02, .03, .06, 0);
+                cairo_pattern_add_color_stop_rgba(g, .55, .02, .03, .06, .72);
+                cairo_pattern_add_color_stop_rgba(g, 1, .02, .03, .06, .9);
+                cairo_rectangle(cr, 0, bot - gh, w, gh);
+                cairo_set_source(cr, g);
+                cairo_fill(cr);
+                cairo_pattern_destroy(g);
+            }
+            y = bot - 22 * s - blk;
+            {
+                char t[60];
+                double after;
+                set_font(cr, 18 * s, 1);
+                cairo_set_source_rgb(cr, 1, .78, .35);
+                cairo_move_to(cr, x0 + 30 * s, y + 6 * s);
+                cairo_show_text(cr, it->src);
+                after = x0 + 30 * s + tw(cr, it->src);
+                set_font(cr, 14 * s, 0);
+                cairo_set_source_rgb(cr, .64, .68, .75);
+                snprintf(t, sizeof(t), "  \xc2\xb7  %s", date);
+                cairo_move_to(cr, after, y + 6 * s);
+                cairo_show_text(cr, t);
+            }
+            dr.bx = x0 + 11 * s; dr.by = y;
+            y += 36 * s + tsz * .25;
+        } else {
+            y = 230 * s;
+            {
+                double fs = 18 * s;
+                set_font(cr, fs, 1);
+                while (tw(cr, it->src) > cw - 30 * s && fs > 12 * s) set_font(cr, fs -= s, 1);
+            }
             cairo_set_source_rgb(cr, 1, .78, .35);
             cairo_move_to(cr, x0 + 30 * s, y + 6 * s);
             cairo_show_text(cr, it->src);
-            after = x0 + 30 * s + tw(cr, it->src);
             set_font(cr, 14 * s, 0);
             cairo_set_source_rgb(cr, .64, .68, .75);
-            snprintf(t, sizeof(t), "  \xc2\xb7  %s", date);
-            cairo_move_to(cr, after, y + 6 * s);
-            cairo_show_text(cr, t);
+            cairo_move_to(cr, x0 + 30 * s, y + 26 * s);
+            cairo_show_text(cr, date);
+            dr.bx = x0 + 11 * s; dr.by = y;
+            y += 66 * s;
         }
-        dr.bx = x0 + 11 * s; dr.by = y;
-        y += 36 * s + tsz * .25;
         set_font(cr, tsz, 1);
         cairo_set_source_rgb(cr, 1, 1, 1);
-        y = wrap_text(cr, it->title, x0, y, cw, 1, tsz * 1.25, 1);
-        if (it->credit[0]) {
+        y = wrap_text(cr, it->title, x0, y, cw, 1000, tlh, 1);
+        if (cl) {
             set_font(cr, csz, 0);
             cairo_set_source_rgb(cr, .82, .84, .88);
-            y = wrap_text(cr, it->credit, x0, y - tsz * .1, cw, 1, csz * 1.5, 1);
+            y = wrap_text(cr, it->credit, x0, y + (land ? -tsz * .1 : 0), cw, 1000, clh, 1);
         }
-        if (it->text[0]) {
+        if (xl) {
             set_font(cr, xsz, 0);
             cairo_set_source_rgb(cr, .7, .74, .8);
-            wrap_text(cr, it->text, x0, y, cw, 1, xsz * 1.45, 1);
-        }
-    } else {
-        double tsz = 28 * s, csz = 16 * s, xsz = 16 * s;
-        x0 = w - pw + 30 * s;
-        cw = pw - 60 * s;
-        y = 230 * s;
-        set_font(cr, 18 * s, 1);
-        {
-            double fs = 18 * s;
-            while (tw(cr, it->src) > cw - 30 * s && fs > 12 * s) set_font(cr, fs -= s, 1);
-        }
-        cairo_set_source_rgb(cr, 1, .78, .35);
-        cairo_move_to(cr, x0 + 30 * s, y + 6 * s);
-        cairo_show_text(cr, it->src);
-        set_font(cr, 14 * s, 0);
-        cairo_set_source_rgb(cr, .64, .68, .75);
-        cairo_move_to(cr, x0 + 30 * s, y + 26 * s);
-        cairo_show_text(cr, date);
-        dr.bx = x0 + 11 * s; dr.by = y;
-        y += 66 * s;
-        set_font(cr, tsz, 1);
-        cairo_set_source_rgb(cr, 1, 1, 1);
-        y = wrap_text(cr, it->title, x0, y, cw, 3, tsz * 1.25, 1);
-        if (it->credit[0]) {
-            set_font(cr, csz, 0);
-            cairo_set_source_rgb(cr, .82, .84, .88);
-            y = wrap_text(cr, it->credit, x0, y, cw, 2, csz * 1.4, 1);
-        }
-        if (it->text[0]) {
-            set_font(cr, xsz, 0);
-            cairo_set_source_rgb(cr, .7, .74, .8);
-            wrap_text(cr, it->text, x0, y + 8 * s, cw, 5, xsz * 1.45, 1);
+            wrap_text(cr, desc, x0, y + (land ? 4 : 8) * s, cw, 1000, xlh, 1);
         }
     }
     /* which of today's pictures this is */

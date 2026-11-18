@@ -28,7 +28,7 @@ typedef struct {
     char   src[48];     /* "NASA Astronomy Picture of the Day"             */
     char   title[160];
     char   credit[160]; /* "" when the feed gives none                     */
-    char   text[480];
+    char   text[1200];
     char   img[640];    /* Pi-Dash path, "/api/img?u=...&w=1920"           */
     time_t t;           /* when published (UTC)                            */
     int    max_days;    /* shown while no older than this                  */
@@ -40,6 +40,10 @@ int pic_pd_parse_apod(const char *js, size_t len, time_t now, pd_item_t *out);
 int pic_pd_parse_astrobin(const char *js, size_t len, time_t now, pd_item_t *out);
 int pic_pd_parse_spacefeed(const char *js, size_t len, time_t now,
                            pd_item_t *out, int max);
+
+/* Where each complete sentence of `s` ends (byte offsets just past it);
+ * returns how many, at most max. A cut-off tail is not a sentence. */
+int pic_pd_sentences(const char *s, size_t *ends, int max);
 
 /* Collapse whitespace and drop spaces before punctuation, in place */
 void pic_pd_tidy(char *s);

@@ -24,6 +24,17 @@ int main(void)
         pic_pd_tidy(s);
         CHECK(!strcmp(s, "Llullaillaco volcano, more than 6700 m (high) \xe2\x80\x9cquote\xe2\x80\x9d."), "tidy: '%s'", s);
     }
+    {   /* sentences: never split an initial or abbreviation, never count a cut-off tail */
+        size_t e[16];
+        const char *t = "Image by A. Person and Dr. Who. It shows M30 (NGC 7099). \"Wow!\" said St. Clair. And then 3 more. Cut off mid";
+        int n = pic_pd_sentences(t, e, 16);
+        CHECK(n == 4, "4 sentences (%d)", n);
+        CHECK(n >= 1 && e[0] == 31 && !strncmp(t + 27, "Who.", 4), "first ends after 'Who.' (%zu)", n ? e[0] : 0);
+        CHECK(n >= 3 && !strncmp(t + e[2] - 15, "said St. Clair.", 15), "St. is not an end");
+        CHECK(n >= 4 && !strncmp(t + e[3] - 5, "more.", 5), "last whole sentence");
+        CHECK(pic_pd_sentences("No end here", e, 16) == 0, "no complete sentence");
+        CHECK(pic_pd_sentences("One. Two.", e, 16) == 2 && e[1] == 9, "ends at the end of text");
+    }
     {   /* APOD */
         pd_item_t it;
         const char *js = "{\"title\":\"Test Arches\",\"explanation\":\"Explanation: Two arches  meet.\","
@@ -39,6 +50,8 @@ int main(void)
         CHECK(pic_pd_parse_apod(js, strlen(js), now, &it) == 0, "apod video: not shown");
         js = "{\"title\":\"No credit\",\"explanation\":\"x\",\"url\":\"https://example.org/p.jpg\",\"media_type\":\"image\",\"date\":\"2026-11-16\"}";
         CHECK(pic_pd_parse_apod(js, strlen(js), now, &it) == 1 && !it.credit[0], "no copyright: no credit line");
+        js = "{\"title\":\"T\",\"explanation\":\"Explanation: Seen from Norway.Tomorrow's picture: open space\",\"url\":\"https://example.org/p.jpg\",\"media_type\":\"image\",\"date\":\"2026-11-17\"}";
+        CHECK(pic_pd_parse_apod(js, strlen(js), now, &it) == 1 && !strcmp(it.text, "Seen from Norway."), "APOD footer dropped '%s'", it.text);
         CHECK(pic_pd_parse_apod("{bad", 4, now, &it) == -1, "bad json");
     }
     {   /* AstroBin */
