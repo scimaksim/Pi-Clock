@@ -180,7 +180,11 @@ the view is skipped when there is none. The photo fits the screen over a
 blurred copy of itself and drifts and zooms slowly; tall pictures get a
 caption panel, wide ones a caption along the bottom. Captions are never
 cut off: titles and credits are shown whole (the type shrinks a little
-if needed) and the description is as many complete sentences as fit. The pictures are
+if needed) and the description is as many complete sentences as fit. The clock remembers
+every picture it has seen (`items.tsv` in the cache) and keeps showing it
+until its series says it is out of date, because Pi-Dash's release feed
+holds only its newest ~50 entries and a monthly picture can scroll off it
+mid-month. The pictures are
 kept in `/data/cache/pi-clock-photoday`.
 
 **Dashboard (`dashboard/`, Go).** A single static binary with the web

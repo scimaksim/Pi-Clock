@@ -98,6 +98,37 @@ int main(void)
         n = pic_pd_parse_spacefeed(js, strlen(js), now + 30 * 86400, it, PD_MAX);
         CHECK(n == 0, "a month later nothing is current (%d)", n);
     }
+    {   /* memory: a picture that dropped out of the feed stays while current */
+        pd_item_t got[PD_MAX], mem[PD_MAX], back[PD_MAX];
+        int n, m;
+        memset(got, 0, sizeof(got)); memset(mem, 0, sizeof(mem));
+        snprintf(mem[0].key, sizeof(mem[0].key), "webb");
+        snprintf(mem[0].src, sizeof(mem[0].src), "ESA/Webb Picture of the Month");
+        snprintf(mem[0].title, sizeof(mem[0].title), "Cauldron");
+        snprintf(mem[0].text, sizeof(mem[0].text), "Stars\tbrewing.");
+        snprintf(mem[0].img, sizeof(mem[0].img), "/api/img?u=x&w=1920");
+        mem[0].t = now - 26 * 86400; mem[0].max_days = 40;
+        mem[1] = mem[0];
+        snprintf(mem[1].key, sizeof(mem[1].key), "eso");
+        mem[1].t = now - 20 * 86400; mem[1].max_days = 9;            /* out of date */
+        mem[2] = mem[0];
+        snprintf(mem[2].key, sizeof(mem[2].key), "apod");             /* fresh one wins */
+        snprintf(mem[2].title, sizeof(mem[2].title), "Yesterday");
+        mem[2].t = now - 86400; mem[2].max_days = 2;
+        got[0] = mem[2];
+        snprintf(got[0].title, sizeof(got[0].title), "Today");
+        got[0].t = now;
+        CHECK(pic_pd_save("/tmp/pic_test_pd_items.tsv", mem, 3) == 0, "save");
+        m = pic_pd_load("/tmp/pic_test_pd_items.tsv", back, PD_MAX);
+        CHECK(m == 3 && !strcmp(back[0].title, "Cauldron") && !strcmp(back[0].text, "Stars brewing.") &&
+              back[0].t == mem[0].t && back[0].max_days == 40 && !strcmp(back[0].img, mem[0].img), "load round trip");
+        n = pic_pd_merge(got, 1, PD_MAX, back, m, now);
+        CHECK(n == 2 && !strcmp(got[0].title, "Today") && !strcmp(got[1].key, "webb"),
+              "kept the dropped Webb picture, not the stale ESO one or yesterday's APOD (%d)", n);
+        CHECK(pic_pd_merge(got, 2, PD_MAX, back, m, now + 20 * 86400) == 2, "nothing extra once out of date");
+        CHECK(pic_pd_load("/tmp/pic_test_pd_none.tsv", back, PD_MAX) == 0, "no file: nothing");
+        unlink("/tmp/pic_test_pd_items.tsv");
+    }
     {   /* the view: after the other worlds, only while there is a picture */
         FILE *f = fopen("/tmp/pic_test_photoday.conf", "w");
         time_t t0 = 1794000000, t;

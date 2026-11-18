@@ -313,6 +313,88 @@ static void file_for(const char *key, const char *ext, char *out, size_t n)
     snprintf(out, n, "%s/%s.%s", pd_dir(), key, ext);
 }
 
+/* ── Memory of pictures seen ────────────────────────────────────────
+ * Pi-Dash's feeds only hold their newest entries, so a weekly or monthly
+ * picture can drop out of them while still current. The clock keeps every
+ * picture it has seen (one line each in items.tsv) and shows it until its
+ * own series says it is out of date. */
+
+static void tsv_field(FILE *f, const char *s, int last)
+{
+    for (; *s; s++) fputc(*s == '\t' || *s == '\n' || *s == '\r' ? ' ' : *s, f);
+    fputc(last ? '\n' : '\t', f);
+}
+
+int pic_pd_save(const char *path, const pd_item_t *it, int n)
+{
+    char tmp[300];
+    FILE *f;
+    int k;
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    if (!(f = fopen(tmp, "w"))) return -1;
+    for (k = 0; k < n; k++) {
+        fprintf(f, "%s\t%ld\t%d\t", it[k].key, (long)it[k].t, it[k].max_days);
+        tsv_field(f, it[k].src, 0);
+        tsv_field(f, it[k].title, 0);
+        tsv_field(f, it[k].credit, 0);
+        tsv_field(f, it[k].img, 0);
+        tsv_field(f, it[k].text, 1);
+    }
+    if (fclose(f) != 0 || rename(tmp, path) != 0) { unlink(tmp); return -1; }
+    return 0;
+}
+
+static void copy_field(char *dst, size_t n, const char *src)
+{
+    snprintf(dst, n, "%s", src);
+}
+
+int pic_pd_load(const char *path, pd_item_t *it, int max)
+{
+    FILE *f = fopen(path, "r");
+    static char line[4096];
+    int n = 0;
+    if (!f) return 0;
+    while (n < max && fgets(line, sizeof(line), f)) {
+        char *fld[8], *p = line;
+        int c = 0;
+        line[strcspn(line, "\n")] = '\0';
+        while (c < 8) {
+            fld[c++] = p;
+            p = strchr(p, '\t');
+            if (!p) break;
+            *p++ = '\0';
+        }
+        if (c != 8 || !fld[0][0] || strlen(fld[0]) >= sizeof(it->key)) continue;
+        memset(&it[n], 0, sizeof(it[n]));
+        copy_field(it[n].key, sizeof(it[n].key), fld[0]);
+        it[n].t = (time_t)atol(fld[1]);
+        it[n].max_days = atoi(fld[2]);
+        copy_field(it[n].src, sizeof(it[n].src), fld[3]);
+        copy_field(it[n].title, sizeof(it[n].title), fld[4]);
+        copy_field(it[n].credit, sizeof(it[n].credit), fld[5]);
+        copy_field(it[n].img, sizeof(it[n].img), fld[6]);
+        copy_field(it[n].text, sizeof(it[n].text), fld[7]);
+        if (it[n].t > 0 && it[n].max_days > 0 && it[n].title[0] && it[n].img[0] == '/') n++;
+    }
+    fclose(f);
+    return n;
+}
+
+int pic_pd_merge(pd_item_t *got, int n, int max, const pd_item_t *mem, int m, time_t now)
+{
+    int i, k;
+    for (i = 0; i < m && n < max; i++) {
+        if (!pic_pd_current(&mem[i], now)) continue;
+        for (k = 0; k < n; k++)
+            if (!strcmp(got[k].key, mem[i].key)) break;
+        /* a newer picture of the same series replaces it */
+        if (k < n) continue;
+        got[n++] = mem[i];
+    }
+    return n;
+}
+
 /* The picture's JPEG is on disk and was fetched from this path */
 static int have_image(const pd_item_t *it)
 {
@@ -389,6 +471,17 @@ static int pd_work(pic_feature_t *f)
     }
     mkdir("/data/cache", 0755);
     mkdir(pd_dir(), 0755);
+    /* add the pictures seen earlier that are still current, then keep
+     * the list for next time */
+    {
+        static pd_item_t mem[PD_MAX];
+        char mp[300];
+        int m;
+        snprintf(mp, sizeof(mp), "%s/items.tsv", pd_dir());
+        m = pic_pd_load(mp, mem, PD_MAX);
+        n = pic_pd_merge(got, n, PD_MAX, mem, m, now);
+        if (pic_pd_save(mp, got, n) != 0) printf("photoday: could not save %s\n", mp);
+    }
     /* keep the ones whose picture is on disk */
     for (k = 0; k < n && !pic_feature_interrupted(f); ) {
         if (have_image(&got[k]) || fetch_image(base, &got[k]) == 0) { k++; continue; }

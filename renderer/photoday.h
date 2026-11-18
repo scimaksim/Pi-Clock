@@ -48,6 +48,13 @@ int pic_pd_sentences(const char *s, size_t *ends, int max);
 /* Collapse whitespace and drop spaces before punctuation, in place */
 void pic_pd_tidy(char *s);
 
+/* The pictures seen so far (items.tsv): save, load (returns the count),
+ * and merge into a fresh list the remembered ones that are still current
+ * and whose series the fresh list lacks (returns the new count). */
+int pic_pd_save(const char *path, const pd_item_t *it, int n);
+int pic_pd_load(const char *path, pd_item_t *it, int max);
+int pic_pd_merge(pd_item_t *got, int n, int max, const pd_item_t *mem, int m, time_t now);
+
 /* An item is current while now - t <= max_days days (plus 12 h) */
 int pic_pd_current(const pd_item_t *it, time_t now);
 
