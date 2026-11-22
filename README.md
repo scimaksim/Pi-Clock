@@ -175,6 +175,11 @@ sudo reboot
 
 Installs to the inactive slot. Automatic rollback after 3 failed boots.
 
+On a fork image (`Version: fork-...` in `/etc/pi-clock-os-release`)
+`pi-clock-upgrade` refuses: the stock image would replace the fork's
+renderer and dashboard. Update a fork clock in place with the steps in
+its release notes instead.
+
 ---
 
 ## Architecture

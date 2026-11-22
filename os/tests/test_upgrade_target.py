@@ -34,7 +34,7 @@ class UpgradeTargetTests(unittest.TestCase):
                 tool.chmod(0o755)
 
             for slot, pending, mounted, version, expected in (
-                ("A", "false", 2, "fork-review", "stock update URL"),
+                ("A", "false", 2, "fork-review", "this is a fork image"),
                 ("B", "true", 2, "stock", "still pending"),
                 ("B", "false", 2, "stock", "mounted root disagrees"),
                 ("B", "false", 3, "stock", "failed to fetch manifest"),

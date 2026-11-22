@@ -714,10 +714,27 @@ jobs:
           - **SD card image** (first install): `Pi-Clock-${{ env.VERSION }}.img.xz`
           - **Rootfs tarball** (upgrades): `Pi-Clock-${{ env.VERSION }}.rootfs.tar.xz`
 
-          ## Upgrade from existing Pi-Clock OS
+          ## Update a clock already running a fork image
+          Fork images can't take an OS image upgrade (`pi-clock-upgrade`
+          refuses them, so the stock image can't replace the fork). Update
+          the programs and map data in place instead, on the clock:
           ```
-          sudo pi-clock-upgrade --install
+          T=${{ env.VERSION }}
+          B=https://github.com/${{ github.repository }}/releases/download/$T
+          mkdir -p /tmp/up-$T && cd /tmp/up-$T
+          for f in binaries.sha256 pi-clock-armhf pi-clock-dashboard-armhf localmap.dat worlds.tar; do wget -q $B/$f; done
+          sha256sum -c binaries.sha256
+          sudo cp /usr/bin/pi-clock /usr/bin/pi-clock.prev
+          sudo rc-service pi-clock-renderer stop
+          sudo install -m755 pi-clock-armhf /usr/bin/pi-clock
+          sudo install -m755 pi-clock-dashboard-armhf /usr/bin/pi-clock-dashboard
+          sudo install -m644 localmap.dat /usr/share/pi-clock/localmap.dat
+          sudo rm -rf /usr/share/pi-clock/worlds && sudo tar -C /usr/share/pi-clock -xf worlds.tar
+          sudo rc-service pi-clock-renderer start
+          sudo rc-service pi-clock-dashboard restart
           ```
+          Settings in `/data/etc` are not touched. To go back, copy
+          `/usr/bin/pi-clock.prev` over `/usr/bin/pi-clock` and restart the renderer.
 
           ## Default Credentials
           - Username: `pi-clock`

@@ -37,7 +37,7 @@ fi
 # when the installer is invoked directly on an existing fork image.
 if grep -q '^Version: fork-' /etc/pi-clock-os-release 2>/dev/null &&
    [ "${UPDATE_URL%/}" = "https://github.com/MW0MWZ/Pi-Clock/releases/latest/download" ]; then
-	die "this fork image uses the stock update URL; use the fork's releases"
+	die "this is a fork image; the stock OS image would replace it. Update in place instead (see the fork release notes)"
 fi
 
 # Determine inactive slot
