@@ -166,6 +166,18 @@ static int parse_manifest(const char *js, size_t len, pch_t *out, char files[][4
     return 0;
 }
 
+/* A product with no frames (the daytime bird summary) keeps no raster:
+ * drop the last night's cached image instead of holding it all day.
+ * Caller holds d->mutex. */
+static void release_raster(pch_t *d)
+{
+    if (d->nf == 0 && d->surf) {
+        cairo_surface_destroy(d->surf);
+        d->surf = NULL;
+        d->surf_frame = -1;
+    }
+}
+
 static int pch_work(pic_feature_t *f)
 {
     pch_t *d = (pch_t *)f->data;
@@ -284,6 +296,7 @@ static int pch_work(pic_feature_t *f)
     d->last_ok = now;
     d->state = 0;
     d->surf_frame = -1;
+    release_raster(d);
     pthread_mutex_unlock(&d->mutex);
     printf("%s: %d frames %dx%d from the PC helper\n", d->product, nm.nf, nm.w, nm.h);
     return 60;

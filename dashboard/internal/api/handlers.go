@@ -1011,11 +1011,14 @@ func streamUpgrade(cmd *exec.Cmd, stage func(string)) error {
 	for {
 		line, more, readErr := reader.ReadLine()
 		if readErr != nil {
-			waitErr := cmd.Wait()
 			if readErr != io.EOF {
+				// Keep draining so the child can't block on a full
+				// pipe while Wait waits for it to exit.
+				io.Copy(io.Discard, output)
+				cmd.Wait()
 				return readErr
 			}
-			return waitErr
+			return cmd.Wait()
 		}
 		if !continued && !more {
 			if name, ok := strings.CutPrefix(string(line), "STAGE:"); ok {

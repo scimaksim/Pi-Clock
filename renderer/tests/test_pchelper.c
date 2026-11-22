@@ -19,6 +19,13 @@ int main(void)
     CHECK(parse_manifest(bad, strlen(bad), &d, files) < 0, "framed product needs dimensions");
     CHECK(parse_manifest(missing, strlen(missing), &d, files) < 0, "missing frames rejected");
     CHECK(parse_manifest(night, strlen(night), &d, files) == 0 && d.nf == 1, "night frame accepted");
+    d.nf = 1;
+    d.surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);
+    release_raster(&d);
+    CHECK(d.surf != NULL, "night raster kept while frames exist");
+    d.nf = 0;
+    release_raster(&d);
+    CHECK(d.surf == NULL && d.surf_frame == -1, "raster freed for a frameless product");
     pthread_mutex_destroy(&d.mutex);
     return CHECK_DONE("test_pchelper");
 }
