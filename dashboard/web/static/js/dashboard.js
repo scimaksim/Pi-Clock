@@ -220,9 +220,12 @@ function useMyLocation() {
 //
 // Origin is at 180°W / 90°S (south-west corner of field AA).
 // charCode(65)='A' for fields, charCode(97)='a' for subsquares.
+// Longitudes wrap, so +180° is the same meridian as -180° (field A).
+// The north pole has no row above it and is placed in the top row
+// (field R, square 9, subsquare x), the usual convention.
 function latLonToGrid(lat, lon) {
-    lon = lon + 180;
-    lat = lat + 90;
+    lon = (((lon + 180) % 360) + 360) % 360;
+    lat = Math.min(Math.max(lat + 90, 0), 180 - 1e-9);
 
     var field_lon = Math.floor(lon / 20);
     var field_lat = Math.floor(lat / 10);

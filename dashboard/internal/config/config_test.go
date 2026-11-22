@@ -32,3 +32,23 @@ func TestFailedUpdatePreservesSettings(t *testing.T) {
 		t.Fatalf("later save persisted rejected callsign %q", got)
 	}
 }
+
+func TestGridSquareMustBeALocator(t *testing.T) {
+	oldPath := rendererConfPath
+	t.Cleanup(func() { rendererConfPath = oldPath })
+	rendererConfPath = filepath.Join(t.TempDir(), "renderer.conf")
+	cfg := Load()
+	for _, ok := range []string{"FM05pq", "fm05", "AJ00aa", "RR99xx", ""} {
+		if err := cfg.Update(map[string]string{"grid_square": ok}); err != nil {
+			t.Fatalf("%q rejected: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"SJ00aa", "JS00aa", "FM05py", "FM5", "FM05pq12"} {
+		if err := cfg.Update(map[string]string{"grid_square": bad}); err == nil {
+			t.Fatalf("%q accepted", bad)
+		}
+	}
+	if got := cfg.Snapshot().GridSquare; got != "" {
+		t.Fatalf("grid %q after rejected saves", got)
+	}
+}

@@ -69,3 +69,5 @@ jobs:
       - name: Go tests
         working-directory: dashboard
         run: go test ./...
+      - name: Maidenhead locator test (dashboard JS)
+        run: node dashboard/web/tests/grid.test.js
