@@ -24,9 +24,7 @@ import (
 	"sync"
 )
 
-const (
-	rendererConfPath = "/data/etc/pi-clock-renderer.conf"
-)
+var rendererConfPath = "/data/etc/pi-clock-renderer.conf"
 
 // RendererConfig holds the display and station settings.
 // Always used as a pointer. The mutex protects all fields from
@@ -129,7 +127,7 @@ func (c *RendererConfig) Reload() {
 // saving QTH settings would silently erase DX filter settings.
 //
 // Caller MUST hold c.mu (write lock) before calling.
-func (c *RendererConfig) saveUnlocked() error {
+func (c RendererValues) saveUnlocked() error {
 	managed := map[string]bool{
 		"CENTER_LON": true, "QTH_LAT": true, "QTH_LON": true,
 		"CALLSIGN": true, "GRID_SQUARE": true, "DISPLAY_RESOLUTION": true,
@@ -246,30 +244,31 @@ func (c *RendererConfig) Update(values map[string]string) error {
 		}
 	}
 
+	next := c.RendererValues
 	if v, ok := values["center_lon"]; ok {
-		c.CenterLon = v
+		next.CenterLon = v
 	}
 	if v, ok := values["qth_lat"]; ok {
-		c.QthLat = v
+		next.QthLat = v
 	}
 	if v, ok := values["qth_lon"]; ok {
-		c.QthLon = v
+		next.QthLon = v
 	}
 	if v, ok := values["callsign"]; ok {
-		c.Callsign = v
+		next.Callsign = v
 	}
 	if v, ok := values["grid_square"]; ok {
-		c.GridSquare = v
+		next.GridSquare = v
 	}
 	if v, ok := values["display_resolution"]; ok {
-		c.DisplayResolution = v
+		next.DisplayResolution = v
 	}
 	if v, ok := values["display_rotate"]; ok {
 		// Software 180 flip only (0 or 180); reject anything else.
 		if v != "180" {
 			v = "0"
 		}
-		c.DisplayRotate = v
+		next.DisplayRotate = v
 	}
 	if v, ok := values["map_zoom"]; ok {
 		// Validate as 0..100 integer — the renderer parses MAP_ZOOM
@@ -286,8 +285,12 @@ func (c *RendererConfig) Update(values map[string]string) error {
 		if n > 100 {
 			n = 100
 		}
-		c.MapZoom = strconv.Itoa(n)
+		next.MapZoom = strconv.Itoa(n)
 	}
 
-	return c.saveUnlocked()
+	if err := next.saveUnlocked(); err != nil {
+		return err
+	}
+	c.RendererValues = next
+	return nil
 }
