@@ -33,6 +33,19 @@ DEFAULTS = {
 }
 
 
+class RetryLater(RuntimeError):
+    """The source has nothing usable yet (an outage or a gap upstream).
+
+    Reported as an error, so the job never looks healthy on stale data,
+    but retried after `wait` seconds instead of the growing back-off for
+    real failures, so the job picks up again as soon as the source does.
+    """
+
+    def __init__(self, message, wait=120):
+        super().__init__(message)
+        self.wait = int(wait)
+
+
 def load_config(path):
     cfg = dict(DEFAULTS)
     if path and os.path.exists(path):

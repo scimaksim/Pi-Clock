@@ -22,7 +22,7 @@ import eccodes
 import numpy as np
 from scipy import ndimage
 
-from .common import Palette, dist_km, publish, s3_list, get
+from .common import Palette, RetryLater, dist_km, publish, s3_list, get
 
 log = logging.getLogger("pchelper.nowcast")
 
@@ -122,7 +122,7 @@ def run(cfg, t_ref=None, publish_out=True):
         keys += s3_list(BUCKET, f"{PRODUCT}/{d}/")
     keys = [k for k in keys if k.endswith(".grib2.gz") and 0 <= now - _key_time(k) <= lookback]
     if not keys or now - max(map(_key_time, keys)) >= 3600:
-        raise RuntimeError("no recent MRMS files")
+        raise RetryLater("no recent MRMS files", 120)
     newest = max(keys, key=_key_time)
     t0 = _key_time(newest)
     obs = []

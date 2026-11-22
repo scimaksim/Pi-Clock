@@ -41,7 +41,7 @@ class NowcastTests(unittest.TestCase):
     def test_old_scans_do_not_start_a_new_forecast(self):
         key = "scan_20260101-120000.grib2.gz"
         with patch.object(nowcast, "s3_list", return_value=[key]):
-            with self.assertRaisesRegex(RuntimeError, "no recent MRMS"):
+            with self.assertRaisesRegex(nowcast.RetryLater, "no recent MRMS"):
                 nowcast.run({}, nowcast._key_time(key) + 3600)
 
 
@@ -57,3 +57,18 @@ class BirdTests(unittest.TestCase):
             self.assertEqual(birds.run(cfg), 120)
             with self.assertRaisesRegex(RuntimeError, "newest volume"):
                 birds.run(cfg)
+
+    def test_stale_volume_is_a_steady_retry(self):
+        key = "2026/01/01/KRAX/KRAX20260101_120000_V06"
+        start = dt.datetime(2026, 1, 1, 12, tzinfo=dt.timezone.utc).timestamp()
+        cfg = {"radar": "KRAX", "home_lat": 35, "home_lon": -79}
+        for last in (key, None):   # already processed, or never seen
+            with self.subTest(last=last), patch.dict(sys.modules, pyart=Mock()), \
+                 patch.object(birds, "_stats", return_value={}), \
+                 patch.object(birds, "s3_list", return_value=[key]), \
+                 patch.object(birds, "_last_key", last), \
+                 patch.object(birds, "sun_altitude", return_value=-20), \
+                 patch.object(birds.time, "time", return_value=start + 2700):
+                with self.assertRaises(birds.RetryLater) as e:
+                    birds.run(cfg)
+                self.assertEqual(e.exception.wait, 120)

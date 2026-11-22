@@ -31,7 +31,7 @@ import time
 import numpy as np
 from scipy import ndimage
 
-from .common import Palette, compass, get, publish, s3_list, sun_altitude
+from .common import Palette, RetryLater, compass, get, publish, s3_list, sun_altitude
 
 log = logging.getLogger("pchelper.birds")
 
@@ -294,7 +294,9 @@ def run(cfg):
     vt = dt.datetime.strptime(key.rsplit("/", 1)[1][4:19], "%Y%m%d_%H%M%S").replace(
         tzinfo=dt.timezone.utc).timestamp()
     if now - vt > 1800:
-        raise RuntimeError(f"{radar_id} newest volume is {int((now - vt) / 60)} min old")
+        # an outage at the radar: not healthy, but poll steadily so the
+        # layer comes back within minutes of the radar
+        raise RetryLater(f"{radar_id} newest volume is {int((now - vt) / 60)} min old", 120)
     if key == _last_key:
         return 120
     raw = get(f"https://{BUCKET}.s3.amazonaws.com/{key}", timeout=120)

@@ -22,7 +22,7 @@ import sys
 import threading
 import time
 
-from .common import load_config
+from .common import RetryLater, load_config
 
 log = logging.getLogger("pchelper")
 STATUS = {}
@@ -50,6 +50,11 @@ def job_loop(cfg, name, stop):
             _set(name, state="ok", last_ok=int(time.time()), seconds=round(time.time() - t, 1),
                  error=None, next=int(time.time() + wait))
             backoff = 60
+        except RetryLater as e:
+            log.warning("%s: %s; retrying in %d s", name, e, e.wait)
+            wait = e.wait
+            _set(name, state="error", error=f"{type(e).__name__}: {e}"[:300],
+                 last_error=int(time.time()), next=int(time.time() + wait))
         except Exception as e:
             log.exception("%s failed", name)
             wait = backoff
