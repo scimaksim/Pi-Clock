@@ -54,6 +54,18 @@ jobs:
           . "$RUNNER_TEMP/helper-venv/bin/activate"
           pip install numpy scipy requests eccodes opencv-python-headless
           python -m unittest discover -s tests -v
+      - name: Test the Windows installer's settings step
+        shell: pwsh
+        run: ./helper/tests/test_install_config.ps1
+
+  windows-installer:
+    # the installer runs under Windows PowerShell 5.1, not pwsh
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer settings step under Windows PowerShell 5.1
+        shell: powershell
+        run: .\helper\tests\test_install_config.ps1
 
   dashboard:
     runs-on: ubuntu-24.04
@@ -66,3 +78,5 @@ jobs:
       - name: Go tests
         working-directory: dashboard
         run: go test ./...
+      - name: Maidenhead locator test (dashboard JS)
+        run: node dashboard/web/tests/grid.test.js

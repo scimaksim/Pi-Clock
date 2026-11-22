@@ -19,6 +19,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -226,6 +227,8 @@ func (c *RendererConfig) Snapshot() RendererValues {
 // Update applies new values from a map and saves atomically.
 // Holds the write lock through both the field update and the
 // file write to prevent TOCTOU races.
+var gridSquareRe = regexp.MustCompile(`^([A-Ra-r]{2}[0-9]{2}([A-Xa-x]{2})?)?$`)
+
 func (c *RendererConfig) Update(values map[string]string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -258,6 +261,11 @@ func (c *RendererConfig) Update(values map[string]string) error {
 		next.Callsign = v
 	}
 	if v, ok := values["grid_square"]; ok {
+		// The same locator rule the settings import uses: field A-R,
+		// square 0-9, optional subsquare a-x
+		if !gridSquareRe.MatchString(v) {
+			return fmt.Errorf("grid square must be a Maidenhead locator like FM05pq")
+		}
 		next.GridSquare = v
 	}
 	if v, ok := values["display_resolution"]; ok {

@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -60,17 +61,12 @@ var validDxValue = regexp.MustCompile(`^[0-9a-fA-F]*$`)
 
 // atomicWriteFile writes data to path via a temp file + rename.
 // Prevents corrupt config files on power loss (common on Pi appliances).
+// Each call uses its own temp file in the same directory, so overlapping
+// saves of one file can't remove or rename each other's pending copy:
+// the last rename wins and the file always holds one complete request.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	tmp := path + ".tmp"
-	// A stale .tmp from a crash keeps its old mode through WriteFile,
-	// which matters for 0600 secrets: start fresh and set the mode.
-	os.Remove(tmp)
-	if err := writeSynced(tmp, data, perm); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	if err := os.Chmod(tmp, perm); err != nil {
-		os.Remove(tmp)
+	tmp, err := writeTemp(path, data, perm)
+	if err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -78,6 +74,37 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return nil
+}
+
+// writeTemp writes data, synced and with mode perm, to a new temp file
+// beside path and returns its name; the caller renames it into place.
+func writeTemp(path string, data []byte, perm os.FileMode) (string, error) {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return "", err
+	}
+	tmp := f.Name()
+	fail := func(err error) (string, error) {
+		f.Close()
+		os.Remove(tmp)
+		return "", err
+	}
+	// CreateTemp makes the file 0600; set the intended mode before any
+	// data is written so a secret is never readable by others.
+	if err := f.Chmod(perm); err != nil {
+		return fail(err)
+	}
+	if _, err := f.Write(data); err != nil {
+		return fail(err)
+	}
+	if err := f.Sync(); err != nil {
+		return fail(err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	return tmp, nil
 }
 
 // writeSynced writes data and flushes it to the card before returning,

@@ -11,7 +11,8 @@
 #   3. downloads the MistNet bird model (~540 MB, once)
 #   4. registers a startup task "Pi-Clock Helper" (runs as SYSTEM, below
 #      normal priority, restarts if it stops) and starts it
-#   5. allows TCP 8765 in from the local network only
+#   5. allows the helper port (8765, or the one saved in helper.json) in from
+#      the local network only
 # Re-running it updates the helper in place. uninstall-windows.ps1 removes
 # the task and firewall rule.
 
@@ -25,12 +26,15 @@ $ProgressPreference = "SilentlyContinue"     # makes Invoke-WebRequest fast
 $me = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $me.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "Asking for administrator rights..."
-    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Lat $Lat -Lon $Lon -Radar $Radar -Port $Port"
+    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Lat $Lat -Lon $Lon -Radar $Radar"
+    # pass -Port on only if it was given, so a rerun keeps the saved port
+    if ($PSBoundParameters.ContainsKey("Port")) { $argList += " -Port $Port" }
     Start-Process powershell -Verb RunAs -ArgumentList $argList
     exit
 }
 
 $Src = Split-Path -Parent $PSCommandPath
+. "$Src\helper-config.ps1"
 $Dest = "C:\PiClockHelper"
 $TaskName = "Pi-Clock Helper"
 
@@ -66,10 +70,10 @@ try {
     New-Item -ItemType Directory -Force -Path $Dest, "$Dest\models" | Out-Null
     Copy-Item -Recurse -Force "$Src\pchelper" $Dest
     Copy-Item -Force "$Src\requirements.txt", "$Src\uninstall-windows.ps1" $Dest
-    if (-not (Test-Path "$Dest\helper.json")) {
-        $cfg = @{ home_lat = $Lat; home_lon = $Lon; radar = $Radar; port = $Port } | ConvertTo-Json
-        Set-Content -Path "$Dest\helper.json" -Value $cfg -Encoding ASCII
-    }
+    # the port the service will read: the firewall rule, probe and printed
+    # address below must use the same one
+    $Port = Resolve-HelperConfig -Path "$Dest\helper.json" -Lat $Lat -Lon $Lon -Radar $Radar `
+        -Port $Port -PortGiven $PSBoundParameters.ContainsKey("Port")
 
     Step "Python libraries (a few minutes the first time)"
     if (-not (Test-Path "$Dest\venv\Scripts\python.exe")) { & $py -m venv "$Dest\venv" }
