@@ -16,6 +16,8 @@ OBJS    = $(addprefix build/,$(CORE:.c=.o))
 TESTS   = test_sgp4 test_tlelist test_rockets test_launchvis test_launches \
           test_composite test_datastatus test_view test_health test_crew test_saticons test_skycover test_fetch test_eclipse test_planet test_spacelayers test_astro test_labels test_gcat test_radar test_closeup test_photoday
 
+TESTS += test_pchelper
+
 all: $(addprefix build/,$(TESTS))
 
 build/%.o: ../%.c

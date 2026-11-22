@@ -15,6 +15,10 @@ on:
     paths:
       - 'renderer/**'
       - 'dashboard/**'
+      - 'helper/**'
+      - 'os/**'
+      - '.github/fetch-gfs.py'
+      - '.github/test_fetch_gfs.py'
       - '.github/workflows/tests.yml'
 
 jobs:
@@ -25,9 +29,31 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libcairo2-dev libssl-dev pkg-config wget
+          sudo apt-get install -y --no-install-recommends libcairo2-dev libssl-dev libdrm-dev libsdl2-dev pkg-config wget
       - name: Build and run renderer tests
         run: make -C renderer/tests -j"$(nproc)" check
+      - name: Build the display backend and render a headless snapshot
+        run: |
+          make -C renderer -j"$(nproc)"
+          renderer/pi-clock --snapshot "$RUNNER_TEMP/clock.png" --width 640 --height 360
+          test -s "$RUNNER_TEMP/clock.png"
+
+  data-and-boot:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test slot health and GFS fallback
+        run: |
+          sh os/tests/slot-health.sh
+          python3 -m unittest discover -s os/tests -v
+          python3 -m unittest discover -s .github -p test_fetch_gfs.py -v
+      - name: Test radar timing without fetching live feeds
+        working-directory: helper
+        run: |
+          python3 -m venv "$RUNNER_TEMP/helper-venv"
+          . "$RUNNER_TEMP/helper-venv/bin/activate"
+          pip install numpy scipy requests eccodes opencv-python-headless
+          python -m unittest discover -s tests -v
 
   dashboard:
     runs-on: ubuntu-24.04

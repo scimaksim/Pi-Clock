@@ -77,12 +77,29 @@ static int parse_manifest(const char *js, size_t len, pch_t *out, char files[][4
 {
     pic_json_t j;
     int p, fr, i, lg;
+    double width, height;
 
     if (pic_json_parse(&j, js, len) != 0) return -1;
     out->generated = (time_t)pic_json_num(&j, pic_json_get(&j, 0, "generated"), 0);
     out->expires = (time_t)pic_json_num(&j, pic_json_get(&j, 0, "expires"), 0);
-    out->w = (int)pic_json_num(&j, pic_json_get(&j, 0, "width"), 0);
-    out->h = (int)pic_json_num(&j, pic_json_get(&j, 0, "height"), 0);
+    width = pic_json_num(&j, pic_json_get(&j, 0, "width"), -1);
+    height = pic_json_num(&j, pic_json_get(&j, 0, "height"), -1);
+    fr = pic_json_get(&j, 0, "frames");
+    if (!pic_json_is_array(&j, fr)) {
+        pic_json_free(&j);
+        return -1;
+    }
+    out->nf = pic_json_size(&j, fr);
+    /* A daytime bird summary has no image. Framed products must fit
+     * the existing pixel budget before converting sizes to integers. */
+    if (out->nf == 0 ? (width != 0 || height != 0) :
+        !(width >= 1 && height >= 1 && width * height <= 4000000 &&
+          width == floor(width) && height == floor(height))) {
+        pic_json_free(&j);
+        return -1;
+    }
+    out->w = (int)width;
+    out->h = (int)height;
     p = pic_json_get(&j, 0, "bbox");
     for (i = 0; i < 4; i++) out->bbox[i] = pic_json_num(&j, pic_json_at(&j, p, i), 0);
     p = pic_json_get(&j, 0, "palette");
@@ -101,8 +118,6 @@ static int parse_manifest(const char *js, size_t len, pch_t *out, char files[][4
         out->pal[i] = (a << 24) | ((r * a / 255) << 16) | ((g * a / 255) << 8) | (b * a / 255);
         out->pal_rgb[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
     }
-    fr = pic_json_get(&j, 0, "frames");
-    out->nf = pic_json_size(&j, fr);
     if (out->nf > PCH_MAXF) out->nf = PCH_MAXF;
     for (i = 0; i < out->nf; i++) {
         int f = pic_json_at(&j, fr, i);
@@ -148,7 +163,19 @@ static int parse_manifest(const char *js, size_t len, pch_t *out, char files[][4
         out->arrow_min = (int)pic_json_num(&j, pic_json_get(&j, p, "min"), 1);
     }
     pic_json_free(&j);
-    return out->w > 0 && out->h > 0 && out->w * out->h <= 4000000 ? 0 : -1;
+    return 0;
+}
+
+/* A product with no frames (the daytime bird summary) keeps no raster:
+ * drop the last night's cached image instead of holding it all day.
+ * Caller holds d->mutex. */
+static void release_raster(pch_t *d)
+{
+    if (d->nf == 0 && d->surf) {
+        cairo_surface_destroy(d->surf);
+        d->surf = NULL;
+        d->surf_frame = -1;
+    }
 }
 
 static int pch_work(pic_feature_t *f)
@@ -269,6 +296,7 @@ static int pch_work(pic_feature_t *f)
     d->last_ok = now;
     d->state = 0;
     d->surf_frame = -1;
+    release_raster(d);
     pthread_mutex_unlock(&d->mutex);
     printf("%s: %d frames %dx%d from the PC helper\n", d->product, nm.nf, nm.w, nm.h);
     return 60;
@@ -292,7 +320,7 @@ static int current_frame(const pch_t *d, time_t now)
 
 static int usable(const pch_t *d, time_t now)
 {
-    return d->state == 0 && d->nf > 0 && now < d->expires + 15 * 60;
+    return d->state == 0 && d->last_ok > 0 && now < d->expires + 15 * 60;
 }
 
 /*
@@ -580,7 +608,7 @@ static int pch_idle(time_t now, void *ud)
     int idle;
     if (!d) return 1;
     pthread_mutex_lock(&d->mutex);
-    idle = !usable(d, now);
+    idle = !usable(d, now) || d->nf == 0;
     pthread_mutex_unlock(&d->mutex);
     return idle;
 }

@@ -988,42 +988,44 @@ func PostOsUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cmd := exec.Command("/usr/local/bin/pi-clock-upgrade", "--install")
-
-	// Merge stdout and stderr into a single pipe so we can read
-	// every line the upgrade script produces, including wget progress.
-	pr, pw := io.Pipe()
-	defer pr.Close()
-	cmd.Stdout = pw
-	cmd.Stderr = pw
-
-	if err := cmd.Start(); err != nil {
-		pw.Close()
-		log.Printf("os-upgrade: start: %v", err)
-		sendEvent("error", "upgrade failed to start")
-		return
-	}
-
-	// Wait for the command in a goroutine. Closing pw signals
-	// EOF to the scanner so the read loop below terminates.
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-		pw.Close()
-	}()
-
-	scanner := bufio.NewScanner(pr)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "STAGE:") {
-			sendEvent(strings.TrimPrefix(line, "STAGE:"), "")
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		log.Printf("os-upgrade: scanner: %v", err)
-	}
-
-	if err := <-done; err != nil {
+	if err := streamUpgrade(cmd, func(stage string) { sendEvent(stage, "") }); err != nil {
+		log.Printf("os-upgrade: %v", err)
 		sendEvent("error", "upgrade failed")
+	}
+}
+
+func streamUpgrade(cmd *exec.Cmd, stage func(string)) error {
+	output, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	// Drain even very long wget progress lines. Only complete, short
+	// lines from the installer carry stage markers.
+	reader := bufio.NewReader(output)
+	continued := false
+	for {
+		line, more, readErr := reader.ReadLine()
+		if readErr != nil {
+			if readErr != io.EOF {
+				// Keep draining so the child can't block on a full
+				// pipe while Wait waits for it to exit.
+				io.Copy(io.Discard, output)
+				cmd.Wait()
+				return readErr
+			}
+			return cmd.Wait()
+		}
+		if !continued && !more {
+			if name, ok := strings.CutPrefix(string(line), "STAGE:"); ok {
+				stage(name)
+			}
+		}
+		continued = more
 	}
 }
 
