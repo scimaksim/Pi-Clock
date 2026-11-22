@@ -33,6 +33,7 @@ HALF_LAT, HALF_LON = 3.5, 4.5               # area around home
 RAIN_DBZ = 20.0                             # light rain at the ground
 LEADS = list(range(10, 100, 10))            # minutes
 OBS = [60, 50, 40, 30, 25, 20, 15, 10, 5, 0]  # minutes before the newest
+SCAN_TOLERANCE = 150  # seconds
 
 PAL = Palette([
     (15, "#04e9e7", 150), (20, "#019ff4", 170), (25, "#0300f4", 180),
@@ -91,11 +92,11 @@ def _load(cfg, key):
 
 def _pick(keys, t):
     best = min(keys, key=lambda k: abs(_key_time(k) - t))
-    return best if abs(_key_time(best) - t) <= 150 else None
+    return best if abs(_key_time(best) - t) <= SCAN_TOLERANCE else None
 
 
 def _flow(a, b):
-    """Displacement (px per 10 min) of echoes from frame a to frame b."""
+    """Displacement in pixels of echoes from frame a to frame b."""
     def u8(x):
         x = np.nan_to_num(x, nan=0.0)
         return np.clip((x - 10) * 4, 0, 255).astype(np.uint8)
@@ -113,17 +114,19 @@ def _home_max(crop, cfg, km=4.0):
 
 
 def run(cfg, t_ref=None, publish_out=True):
-    now = t_ref or time.time()
+    now = time.time() if t_ref is None else t_ref
     keys = []
+    lookback = 3600 + max(OBS) * 60 + SCAN_TOLERANCE
     for d in {dt.datetime.fromtimestamp(now - s, dt.timezone.utc).strftime("%Y%m%d")
-              for s in (0, 3000)}:
+              for s in (0, lookback)}:
         keys += s3_list(BUCKET, f"{PRODUCT}/{d}/")
-    keys = [k for k in keys if k.endswith(".grib2.gz") and 0 <= now - _key_time(k) < 3600]
-    if not keys:
+    keys = [k for k in keys if k.endswith(".grib2.gz") and 0 <= now - _key_time(k) <= lookback]
+    if not keys or now - max(map(_key_time, keys)) >= 3600:
         raise RuntimeError("no recent MRMS files")
     newest = max(keys, key=_key_time)
     t0 = _key_time(newest)
     obs = []
+    selected = {}
     for m in OBS:
         k = _pick(keys, t0 - m * 60)
         if k is None:
@@ -134,13 +137,15 @@ def run(cfg, t_ref=None, publish_out=True):
         if crop is None:
             raise RuntimeError(f"MRMS file vanished: {k}")
         obs.append((_key_time(k), crop))
+        selected[m] = obs[-1]
     cur_i = len(obs) - 1
-    by_t = {round((t0 - t) / 60): c for t, c in obs}
 
-    # Motion: average of the last two 10-minute flows, smoothed hard
-    # (storm-scale motion, not every wobble)
-    f1 = _flow(by_t[20], by_t[10])
-    f2 = _flow(by_t[10], by_t[0])
+    # A scan can be a minute or two off its nominal slot. Convert both
+    # measured displacements to pixels per ten minutes before averaging.
+    t20, a20 = selected[20]
+    t10, a10 = selected[10]
+    f1 = _flow(a20, a10) * (600 / (t10 - t20))
+    f2 = _flow(a10, selected[0][1]) * (600 / (t0 - t10))
     flow = (f1 + 2 * f2) / 3
     for c in range(2):
         flow[..., c] = ndimage.gaussian_filter(flow[..., c], 12)

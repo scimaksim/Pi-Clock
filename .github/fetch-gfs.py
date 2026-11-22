@@ -273,38 +273,22 @@ def main():
     ]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        fields = []
-        fallback_cycle = None
-
-        for variable, level, field_id, label, required, fhour, step in gfs_fields:
-            data = fetch_field(cycle, tmpdir, variable, level, label,
-                               fhour, step)
-
-            # Try previous cycle if latest not available.
-            # If we fall back, ALL subsequent fields use the same cycle
-            # so they're from the same model run.
-            if data is None and required:
-                if fallback_cycle is None:
-                    fallback_cycle = cycle - timedelta(hours=6)
-                    print(f'  Trying fallback cycle: '
-                          f'{fallback_cycle.strftime("%Y-%m-%d %H:%M UTC")}')
-                data = fetch_field(fallback_cycle, tmpdir,
-                                   variable, level, label, fhour, step)
-                if data is None:
-                    print(f'ERROR: Required field {label} unavailable')
-                    sys.exit(1)
-                cycle = fallback_cycle
-
-            if data is not None:
-                fields.append((field_id, data))
-                print(f'  {label}: {len(data)} values')
-            elif required:
-                sys.exit(1)
+        for run in (cycle, cycle - timedelta(hours=6)):
+            fields = []
+            for variable, level, field_id, label, required, fhour, step in gfs_fields:
+                data = fetch_field(run, tmpdir, variable, level, label, fhour, step)
+                if data is not None:
+                    fields.append((field_id, data))
+                elif required:
+                    print(f'  {run:%Y-%m-%d %HZ}: missing {label}, discarding this cycle')
+                    break
             else:
-                print(f'  {label}: skipped (optional, not available)')
+                break  # all required fields came from this run
+        else:
+            sys.exit('No complete GFS wind cycle available')
 
         print(f'Writing binary ({len(fields)} fields)...')
-        if not write_gfs_binary(fields, cycle, output_path):
+        if not write_gfs_binary(fields, run, output_path):
             sys.exit(1)
 
     print('Done.')

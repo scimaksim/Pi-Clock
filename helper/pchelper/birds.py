@@ -293,10 +293,10 @@ def run(cfg):
     key = max(keys)
     vt = dt.datetime.strptime(key.rsplit("/", 1)[1][4:19], "%Y%m%d_%H%M%S").replace(
         tzinfo=dt.timezone.utc).timestamp()
-    if key == _last_key:
-        return 120
     if now - vt > 1800:
         raise RuntimeError(f"{radar_id} newest volume is {int((now - vt) / 60)} min old")
+    if key == _last_key:
+        return 120
     raw = get(f"https://{BUCKET}.s3.amazonaws.com/{key}", timeout=120)
     fd, path = tempfile.mkstemp(suffix=".ar2v", dir=cfg["cache_dir"])
     with os.fdopen(fd, "wb") as f:
@@ -313,7 +313,6 @@ def run(cfg):
     vid, mtr, heading, speed = _profile(chans, weather)
     dens, bbox = _map(chans, weather, rlat, rlon)
     _frames = [f for f in _frames if vt - f[0] < 3600 and f[0] != vt] + [(vt, PAL.index(dens))]
-    _last_key = key
 
     if mtr >= 20 and heading is not None:
         note = (f"Birds aloft ({radar_id} {{t:{int(vt)}}}): ~{mtr:,.0f} birds/km/h heading "
@@ -334,6 +333,7 @@ def run(cfg):
                    # the clock draws drifting chevrons where density >= 10/km3
                    "arrows": ({"dir": round(heading, 1), "min": int(PAL.index([10])[0])}
                               if heading is not None and mtr >= 20 else None)})
+    _last_key = key
     log.info("birds %s: vid %.0f/km2 mtr %.0f/km/h heading %s speed %s", key.rsplit("/", 1)[1],
              vid, mtr, heading and round(heading), speed and round(speed, 1))
     return 180
