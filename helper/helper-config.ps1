@@ -20,7 +20,9 @@ function Resolve-HelperConfig {
             ConvertTo-Json -Depth 8)
         return $Port
     }
-    $cfg = Get-Content -Raw -Path $Path | ConvertFrom-Json
+    # read as UTF-8: Windows PowerShell 5.1 reads a file without a BOM as
+    # ANSI, which would garble accented text before it is written back
+    $cfg = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) | ConvertFrom-Json
     if ($PortGiven) {
         $cfg | Add-Member -NotePropertyName port -NotePropertyValue $Port -Force
         Save-HelperJson $Path ($cfg | ConvertTo-Json -Depth 8)
