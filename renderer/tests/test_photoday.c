@@ -160,6 +160,8 @@ int main(void)
         }
         system("rm -rf /tmp/pic_test_pd /tmp/pic_test_pd.conf");
         unsetenv("PIC_RENDERER_CONF");
+        unsetenv("PIC_PHOTODAY_DIR");
+        pic_photoday_set_items(NULL, 0, -1);   /* leave no state for later checks */
     }
     {   /* the view: after the other worlds, only while there is a picture */
         FILE *f = fopen("/tmp/pic_test_photoday.conf", "w");

@@ -98,7 +98,7 @@ func readKV(path string) (map[string]string, []string) {
 func readKVChecked(path string) (map[string]string, []string, error) {
 	kv := map[string]string{}
 	var order []string
-	data, err := os.ReadFile(path)
+	data, err := readSettingsFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, nil, err
 	}
@@ -347,6 +347,9 @@ func ImportSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		})
 	}
 }
+
+// readSettingsFile is os.ReadFile; the tests replace it to fail a read.
+var readSettingsFile = os.ReadFile
 
 // renameFile is os.Rename; the tests replace it to fail one rename.
 var renameFile = os.Rename

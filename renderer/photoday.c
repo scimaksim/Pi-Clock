@@ -467,18 +467,27 @@ static int pd_work(pic_feature_t *f)
     free(buf);
     if (!ok) {
         /* After a restart with the server away, show the pictures already
-         * on disk that are still current rather than none */
+         * on disk that are still current rather than none. The files are
+         * read without the lock (the render thread takes it every frame). */
+        static pd_item_t mem[PD_MAX];
+        pd_item_t keep[PD_MAX];
+        char mp[300];
+        int m, nk = 0, empty;
         pthread_mutex_lock(&pd.m);
-        if (pd.n == 0) {
-            static pd_item_t mem[PD_MAX];
-            char mp[300];
-            int m;
+        empty = pd.n == 0;
+        pthread_mutex_unlock(&pd.m);
+        if (empty) {
             snprintf(mp, sizeof(mp), "%s/items.tsv", pd_dir());
             m = pic_pd_load(mp, mem, PD_MAX);
             for (k = 0; k < m; k++)
                 if (pic_pd_current(&mem[k], now) && have_image(&mem[k]))
-                    pd.it[pd.n++] = mem[k];
-            if (pd.n) pd.gen++;
+                    keep[nk++] = mem[k];
+        }
+        pthread_mutex_lock(&pd.m);
+        if (pd.n == 0 && nk > 0) {
+            memcpy(pd.it, keep, (size_t)nk * sizeof(keep[0]));
+            pd.n = nk;
+            pd.gen++;
         }
         printf("photoday: Pi-Dash server not answering, keeping %d picture(s)\n", pd.n);
         pthread_mutex_unlock(&pd.m);
@@ -571,7 +580,7 @@ void pic_photoday_set_items(const pd_item_t *it, int n, int cur)
 {
     pthread_mutex_lock(&pd.m);
     if (n > PD_MAX) n = PD_MAX;
-    memcpy(pd.it, it, (size_t)n * sizeof(*it));
+    if (n > 0) memcpy(pd.it, it, (size_t)n * sizeof(*it));
     pd.n = n;
     pd.cur = cur;
     pd.gen++;

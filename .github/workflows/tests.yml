@@ -58,6 +58,15 @@ jobs:
         shell: pwsh
         run: ./helper/tests/test_install_config.ps1
 
+  windows-installer:
+    # the installer runs under Windows PowerShell 5.1, not pwsh
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer settings step under Windows PowerShell 5.1
+        shell: powershell
+        run: .\helper\tests\test_install_config.ps1
+
   dashboard:
     runs-on: ubuntu-24.04
     steps:

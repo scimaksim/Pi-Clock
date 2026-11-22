@@ -57,19 +57,30 @@ func TestImportIsAllOrNothing(t *testing.T) {
 	}
 }
 
-// An existing renderer file that can't be read is an error, not "empty":
-// treating it as empty would replace every setting it holds.
+// A renderer file that can't be read (an SD card read error) is an
+// error, not "empty": treating it as empty would replace every setting
+// it holds with only the backup's keys.
 func TestImportRefusesUnreadableSettings(t *testing.T) {
 	restorePaths(t)
-	os.Remove(rendererConfPath)
-	os.Mkdir(rendererConfPath, 0755) // reading a directory fails
+	failed := false
+	readSettingsFile = func(path string) ([]byte, error) {
+		if path == rendererConfPath && !failed {
+			failed = true // only the first read fails, as a transient error would
+			return nil, os.ErrPermission
+		}
+		return os.ReadFile(path)
+	}
+	defer func() { readSettingsFile = os.ReadFile }()
 	rec := importBackup(t, settingsBackup{
 		Format: backupFormat, Version: backupVersion,
-		Renderer: map[string]string{"QTH_LAT": "40.00"},
+		Renderer: map[string]string{"QTH_LON": "-78.70"},
 		Lists:    map[string][]string{"layers": {"radar=0,0.50"}},
 	})
 	if rec.Code == http.StatusOK {
 		t.Fatalf("import reported success: %s", rec.Body)
+	}
+	if got, _ := os.ReadFile(rendererConfPath); string(got) != "QTH_LAT=35.69\n" {
+		t.Fatalf("renderer settings replaced after a failed read:\n%s", got)
 	}
 	if got, _ := os.ReadFile(backupLayersPath); string(got) != "radar=1,0.80\n" {
 		t.Fatalf("layers changed although the import failed:\n%s", got)

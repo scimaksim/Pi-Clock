@@ -28,6 +28,19 @@ try {
     Check ($p -eq 8800 -and $c.port -eq 8800) "explicit -Port is saved for the service"
     Check ($c.radar -eq "KRAX" -and $c.home_lat -eq 35.69) "other settings kept"
 
+    # other settings survive a rerun with -Port: text with accents, and a
+    # list (Windows PowerShell 5.1 can rewrite arrays as {"value": ...})
+    $e = [char]0xEB    # an accented letter, kept out of this file's own text
+    [IO.File]::WriteAllText($json, ('{"port": 8765, "cache_dir": "C:\\Users\\Zo' + $e + '\\cache", "jobs": ["nowcast", "birds"]}'),
+        (New-Object Text.UTF8Encoding $false))
+    $p = Resolve-HelperConfig -Path $json -Lat 35.69 -Lon -78.73 -Radar KRAX -Port 8800 -PortGiven $true
+    $raw = [IO.File]::ReadAllText($json, [Text.Encoding]::UTF8)
+    $c = $raw | ConvertFrom-Json
+    Check ($c.cache_dir -eq "C:\Users\Zo$([char]0xEB)\cache") "accented path kept"
+    Check ($c.jobs -is [array] -and $c.jobs.Count -eq 2 -and $c.jobs[1] -eq "birds") "list kept as a list"
+    Check ($raw -notmatch '"value"') "no array wrapper"
+    Check ([IO.File]::ReadAllBytes($json)[0] -ne 0xEF) "no byte-order mark"
+
     # a helper.json without a port uses the service's default
     '{"home_lat": 35.69, "home_lon": -78.73, "radar": "KRAX"}' | Set-Content $json -Encoding ASCII
     $p = Resolve-HelperConfig -Path $json -Lat 35.69 -Lon -78.73 -Radar KRAX -Port 8765 -PortGiven $false

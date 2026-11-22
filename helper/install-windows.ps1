@@ -11,7 +11,8 @@
 #   3. downloads the MistNet bird model (~540 MB, once)
 #   4. registers a startup task "Pi-Clock Helper" (runs as SYSTEM, below
 #      normal priority, restarts if it stops) and starts it
-#   5. allows TCP 8765 in from the local network only
+#   5. allows the helper port (8765, or the one saved in helper.json) in from
+#      the local network only
 # Re-running it updates the helper in place. uninstall-windows.ps1 removes
 # the task and firewall rule.
 
