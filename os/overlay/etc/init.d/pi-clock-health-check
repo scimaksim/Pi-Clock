@@ -9,7 +9,7 @@
 
 description="Pi-Clock OS health check (validates A/B slot after upgrade)"
 depend() {
-	after networking pi-clock-boot-watchdog
+	after networking pi-clock-boot-watchdog pi-clock-renderer
 }
 
 SLOT_CONF="/boot/firmware/slot.conf"
@@ -38,7 +38,6 @@ start() {
 	# Secondary check: network connectivity (nice to have, not required)
 	for iface in eth0 wlan0; do
 		if ip addr show "$iface" 2>/dev/null | grep -q 'inet '; then
-			HEALTHY=true
 			einfo "Network interface $iface has an IP address"
 			break
 		fi
@@ -61,7 +60,7 @@ EOF
 		sync
 		eend 0
 	else
-		ewarn "Health check failed - neither renderer nor network detected"
+		ewarn "Health check failed - renderer is not running"
 		ewarn "Slot $ACTIVE_SLOT remains PENDING (watchdog will handle rollback)"
 		eend 1
 	fi
