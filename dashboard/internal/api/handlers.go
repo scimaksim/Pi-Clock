@@ -65,15 +65,29 @@ var validDxValue = regexp.MustCompile(`^[0-9a-fA-F]*$`)
 // saves of one file can't remove or rename each other's pending copy:
 // the last rename wins and the file always holds one complete request.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	tmp, err := writeTemp(path, data, perm)
 	if err != nil {
 		return err
 	}
-	tmp := f.Name()
-	fail := func(err error) error {
-		f.Close()
+	if err := os.Rename(tmp, path); err != nil {
 		os.Remove(tmp)
 		return err
+	}
+	return nil
+}
+
+// writeTemp writes data, synced and with mode perm, to a new temp file
+// beside path and returns its name; the caller renames it into place.
+func writeTemp(path string, data []byte, perm os.FileMode) (string, error) {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return "", err
+	}
+	tmp := f.Name()
+	fail := func(err error) (string, error) {
+		f.Close()
+		os.Remove(tmp)
+		return "", err
 	}
 	// CreateTemp makes the file 0600; set the intended mode before any
 	// data is written so a secret is never readable by others.
@@ -88,13 +102,9 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 	if err := f.Close(); err != nil {
 		os.Remove(tmp)
-		return err
+		return "", err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return tmp, nil
 }
 
 // writeSynced writes data and flushes it to the card before returning,

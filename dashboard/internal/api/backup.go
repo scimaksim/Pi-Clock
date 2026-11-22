@@ -89,9 +89,19 @@ type settingsBackup struct {
 }
 
 func readKV(path string) (map[string]string, []string) {
+	kv, order, _ := readKVChecked(path)
+	return kv, order
+}
+
+// readKVChecked is readKV that reports a file it could not read; a file
+// that does not exist yet reads as empty.
+func readKVChecked(path string) (map[string]string, []string, error) {
 	kv := map[string]string{}
 	var order []string
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, nil, err
+	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -106,7 +116,7 @@ func readKV(path string) (map[string]string, []string) {
 		}
 		kv[k] = v
 	}
-	return kv, order
+	return kv, order, nil
 }
 
 func readListLines(path string) []string {
@@ -273,7 +283,14 @@ func ImportSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		if cfg != nil {
 			cfg.Lock()
 		}
-		kv, order := readKV(rendererConfPath)
+		kv, order, err := readKVChecked(rendererConfPath)
+		if err != nil {
+			if cfg != nil {
+				cfg.Unlock()
+			}
+			internalError(w, "read renderer settings", err)
+			return
+		}
 		var keys []string
 		for k := range b.Renderer {
 			if backupSkipRenderer[k] {
@@ -292,36 +309,34 @@ func ImportSettings(cfg *config.RendererConfig) http.HandlerFunc {
 		for _, k := range order {
 			out.WriteString(k + "=" + kv[k] + "\n")
 		}
-		err := atomicWriteFile(rendererConfPath, []byte(out.String()), 0644)
-		if cfg != nil {
-			cfg.Unlock()
-		}
-		if err != nil {
-			internalError(w, "import renderer settings", err)
-			return
-		}
-		if cfg != nil {
-			cfg.Reload()
-		}
 
+		// Every file is written to a temp file first; only when all of
+		// them are ready are they moved into place, so a destination that
+		// can't be written leaves every setting as it was.
+		changes := []fileChange{{rendererConfPath, []byte(out.String()), 0644}}
 		for _, f := range backupLists {
 			lines, ok := b.Lists[f.id]
 			if !ok {
 				continue
 			}
 			content := "# Pi-Clock " + f.id + " configuration (imported)\n" + strings.Join(lines, "\n") + "\n"
-			if err := atomicWriteFile(*f.path, []byte(content), 0644); err != nil {
-				internalError(w, "import "+f.id, err)
-				return
-			}
+			changes = append(changes, fileChange{*f.path, []byte(content), 0644})
 		}
 		nkeys := 0
 		for id, v := range b.Secrets {
-			if err := atomicWriteFile(*backupSecrets[id].path, []byte(v+"\n"), 0600); err != nil {
-				internalError(w, "import key", err)
-				return
-			}
+			changes = append(changes, fileChange{*backupSecrets[id].path, []byte(v + "\n"), 0600})
 			nkeys++
+		}
+		err = replaceAll(changes)
+		if cfg != nil {
+			cfg.Unlock()
+		}
+		if err != nil {
+			internalError(w, "import settings", err)
+			return
+		}
+		if cfg != nil {
+			cfg.Reload()
 		}
 		signalRenderer()
 		jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -331,4 +346,79 @@ func ImportSettings(cfg *config.RendererConfig) http.HandlerFunc {
 			"skipped":  b.skipped,
 		})
 	}
+}
+
+// renameFile is os.Rename; the tests replace it to fail one rename.
+var renameFile = os.Rename
+
+// fileChange is one file an import replaces.
+type fileChange struct {
+	path string
+	data []byte
+	perm os.FileMode
+}
+
+// replaceAll replaces every file or none. All new contents are written to
+// temp files first; any failure there removes them and changes nothing.
+// Then they are renamed into place; should a rename fail, the files
+// already replaced are put back from their earlier contents (or removed
+// if they did not exist), and the error says so if that also fails.
+func replaceAll(changes []fileChange) error {
+	tmps := make([]string, 0, len(changes))
+	cleanup := func() {
+		for _, t := range tmps {
+			os.Remove(t)
+		}
+	}
+	type prior struct {
+		data    []byte
+		existed bool
+		perm    os.FileMode
+	}
+	priors := make([]prior, len(changes))
+	for i, c := range changes {
+		old, err := os.ReadFile(c.path)
+		switch {
+		case err == nil:
+			perm := c.perm
+			if st, serr := os.Stat(c.path); serr == nil {
+				perm = st.Mode().Perm()
+			}
+			priors[i] = prior{old, true, perm}
+		case os.IsNotExist(err):
+		default:
+			cleanup()
+			return fmt.Errorf("read %s: %w", c.path, err)
+		}
+		tmp, err := writeTemp(c.path, c.data, c.perm)
+		if err != nil {
+			cleanup()
+			return err
+		}
+		tmps = append(tmps, tmp)
+	}
+	for i, c := range changes {
+		if err := renameFile(tmps[i], c.path); err != nil {
+			tmps = tmps[i:]
+			cleanup()
+			var undo []string
+			for j := 0; j < i; j++ {
+				p := priors[j]
+				var uerr error
+				if p.existed {
+					uerr = atomicWriteFile(changes[j].path, p.data, p.perm)
+				} else {
+					uerr = os.Remove(changes[j].path)
+				}
+				if uerr != nil {
+					undo = append(undo, changes[j].path)
+				}
+			}
+			if len(undo) > 0 {
+				return fmt.Errorf("replace %s: %w; could not restore %s", c.path, err, strings.Join(undo, ", "))
+			}
+			return fmt.Errorf("replace %s: %w (earlier files restored)", c.path, err)
+		}
+	}
+	return nil
 }
