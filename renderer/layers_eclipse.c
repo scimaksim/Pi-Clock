@@ -266,8 +266,9 @@ static float *solar_grid(const pic_ecl_solar_t *e, double t, int width, int heig
     pic_ecl_state_t s;
     int gw = (int)(rw / cell) + 2, gh = (int)(rh / cell) + 2, i, j;
     float *g = malloc(sizeof(float) * (size_t)gw * (size_t)gh);
-    double *sh = malloc(sizeof(double) * (size_t)gw * 2), *ch = sh + gw;
+    double *sh = malloc(sizeof(double) * (size_t)gw * 2), *ch;
     if (!g || !sh) { free(g); free(sh); return NULL; }
+    ch = sh + gw;
     pic_ecl_solar_prep(e, t, &s);
     for (i = 0; i < gw; i++) {
         double H = (s.mu + pic_x_to_lon(ox + i * cell, width)) * D2R;

@@ -8,7 +8,7 @@ url="https://github.com/MW0MWZ/Pi-Clock"
 arch="armhf aarch64"
 license="GPL-2.0-only"
 depends="pi-clock-maps cairo sdl2 mesa-dri-gallium mesa-egl libdrm ttf-dejavu"
-makedepends="build-base cairo-dev sdl2-dev pkgconf"
+makedepends="build-base cairo-dev sdl2-dev libdrm-dev openssl-dev pkgconf"
 install="$pkgname.post-install $pkgname.post-upgrade"
 source=""
 options="!check"
@@ -30,6 +30,9 @@ package() {
 	# Boot splash binary — displays logo on framebuffer before renderer starts
 	install -Dm755 "$srcdir/renderer/pi-clock-splash" \
 		"$pkgdir"/usr/bin/pi-clock-splash
+	install -Dm644 "$srcdir/renderer/geodata/localmap.dat" \
+		"$pkgdir"/usr/share/pi-clock/localmap.dat
+	cp -R "$srcdir/renderer/worlds" "$pkgdir"/usr/share/pi-clock/
 
 	# Init scripts
 	install -Dm755 "$startdir"/pi-clock-renderer.initd \
