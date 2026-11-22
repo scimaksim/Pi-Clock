@@ -149,6 +149,10 @@ def _clear_note(cfg, times, cover_home):
     i1 = i0
     while i1 + 1 < len(dark) and dark[i1 + 1]:
         i1 += 1
+    # no model value at home for part of tonight: say nothing rather than
+    # call missing hours cloudy (or clear)
+    if any(not math.isfinite(cover_home[i]) for i in range(i0, i1 + 1)):
+        return ""
     best, cur = None, None
     for i in range(i0, i1 + 1):
         if cover_home[i] < 25:
@@ -164,6 +168,39 @@ def _clear_note(cfg, times, cover_home):
     if best[0] == i0 and best[1] == i1:
         return f"Tonight at home: clear from {{t:{a}}}" + ("" if full else f" to {{t:{b}}}")
     return f"Tonight at home: clear {{t:{a}}}–{{t:{b}}}"
+
+
+def _peak(values):
+    """Index of the largest value that exists, or None when none does."""
+    best = None
+    for i, v in enumerate(values):
+        if math.isfinite(v) and (best is None or v > values[best]):
+            best = i
+    return best
+
+
+def _frost_note(times, temps, partial):
+    """Note about tonight's low at home from the hourly forecast values.
+
+    Missing hours (no model value at home) and a night that runs past the
+    end of the forecast make the night partial: the true low can then only
+    be lower than the lowest value seen, so a partial night can still warn
+    of frost but never promises there will be none.
+    """
+    known = [(v, t) for v, t in zip(temps, times) if math.isfinite(v)]
+    if not known:
+        return ""
+    low, when = min(known)
+    tail = " (forecast covers part of the night)" if partial else ""
+    if low <= 33:
+        return f"Tonight's low at home ~{low:.0f}°F around {{t:{when}}}: frost likely{tail}"
+    if low <= 36:
+        return f"Tonight's low at home ~{low:.0f}°F: patchy frost possible{tail}"
+    return "" if partial else f"Tonight's low at home ~{low:.0f}°F, no frost"
+
+
+def _fmt(v, spec=".0f"):
+    return format(v, spec) if math.isfinite(v) else "n/a"
 
 
 def run(cfg):
@@ -203,8 +240,8 @@ def run(cfg):
             label="clock", frame_ms=700, expires_s=4 * 3600)
 
     note = ""
-    i = int(np.argmax(smoke_h))
-    if smoke_h[i] >= 12:
+    i = _peak(smoke_h)
+    if i is not None and smoke_h[i] >= 12:
         note = f"Smoke at home up to {smoke_h[i]:.0f} µg/m³ around {{t:{times[i]}}}"
     publish(cfg, "hrrr_smoke", [(t, PAL_SMOKE.index(a)) for t, a in zip(times, smoke)],
             PAL_SMOKE, box, note=note, note_rgb=[0.95, 0.8, 0.5],
@@ -213,8 +250,8 @@ def run(cfg):
             label="clock", frame_ms=700, expires_s=4 * 3600)
 
     note = ""
-    i = int(np.argmax(gust_h))
-    if gust_h[i] >= 20:
+    i = _peak(gust_h)
+    if i is not None and gust_h[i] >= 20:
         note = f"Gusts at home up to {gust_h[i]:.0f} mph around {{t:{times[i]}}}"
     publish(cfg, "hrrr_gust", [(t, PAL_GUST.index(a)) for t, a in zip(times, gust)],
             PAL_GUST, box, note=note, note_rgb=[0.6, 0.9, 0.7],
@@ -233,20 +270,18 @@ def run(cfg):
         with np.errstate(all="ignore"):
             st = np.stack([temp[i] for i in sel])
             tmin = np.where(np.isfinite(st).any(0), np.nanmin(np.where(np.isfinite(st), st, 999), 0), np.nan)
-        low = min(temp_h[i] for i in sel)
-        when = times[sel[int(np.argmin([temp_h[i] for i in sel]))]]
-        if low <= 33:
-            note = f"Tonight's low at home ~{low:.0f}°F around {{t:{when}}}: frost likely"
-        elif low <= 36:
-            note = f"Tonight's low at home ~{low:.0f}°F: patchy frost possible"
-        else:
-            note = f"Tonight's low at home ~{low:.0f}°F, no frost"
+        partial = (run_end == len(times) - 1 or
+                   any(not math.isfinite(temp_h[i]) for i in sel))
+        note = _frost_note([times[i] for i in sel], [temp_h[i] for i in sel], partial)
         img = np.where(tmin <= 36, tmin, np.nan)
         publish(cfg, "hrrr_frost", [(times[sel[0]], PAL_FROST.index(img))], PAL_FROST, box,
                 note=note, note_rgb=[0.7, 0.85, 1.0],
                 legend=PAL_FROST.legend("Tonight's low °F (36 and below), HRRR",
                                         [20, 28, 32, 36]),
                 label="none", animate=False, expires_s=6 * 3600)
-    log.info("hrrr run %s: home cloud %s smoke max %.0f gust max %.0f",
-             run_t.strftime("%HZ"), [round(c) for c in cover_h], max(smoke_h), max(gust_h))
+    ps, pg = _peak(smoke_h), _peak(gust_h)
+    log.info("hrrr run %s: home cloud %s smoke max %s gust max %s",
+             run_t.strftime("%HZ"), [_fmt(c) for c in cover_h],
+             _fmt(smoke_h[ps]) if ps is not None else "n/a",
+             _fmt(gust_h[pg]) if pg is not None else "n/a")
     return 3 * 3600
