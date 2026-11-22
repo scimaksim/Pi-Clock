@@ -45,6 +45,7 @@ jobs:
       - name: Test slot health and GFS fallback
         run: |
           sh os/tests/slot-health.sh
+          python3 -m unittest discover -s os/tests -v
           python3 -m unittest discover -s .github -p test_fetch_gfs.py -v
       - name: Test radar timing without fetching live feeds
         working-directory: helper
