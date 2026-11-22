@@ -129,6 +129,38 @@ int main(void)
         CHECK(pic_pd_load("/tmp/pic_test_pd_none.tsv", back, PD_MAX) == 0, "no file: nothing");
         unlink("/tmp/pic_test_pd_items.tsv");
     }
+    {   /* restart with the Pi-Dash server away: pictures on disk still show */
+        pd_item_t mem[1];
+        FILE *f;
+        pic_feature_t *ft = pic_feature_photoday();
+        time_t t = time(NULL);
+        system("rm -rf /tmp/pic_test_pd && mkdir -p /tmp/pic_test_pd");
+        setenv("PIC_PHOTODAY_DIR", "/tmp/pic_test_pd", 1);
+        memset(mem, 0, sizeof(mem));
+        snprintf(mem[0].key, sizeof(mem[0].key), "eso");
+        snprintf(mem[0].src, sizeof(mem[0].src), "ESO Picture of the Week");
+        snprintf(mem[0].title, sizeof(mem[0].title), "Early risers");
+        snprintf(mem[0].img, sizeof(mem[0].img), "/api/img?u=x&w=1920");
+        mem[0].t = t - 86400; mem[0].max_days = 9;
+        pic_pd_save("/tmp/pic_test_pd/items.tsv", mem, 1);
+        f = fopen("/tmp/pic_test_pd/eso.url", "w"); fputs(mem[0].img, f); fclose(f);
+        f = fopen("/tmp/pic_test_pd/eso.jpg", "w");
+        { int z; for (z = 0; z < 2000; z++) fputc(z & 0xff, f); }
+        fclose(f);
+        f = fopen("/tmp/pic_test_pd.conf", "w");
+        fprintf(f, "VIEW_PHOTO_MIN=1\nPIDASH_URL=http://127.0.0.1:9\n");
+        fclose(f);
+        setenv("PIC_RENDERER_CONF", "/tmp/pic_test_pd.conf", 1);
+        ft->reload(ft);
+        ft->work(ft);
+        pic_view_set_photo_source(NULL, NULL);
+        {
+            extern int pic_photoday_count_for_test(time_t now);
+            CHECK(pic_photoday_count_for_test(t) == 1, "picture on disk kept after a restart without the server");
+        }
+        system("rm -rf /tmp/pic_test_pd /tmp/pic_test_pd.conf");
+        unsetenv("PIC_RENDERER_CONF");
+    }
     {   /* the view: after the other worlds, only while there is a picture */
         FILE *f = fopen("/tmp/pic_test_photoday.conf", "w");
         time_t t0 = 1794000000, t;

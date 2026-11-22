@@ -466,7 +466,22 @@ static int pd_work(pic_feature_t *f)
     }
     free(buf);
     if (!ok) {
+        /* After a restart with the server away, show the pictures already
+         * on disk that are still current rather than none */
+        pthread_mutex_lock(&pd.m);
+        if (pd.n == 0) {
+            static pd_item_t mem[PD_MAX];
+            char mp[300];
+            int m;
+            snprintf(mp, sizeof(mp), "%s/items.tsv", pd_dir());
+            m = pic_pd_load(mp, mem, PD_MAX);
+            for (k = 0; k < m; k++)
+                if (pic_pd_current(&mem[k], now) && have_image(&mem[k]))
+                    pd.it[pd.n++] = mem[k];
+            if (pd.n) pd.gen++;
+        }
         printf("photoday: Pi-Dash server not answering, keeping %d picture(s)\n", pd.n);
+        pthread_mutex_unlock(&pd.m);
         return 600;
     }
     mkdir("/data/cache", 0755);
@@ -532,6 +547,11 @@ static int pd_ready(time_t now)
     for (k = 0; k < pd.n; k++) any |= pic_pd_current(&pd.it[k], now);
     pthread_mutex_unlock(&pd.m);
     return any;
+}
+
+int pic_photoday_count_for_test(time_t now)
+{
+    return pd_ready(now) ? pd.n : 0;
 }
 
 static void pd_next(void)
