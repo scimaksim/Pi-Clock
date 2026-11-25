@@ -87,7 +87,7 @@ func TestDarkSitesNormalized(t *testing.T) {
 func TestWorldSettings(t *testing.T) {
 	ok := map[string][]string{
 		"VIEW_WORLDS":      {"", "moon", "mars,jupiter", "moon,mars,jupiter"},
-		"VIEW_MODE":        {"cycle", "moon", "mars", "jupiter"},
+		"VIEW_MODE":        {"cycle", "moon", "mars", "jupiter", "photo"},
 		"JUPITER_GRS_L2":   {"-1", "0", "100", "359"},
 		"VIEW_WORLD_MIN":   {"1", "2", "30"},
 		"VIEW_CLOSEUP_MIN": {"0", "3", "30"},

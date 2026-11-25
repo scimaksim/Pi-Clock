@@ -184,7 +184,7 @@ var rendererSettingDefs = map[string]rendererSetting{
 	"LP_NOTE":       boolSetting("1"),
 
 	// Global / local map view
-	"VIEW_MODE":         enumSetting("global", "global", "local", "cycle", "moon", "mars", "jupiter"),
+	"VIEW_MODE":         enumSetting("global", "global", "local", "cycle", "moon", "mars", "jupiter", "photo"),
 	"VIEW_WORLDS":       patternSetting("", worldsRe),
 	"VIEW_WORLD_MIN":    intSetting("2", 1, 30),
 	"VIEW_WORLD_DAYS":   patternSetting("", worldDaysRe),

@@ -21,7 +21,7 @@
 #include <time.h>
 #include "feature.h"
 
-#define PD_MAX 8
+#define PD_MAX 12
 
 typedef struct {
     char   key[12];     /* "apod", "astrobin", "eso", ...: cache file name */
@@ -40,6 +40,8 @@ int pic_pd_parse_apod(const char *js, size_t len, time_t now, pd_item_t *out);
 int pic_pd_parse_astrobin(const char *js, size_t len, time_t now, pd_item_t *out);
 int pic_pd_parse_spacefeed(const char *js, size_t len, time_t now,
                            pd_item_t *out, int max);
+int pic_pd_parse_magazine(const char *js, size_t len, time_t now,
+                          pd_item_t *out, int max);
 
 /* Where each complete sentence of `s` ends (byte offsets just past it);
  * returns how many, at most max. A cut-off tail is not a sentence. */

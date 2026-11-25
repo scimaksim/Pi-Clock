@@ -98,6 +98,24 @@ int main(void)
         n = pic_pd_parse_spacefeed(js, strlen(js), now + 30 * 86400, it, PD_MAX);
         CHECK(n == 0, "a month later nothing is current (%d)", n);
     }
+    {   /* magazine-photo: Mnemosyne magazine rotation items */
+        pd_item_t it[PD_MAX];
+        const char *js = "{\"date\":\"2026-11-17\",\"pool_size\":42,\"items\":["
+            "{\"slot\":\"mag1\",\"src\":\"Sky & Telescope \\u00b7 Jan 2026\",\"title\":\"vdB 31 Nebula\","
+            "\"credit\":\"Roberto Marinoni \\u00b7 p. 15\",\"text\":\"Blue reflection dust .\",\"img\":\"/worker/magazines/a1.jpg\"},"
+            "{\"slot\":\"mag2\",\"src\":\"Astronomy \\u00b7 Oct 1979\",\"title\":\"Voyager Album\","
+            "\"credit\":\"NASA/JPL \\u00b7 p. 18\",\"text\":\"Jovian moons.\",\"img\":\"/worker/magazines/f1.jpg\"},"
+            "{\"slot\":\"bad/../x\",\"src\":\"X\",\"title\":\"\",\"img\":\"/worker/magazines/skip.jpg\"}"
+            "]}";
+        int n = pic_pd_parse_magazine(js, strlen(js), now, it, PD_MAX);
+        CHECK(n == 2, "magazine-photo parsed (%d)", n);
+        CHECK(!strcmp(it[0].key, "mag1") && !strcmp(it[0].img, "/worker/magazines/a1.jpg"), "mag1 key and img");
+        CHECK(!strcmp(it[0].text, "Blue reflection dust.") && !strcmp(it[0].credit, "Roberto Marinoni \xc2\xb7 p. 15"), "mag1 tidied");
+        CHECK(!strcmp(it[1].key, "mag2") && !strcmp(it[1].src, "Astronomy \xc2\xb7 Oct 1979"), "mag2 src");
+        CHECK(pic_pd_parse_magazine(js, strlen(js), now + 5 * 86400, it, PD_MAX) == 0, "stale magazine payload skipped");
+        CHECK(pic_pd_parse_magazine("{\"date\":\"2026-11-17\",\"items\":[]}", 32, now, it, PD_MAX) == 0, "magazine empty");
+        CHECK(pic_pd_parse_magazine("{bad", 4, now, it, PD_MAX) == -1, "magazine bad json");
+    }
     {   /* memory: a picture that dropped out of the feed stays while current */
         pd_item_t got[PD_MAX], mem[PD_MAX], back[PD_MAX];
         int n, m;
@@ -196,6 +214,29 @@ int main(void)
         CHECK(!shown, "no picture: view skipped");
         unlink("/tmp/pic_test_photoday.conf");
         unlink("/tmp/pic_test_photoday_worlds");
+    }
+    {   /* VIEW_MODE=photo: rotating photos only without Geochron map */
+        FILE *f = fopen("/tmp/pic_test_photoonly.conf", "w");
+        time_t t0 = 1794000000, t;
+        int prev_nexts;
+        fprintf(f, "VIEW_MODE=photo\nVIEW_PHOTO_MIN=2\nPIDASH_URL=http://127.0.0.1:9\n");
+        fclose(f);
+        setenv("PIC_RENDERER_CONF", "/tmp/pic_test_photoonly.conf", 1);
+        pic_view_set_photo_source(fake_ready, fake_next);
+        ready_n = 1;
+        prev_nexts = nexts;
+        pic_view_reload(t0);
+        CHECK(pic_view_photo() && pic_view_offworld() && !pic_view_is_local() && !pic_view_world(),
+              "photo-only starts in photo view");
+        for (t = t0; t <= t0 + 5 * 60; t += 30) {
+            pic_view_update(t);
+            CHECK(pic_view_photo(), "photo-only stays in photo view while ready");
+        }
+        CHECK(nexts - prev_nexts >= 3, "photo-only advances pictures on schedule (%d)", nexts - prev_nexts);
+        ready_n = 0;
+        pic_view_update(t);
+        CHECK(!pic_view_photo(), "photo-only drops photo view when no picture is ready");
+        unlink("/tmp/pic_test_photoonly.conf");
     }
     return CHECK_DONE("test_photoday");
 }
