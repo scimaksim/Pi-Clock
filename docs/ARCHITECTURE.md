@@ -169,23 +169,24 @@ pictures, DSN links per spacecraft, and Jupiter's Galilean moons.
 **Picture of the day (`photoday.c`).** `VIEW_PHOTO_MIN` adds a view
 after the other worlds showing one of the day's space pictures, a
 different one each cycle: NASA's Astronomy Picture of the Day, AstroBin's
-Image of the Day, NASA's Image of the Day, and the ESO, NOIRLab,
-ESA/Hubble and ESA/Webb picture-of-the-week and -month series. All of it
-comes from the Pi-Dash server (`/api/apod`, `/api/astrobin`,
-`/api/spacefeed`, images through its `/api/img` cache), read every 30
-minutes; the series are picked out of the agency releases by their image
-names. A picture is shown only while current (2 days for daily series, 9
-for weekly, 40 for monthly), credits only when the feed gives one, and
-the view is skipped when there is none. The photo fits the screen over a
-blurred copy of itself and drifts and zooms slowly; tall pictures get a
-caption panel, wide ones a caption along the bottom. Captions are never
-cut off: titles and credits are shown whole (the type shrinks a little
-if needed) and the description is as many complete sentences as fit. The clock remembers
+Image of the Day, NASA's Image of the Day, the ESO, NOIRLab,
+ESA/Hubble and ESA/Webb picture-of-the-week and -month series, and
+curated astrophotography and editorial figures from Mnemosyne's
+magazine archive. All of it comes from the Pi-Dash server (`/api/apod`,
+`/api/astrobin`, `/api/spacefeed`, `/api/magazine-photo`, images through
+its `/api/img` or `/worker/magazines/` cache), read every 30 minutes;
+the agency series are picked out of the releases by their image names.
+A picture is shown only while current (2 days for daily series, 9 for
+weekly, 40 for monthly), credits only when the feed gives one, and the
+view is skipped when there is none. The photo fits the left stage over a
+blurred copy of itself and drifts and zooms slowly, with a side caption
+panel along the right edge. Captions are never cut off: titles and
+credits are shown whole (the type shrinks a little if needed) and the
+description is as many complete sentences as fit. The clock remembers
 every picture it has seen (`items.tsv` in the cache) and keeps showing it
 until its series says it is out of date, because Pi-Dash's release feed
 holds only its newest ~50 entries and a monthly picture can scroll off it
-mid-month. The pictures are
-kept in `/data/cache/pi-clock-photoday`.
+mid-month. The pictures are kept in `/data/cache/pi-clock-photoday`.
 
 **Dashboard (`dashboard/`, Go).** A single static binary with the web
 pages embedded, served over HTTPS with a self-signed certificate. It

@@ -1,21 +1,22 @@
 /*
  * photoday.c - Picture of the day view (see photoday.h)
  *
- * The fetch thread reads three Pi-Dash replies every 30 minutes:
- *   /api/apod       NASA APOD (title, explanation, url, copyright)
- *   /api/astrobin   AstroBin Image of the Day, newest first
- *   /api/spacefeed  agency releases; the picture-of-the-week/month
- *                   series are picked out by their image names
+ * The fetch thread reads four Pi-Dash replies every 30 minutes:
+ *   /api/apod            NASA APOD (title, explanation, url, copyright)
+ *   /api/astrobin        AstroBin Image of the Day, newest first
+ *   /api/spacefeed       agency releases; the picture-of-the-week/month
+ *                        series are picked out by their image names
+ *   /api/magazine-photo  curated astrophotography & editorial figures from
+ *                        the house Mnemosyne magazine archive
  * and keeps each current picture as a JPEG in /data/cache/pi-clock-photoday
  * (fetched through Pi-Dash's /api/img cache). A picture is only shown
  * while it is current: 2 days for daily series, 9 for weekly, 40 for
  * monthly. Credits are shown only when the feed gives one.
  *
- * Drawing: the photo fits the screen over a blurred, dimmed copy of
- * itself, drifting and zooming very slowly (6% over the showing). Tall
- * and square pictures get a caption panel on the right; wide ones a
- * caption across the bottom. The source badge is an aperture whose
- * blades turn.
+ * Drawing: the photo fits the left stage over a blurred, dimmed copy of
+ * itself, drifting and zooming very slowly (6% over the showing), with
+ * the caption panel along the right edge. The source badge is an aperture
+ * whose blades turn.
  *
  * SPDX-License-Identifier: GPL-2.0-only
  */
@@ -291,6 +292,58 @@ int pic_pd_parse_spacefeed(const char *js, size_t len, time_t now,
     return cnt;
 }
 
+int pic_pd_parse_magazine(const char *js, size_t len, time_t now,
+                          pd_item_t *out, int max)
+{
+    pic_json_t j;
+    char d[24];
+    time_t t;
+    int items, n, i, cnt = 0;
+    if (pic_json_parse(&j, js, len) != 0) return -1;
+    pic_json_str(&j, pic_json_get(&j, 0, "date"), d, sizeof(d));
+    t = date_utc(d);
+    if (!t || now - t > 2 * 86400 + 12 * 3600 || t - now >= 2 * 86400) {
+        pic_json_free(&j);
+        return 0;
+    }
+    items = pic_json_get(&j, 0, "items");
+    n = pic_json_size(&j, items);
+    for (i = 0; i < n && cnt < max; i++) {
+        int r = pic_json_at(&j, items, i);
+        pd_item_t *it = &out[cnt];
+        char slot[16], u[600];
+        size_t k;
+        int bad_slot = 0;
+        memset(it, 0, sizeof(*it));
+        pic_json_str(&j, pic_json_get(&j, r, "slot"), slot, sizeof(slot));
+        for (k = 0; slot[k]; k++) {
+            if (!isalnum((unsigned char)slot[k])) { bad_slot = 1; break; }
+        }
+        if (!slot[0] || bad_slot || strlen(slot) >= sizeof(it->key))
+            snprintf(it->key, sizeof(it->key), "mag%d", cnt + 1);
+        else
+            snprintf(it->key, sizeof(it->key), "%s", slot);
+        pic_json_str(&j, pic_json_get(&j, r, "src"), it->src, sizeof(it->src));
+        if (!it->src[0]) snprintf(it->src, sizeof(it->src), "Mnemosyne Magazine");
+        pic_json_str(&j, pic_json_get(&j, r, "title"), it->title, sizeof(it->title));
+        pic_json_str(&j, pic_json_get(&j, r, "credit"), it->credit, sizeof(it->credit));
+        pic_json_str(&j, pic_json_get(&j, r, "text"), it->text, sizeof(it->text));
+        pic_json_str(&j, pic_json_get(&j, r, "img"), u, sizeof(u));
+        if (!is_url(u) || !it->title[0]) continue;
+        it->t = t;
+        it->max_days = 2;
+        img_path(u, it->img, sizeof(it->img));
+        pic_pd_tidy(it->src);
+        pic_pd_tidy(it->title);
+        pic_pd_tidy(it->credit);
+        pic_pd_tidy(it->text);
+        if (!it->title[0]) continue;
+        cnt++;
+    }
+    pic_json_free(&j);
+    return cnt;
+}
+
 /* ── 2. Fetching ────────────────────────────────────────────────── */
 
 static struct {
@@ -462,6 +515,12 @@ static int pd_work(pic_feature_t *f)
     if (!pic_feature_interrupted(f) && (r = pic_fetch_to_buf(url, buf, 2 * 1024 * 1024 - 1)) > 0) {
         buf[r] = '\0';
         ok |= (k = pic_pd_parse_spacefeed(buf, (size_t)r, now, &got[n], PD_MAX - n)) >= 0;
+        if (k > 0) n += k;
+    }
+    snprintf(url, sizeof(url), "%s/api/magazine-photo", base);
+    if (!pic_feature_interrupted(f) && (r = pic_fetch_to_buf(url, buf, 2 * 1024 * 1024 - 1)) > 0) {
+        buf[r] = '\0';
+        ok |= (k = pic_pd_parse_magazine(buf, (size_t)r, now, &got[n], PD_MAX - n)) >= 0;
         if (k > 0) n += k;
     }
     free(buf);
@@ -770,7 +829,7 @@ static int dr_build(const pd_item_t *it, int w, int h, int idx, int n)
     cairo_surface_t *ph, *small;
     cairo_t *cr;
     double s = h / 1080.0, iw, ih, sc, pw, x0, y, cw, bot = bottom_y(h);
-    int land, sw, sh, k;
+    int sw, sh, k;
 
     file_for(it->key, "jpg", path, sizeof(path));
     ph = pic_image_load(path);
@@ -779,8 +838,7 @@ static int dr_build(const pd_item_t *it, int w, int h, int idx, int n)
     dr.photo = ph;
     iw = cairo_image_surface_get_width(ph);
     ih = cairo_image_surface_get_height(ph);
-    land = iw / ih > 1.4;
-    pw = land ? 0 : 440 * s;
+    pw = 480 * s;
 
     /* background: the picture covering the screen, blurred by scaling
      * it down to a tiny copy and back up, and dimmed */
@@ -802,123 +860,82 @@ static int dr_build(const pd_item_t *it, int w, int h, int idx, int n)
     cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_PAD);
     cairo_paint(cr);
     cairo_identity_matrix(cr);
-    cairo_set_source_rgba(cr, 0, 0, 0, .62);
+    cairo_set_source_rgba(cr, 0, 0, 0, .66);
     cairo_paint(cr);
-    if (!land) {
-        cairo_rectangle(cr, w - pw, 0, pw, h);
-        cairo_set_source_rgb(cr, .03, .045, .08);
-        cairo_fill(cr);
-    }
+    cairo_rectangle(cr, w - pw, 0, pw, h);
+    cairo_set_source_rgb(cr, .035, .05, .085);
+    cairo_fill(cr);
+    cairo_set_source_rgba(cr, 1, 1, 1, .12);
+    cairo_set_line_width(cr, fmax(1.0, s));
+    cairo_move_to(cr, w - pw, 0);
+    cairo_line_to(cr, w - pw, h);
+    cairo_stroke(cr);
     cairo_destroy(cr);
     cairo_surface_destroy(small);
 
-    /* where the photo goes */
-    sc = fmin((w - pw) / iw, h / ih);
+    /* where the photo goes (padded slightly inside the left stage) */
+    sc = fmin((w - pw - 56 * s) / iw, (bot - 48 * s) / ih);
     dr.fw = iw * sc; dr.fh = ih * sc;
-    dr.fx = (w - pw - dr.fw) / 2; dr.fy = (h - dr.fh) / 2;
+    dr.fx = (w - pw - dr.fw) / 2; dr.fy = (bot - dr.fh) / 2;
 
-    /* caption layer */
+    /* caption layer (always on the right side panel) */
     dr.over = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
     cr = cairo_create(dr.over);
-    fmt_date(date, sizeof(date), it->t, !strcmp(it->key, "apod") || !strcmp(it->key, "astrobin"));
+    if (!strncmp(it->key, "mag", 3))
+        snprintf(date, sizeof(date), "Mnemosyne Magazine Archive");
+    else
+        fmt_date(date, sizeof(date), it->t, !strcmp(it->key, "apod") || !strcmp(it->key, "astrobin"));
     {
         /* Lay the caption out so nothing is ever cut: the title, credit
          * and description are shown whole, shrinking the type a little if
          * needed, and the description is as many complete sentences as
          * fit (at least the first, or none at all). */
-        double tsz, csz, xsz, tlh, clh, xlh, blk, gh;
-        int tl, cl, xl;
+        double tsz, csz, xsz, tlh, clh, xlh, fs;
         char desc[sizeof(it->text)];
-        if (land) {
-            cw = w - 48 * s - 300 * s;
-            x0 = 48 * s;
-        } else {
-            x0 = w - pw + 30 * s;
-            cw = pw - 60 * s;
-        }
-        tsz = fit_size(cr, it->title, cw, land ? 2 : 4, (land ? 30 : 28) * s, 20 * s, 1);
+        x0 = w - pw + 32 * s;
+        cw = pw - 64 * s;
+        tsz = fit_size(cr, it->title, cw, 4, 29 * s, 20 * s, 1);
         if (tsz <= 0) tsz = 20 * s;
-        set_font(cr, tsz, 1);
-        tl = nlines(cr, it->title, cw);
         csz = it->credit[0] ? fit_size(cr, it->credit, cw, 2, 16 * s, 13 * s, 0) : 0;
         if (it->credit[0] && csz <= 0) csz = 13 * s;
-        cl = 0;
-        if (csz > 0) { set_font(cr, csz, 0); cl = nlines(cr, it->credit, cw); }
-        xsz = pick_text(cr, it->text, desc, sizeof(desc), cw, land ? 3 : 8, 16 * s, 13 * s);
-        xl = 0;
-        if (xsz > 0) { set_font(cr, xsz, 0); xl = nlines(cr, desc, cw); }
-        tlh = tsz * 1.22; clh = csz * 1.45; xlh = xsz * 1.45;
+        xsz = pick_text(cr, it->text, desc, sizeof(desc), cw, 11, 17 * s, 13 * s);
+        tlh = tsz * 1.24; clh = csz * 1.45; xlh = xsz * 1.45;
 
-        if (land) {
-            /* measure the block, then draw it up from the bottom */
-            blk = 36 * s + tl * tlh + cl * clh + (xl ? 4 * s + xl * xlh : 0);
-            gh = blk + 110 * s;
-            {
-                cairo_pattern_t *g = cairo_pattern_create_linear(0, bot - gh, 0, bot);
-                cairo_pattern_add_color_stop_rgba(g, 0, .02, .03, .06, 0);
-                cairo_pattern_add_color_stop_rgba(g, .55, .02, .03, .06, .72);
-                cairo_pattern_add_color_stop_rgba(g, 1, .02, .03, .06, .9);
-                cairo_rectangle(cr, 0, bot - gh, w, gh);
-                cairo_set_source(cr, g);
-                cairo_fill(cr);
-                cairo_pattern_destroy(g);
-            }
-            y = bot - 22 * s - blk;
-            {
-                char t[60];
-                double after;
-                set_font(cr, 18 * s, 1);
-                cairo_set_source_rgb(cr, 1, .78, .35);
-                cairo_move_to(cr, x0 + 30 * s, y + 6 * s);
-                cairo_show_text(cr, it->src);
-                after = x0 + 30 * s + tw(cr, it->src);
-                set_font(cr, 14 * s, 0);
-                cairo_set_source_rgb(cr, .64, .68, .75);
-                snprintf(t, sizeof(t), "  \xc2\xb7  %s", date);
-                cairo_move_to(cr, after, y + 6 * s);
-                cairo_show_text(cr, t);
-            }
-            dr.bx = x0 + 11 * s; dr.by = y;
-            y += 36 * s + tsz * .25;
-        } else {
-            y = 230 * s;
-            {
-                double fs = 18 * s;
-                set_font(cr, fs, 1);
-                while (tw(cr, it->src) > cw - 30 * s && fs > 12 * s) set_font(cr, fs -= s, 1);
-            }
-            cairo_set_source_rgb(cr, 1, .78, .35);
-            cairo_move_to(cr, x0 + 30 * s, y + 6 * s);
-            cairo_show_text(cr, it->src);
-            set_font(cr, 14 * s, 0);
-            cairo_set_source_rgb(cr, .64, .68, .75);
-            cairo_move_to(cr, x0 + 30 * s, y + 26 * s);
-            cairo_show_text(cr, date);
-            dr.bx = x0 + 11 * s; dr.by = y;
-            y += 66 * s;
-        }
+        y = 140 * s;
+        fs = 18 * s;
+        set_font(cr, fs, 1);
+        while (tw(cr, it->src) > cw - 30 * s && fs > 12 * s) set_font(cr, fs -= s, 1);
+        cairo_set_source_rgb(cr, 1, .78, .35);
+        cairo_move_to(cr, x0 + 30 * s, y + 6 * s);
+        cairo_show_text(cr, it->src);
+        set_font(cr, 14 * s, 0);
+        cairo_set_source_rgb(cr, .64, .68, .75);
+        cairo_move_to(cr, x0 + 30 * s, y + 26 * s);
+        cairo_show_text(cr, date);
+        dr.bx = x0 + 11 * s; dr.by = y;
+        y += 66 * s;
+
         set_font(cr, tsz, 1);
         cairo_set_source_rgb(cr, 1, 1, 1);
         y = wrap_text(cr, it->title, x0, y, cw, 1000, tlh, 1);
-        if (cl) {
+        if (csz > 0) {
             set_font(cr, csz, 0);
             cairo_set_source_rgb(cr, .82, .84, .88);
-            y = wrap_text(cr, it->credit, x0, y + (land ? -tsz * .1 : 0), cw, 1000, clh, 1);
+            y = wrap_text(cr, it->credit, x0, y + 4 * s, cw, 1000, clh, 1);
         }
-        if (xl) {
+        if (xsz > 0) {
             set_font(cr, xsz, 0);
-            cairo_set_source_rgb(cr, .7, .74, .8);
-            wrap_text(cr, desc, x0, y + (land ? 4 : 8) * s, cw, 1000, xlh, 1);
+            cairo_set_source_rgb(cr, .72, .76, .82);
+            wrap_text(cr, desc, x0, y + 10 * s, cw, 1000, xlh, 1);
         }
     }
     /* which of today's pictures this is */
     if (n > 1) {
         char t[40];
-        double dx, dy = bot - 26 * s, tx;
+        double dx, dy = bot - 26 * s;
         set_font(cr, 14 * s, 0);
         snprintf(t, sizeof(t), "%d of %d today", idx + 1, n);
-        tx = tw(cr, t);
-        dx = land ? w - 40 * s - tx - 10 * s - n * 18 * s : w - pw + 30 * s;
+        dx = w - pw + 32 * s;
         for (k = 0; k < n; k++) {
             cairo_new_path(cr);
             cairo_arc(cr, dx + k * 18 * s + 5 * s, dy, 5 * s, 0, 2 * M_PI);

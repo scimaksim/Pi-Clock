@@ -98,6 +98,24 @@ int main(void)
         n = pic_pd_parse_spacefeed(js, strlen(js), now + 30 * 86400, it, PD_MAX);
         CHECK(n == 0, "a month later nothing is current (%d)", n);
     }
+    {   /* magazine-photo: Mnemosyne magazine rotation items */
+        pd_item_t it[PD_MAX];
+        const char *js = "{\"date\":\"2026-11-17\",\"pool_size\":42,\"items\":["
+            "{\"slot\":\"mag1\",\"src\":\"Sky & Telescope \\u00b7 Jan 2026\",\"title\":\"vdB 31 Nebula\","
+            "\"credit\":\"Roberto Marinoni \\u00b7 p. 15\",\"text\":\"Blue reflection dust .\",\"img\":\"/worker/magazines/a1.jpg\"},"
+            "{\"slot\":\"mag2\",\"src\":\"Astronomy \\u00b7 Oct 1979\",\"title\":\"Voyager Album\","
+            "\"credit\":\"NASA/JPL \\u00b7 p. 18\",\"text\":\"Jovian moons.\",\"img\":\"/worker/magazines/f1.jpg\"},"
+            "{\"slot\":\"bad/../x\",\"src\":\"X\",\"title\":\"\",\"img\":\"/worker/magazines/skip.jpg\"}"
+            "]}";
+        int n = pic_pd_parse_magazine(js, strlen(js), now, it, PD_MAX);
+        CHECK(n == 2, "magazine-photo parsed (%d)", n);
+        CHECK(!strcmp(it[0].key, "mag1") && !strcmp(it[0].img, "/worker/magazines/a1.jpg"), "mag1 key and img");
+        CHECK(!strcmp(it[0].text, "Blue reflection dust.") && !strcmp(it[0].credit, "Roberto Marinoni \xc2\xb7 p. 15"), "mag1 tidied");
+        CHECK(!strcmp(it[1].key, "mag2") && !strcmp(it[1].src, "Astronomy \xc2\xb7 Oct 1979"), "mag2 src");
+        CHECK(pic_pd_parse_magazine(js, strlen(js), now + 5 * 86400, it, PD_MAX) == 0, "stale magazine payload skipped");
+        CHECK(pic_pd_parse_magazine("{\"date\":\"2026-11-17\",\"items\":[]}", 32, now, it, PD_MAX) == 0, "magazine empty");
+        CHECK(pic_pd_parse_magazine("{bad", 4, now, it, PD_MAX) == -1, "magazine bad json");
+    }
     {   /* memory: a picture that dropped out of the feed stays while current */
         pd_item_t got[PD_MAX], mem[PD_MAX], back[PD_MAX];
         int n, m;
