@@ -11,6 +11,9 @@
 
 #include "layer.h"
 #include "lunar.h"
+#include "solar.h"
+#include "sky_icons.h"
+#include "feature.h"
 #include "config.h"
 #include <cairo/cairo.h>
 #include <math.h>
@@ -41,71 +44,24 @@ void pic_layer_render_moon(cairo_t *cr, int width, int height,
     x = pic_lon_to_x(sublunar_lon, width);
     y = pic_lat_to_y(sublunar_lat, height);
 
-    /* Marker size */
-    r = height / 180.0;
+    /* Marker size: a real little moon, bigger when zoomed in */
+    r = height / 120.0 * (1 + 0.3 * (pic_symbol_zoom() - 1));
 
     /*
-     * Draw the moon marker with phase indication.
-     *
-     * Draw a circle representing the moon. The lit portion is
-     * shown in light grey, the dark portion in dark grey.
-     * Phase 0.0 = new (all dark), 0.5 = full (all lit).
+     * Draw the moon as it looks: terminator for the current phase with
+     * the lit limb facing the sun's sub-point on the map (sky_icons.c).
      */
-
-    /* Dark background circle (the unlit portion) */
-    cairo_arc(cr, x, y, r, 0, 2 * PI);
-    cairo_set_source_rgba(cr, 0.3, 0.3, 0.35, 0.9);
-    cairo_fill(cr);
-
-    /* Lit portion — draw a partial fill based on phase.
-     * We approximate the terminator as a vertical ellipse
-     * that shifts from left to right as the phase progresses. */
     {
-        /*
-         * Phase to terminator position:
-         *   phase 0.0 (new):  no lit area
-         *   phase 0.25 (1st quarter): right half lit
-         *   phase 0.5 (full):  all lit
-         *   phase 0.75 (3rd quarter): left half lit
-         *
-         * We use the illumination fraction directly:
-         * draw a clipping arc that covers the lit portion.
-         */
-        double illum = moon.phase; /* 0 to 1 */
-
-        if (illum > 0.02) {
-            /* Draw the lit portion as a lighter circle with clipping */
-            cairo_save(cr);
-
-            /* Create a clipping region for the lit half.
-             * For simplicity, we draw a full circle for >50% illumination
-             * and a partial circle for <50%. */
-            if (illum >= 0.5) {
-                /* More than half lit — full circle, just vary brightness */
-                cairo_arc(cr, x, y, r, 0, 2 * PI);
-                cairo_set_source_rgba(cr, 0.85, 0.85, 0.8,
-                                     0.5 + illum * 0.4);
-                cairo_fill(cr);
-            } else {
-                /* Less than half — draw right-side crescent */
-                double w = illum * 2.0 * r; /* width of lit area */
-                cairo_arc(cr, x, y, r, -PI / 2, PI / 2);
-                cairo_line_to(cr, x + w - r, y + r);
-                cairo_line_to(cr, x + w - r, y - r);
-                cairo_close_path(cr);
-                cairo_set_source_rgba(cr, 0.85, 0.85, 0.8, 0.7);
-                cairo_fill(cr);
-            }
-
-            cairo_restore(cr);
-        }
+        pic_solar_position_t sun = pic_solar_position(now);
+        double slon = -sun.gha * RAD_TO_DEG, slat = sun.declination * RAD_TO_DEG;
+        double sx, sy, ang = moon.elongation < PI ? 0 : PI;
+        if (slon < -180.0) slon += 360.0;
+        sx = pic_lon_to_x(slon, width);
+        sy = pic_lat_to_y(slat, height);
+        if (fabs(sx - x) < width / 2.0 && (fabs(sx - x) > 1 || fabs(sy - y) > 1))
+            ang = atan2(sy - y, sx - x);
+        pic_draw_moon(cr, x, y, r, moon.phase, ang);
     }
-
-    /* Outline */
-    cairo_arc(cr, x, y, r, 0, 2 * PI);
-    cairo_set_source_rgba(cr, 0.7, 0.7, 0.8, 0.7);
-    cairo_set_line_width(cr, 1.0);
-    cairo_stroke(cr);
 
     /* Phase label below the marker */
     {

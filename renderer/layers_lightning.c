@@ -25,6 +25,9 @@
 #include "layer.h"
 #include "config.h"
 #include "lightning.h"
+#include "feature.h"
+#include <stdio.h>
+#include <string.h>
 #include <cairo/cairo.h>
 #include <math.h>
 #include <sys/time.h>
@@ -210,4 +213,146 @@ void pic_layer_render_lightning(cairo_t *cr, int width, int height,
     }
 
     pthread_mutex_unlock(&data->mutex);
+}
+
+/*
+ * Thunderstorm distance around home: rings at 10, 20 and 30 miles and
+ * a note with the nearest strike in the last 30 minutes, e.g.
+ * "Lightning 8 mi NW of home, 2 min ago · 5 strikes within 10 mi".
+ * Shown only while there has been lightning within 100 miles.
+ */
+static const char *compass8(double b)
+{
+    static const char *d[] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+    b = fmod(b + 360.0 + 22.5, 360.0);
+    return d[(int)(b / 45.0) % 8];
+}
+
+void pic_layer_render_lightning_near(cairo_t *cr, int width, int height,
+                                     time_t now, void *user_data)
+{
+    pic_lightning_t *data = (pic_lightning_t *)user_data;
+    double qlat = pic_config.qth_lat, qlon = pic_config.qth_lon;
+    double best = 1e9, best_b = 0, mi_per_deg = 69.05;
+    time_t best_t = 0;
+    int i, n10 = 0, n30 = 0, total = 0;
+    static const int rings[] = { 10, 20, 30 };
+
+    (void)now;
+    if (!data || (qlat == 0 && qlon == 0)) return;
+    {
+        struct timeval tv;
+        time_t t;
+        gettimeofday(&tv, NULL);
+        t = tv.tv_sec;
+        pthread_mutex_lock(&data->mutex);
+        for (i = 0; i < data->near_count; i++) {
+            const pic_strike_t *s = &data->near[i];
+            double p1 = qlat * DEG_TO_RAD, p2 = s->lat * DEG_TO_RAD;
+            double dl = (s->lon - qlon) * DEG_TO_RAD, c, d;
+            if (t - s->when.tv_sec > PIC_NEAR_KEEP_S) continue;
+            c = sin(p1) * sin(p2) + cos(p1) * cos(p2) * cos(dl);
+            if (c > 1) c = 1;
+            d = acos(c) * 3958.8;                     /* miles */
+            total++;
+            if (d < 10) n10++;
+            if (d < 30) n30++;
+            if (d < best) {
+                best = d;
+                best_t = s->when.tv_sec;
+                best_b = atan2(sin(dl) * cos(p2),
+                               cos(p1) * sin(p2) - sin(p1) * cos(p2) * cos(dl)) * RAD_TO_DEG;
+            }
+        }
+        pthread_mutex_unlock(&data->mutex);
+        if (!total) return;
+
+        /* Rings (ellipses: the map is equirectangular) and the
+         * recent strikes near home as small crosses fading with age */
+        {
+            double hx = pic_lon_to_x(qlon, width), hy = pic_lat_to_y(qlat, height);
+            double span = pic_config.view_span_lon > 0 ? pic_config.view_span_lon : 360;
+            double span_lat = pic_config.view_span_lat > 0 ? pic_config.view_span_lat : 180;
+            double ppd_x = width / span, ppd_y = height / span_lat;
+            double fs = height / 95.0;
+            cairo_save(cr);
+            pthread_mutex_lock(&data->mutex);
+            for (i = 0; i < data->near_count; i++) {
+                const pic_strike_t *st = &data->near[i];
+                double age = (double)(t - st->when.tv_sec), a, x, y, k = fs * 0.35;
+                if (age > PIC_NEAR_KEEP_S) continue;
+                a = 1.0 - 0.75 * age / PIC_NEAR_KEEP_S;
+                x = pic_lon_to_x(st->lon, width);
+                y = pic_lat_to_y(st->lat, height);
+                cairo_new_path(cr);
+                cairo_move_to(cr, x - k, y - k); cairo_line_to(cr, x + k, y + k);
+                cairo_move_to(cr, x - k, y + k); cairo_line_to(cr, x + k, y - k);
+                cairo_set_source_rgba(cr, 1.0, 0.95, 0.4, a);
+                cairo_set_line_width(cr, height / 540.0 * 1.5);
+                cairo_stroke(cr);
+            }
+            pthread_mutex_unlock(&data->mutex);
+            cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL,
+                                   CAIRO_FONT_WEIGHT_BOLD);
+            cairo_set_font_size(cr, fs);
+            for (i = 0; i < 3; i++) {
+                double ry = rings[i] / mi_per_deg * ppd_y;
+                double rx = rings[i] / (mi_per_deg * cos(qlat * DEG_TO_RAD)) * ppd_x;
+                double rr, gg, bb, a;
+                char lab[12];
+                if (ry < 6) continue;               /* too small to draw */
+                a = (best < rings[i] && (i == 0 || best >= rings[i - 1])) ? 0.95 : 0.45;
+                if (rings[i] == 10)      { rr = 1.0; gg = 0.3; bb = 0.25; }
+                else if (rings[i] == 20) { rr = 1.0; gg = 0.6; bb = 0.2; }
+                else                     { rr = 1.0; gg = 0.9; bb = 0.35; }
+                cairo_save(cr);
+                cairo_translate(cr, hx, hy);
+                cairo_scale(cr, rx, ry);
+                cairo_new_path(cr);
+                cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+                cairo_restore(cr);
+                cairo_set_source_rgba(cr, rr, gg, bb, a);
+                cairo_set_line_width(cr, height / 540.0 * (a > 0.9 ? 2.2 : 1.2));
+                cairo_stroke(cr);
+                /* Label on the ring, each at its own angle (10 mi at
+                 * the east, 30 mi near the top) so they don't collide */
+                if (rx >= fs * 2.6) {
+                    cairo_text_extents_t e;
+                    double th = (15.0 + 30.0 * i) * DEG_TO_RAD;
+                    snprintf(lab, sizeof(lab), "%d mi", rings[i]);
+                    cairo_text_extents(cr, lab, &e);
+                    cairo_new_path(cr);
+                    cairo_move_to(cr, hx + rx * cos(th) + 3, hy - ry * sin(th) + fs * 0.35);
+                    cairo_text_path(cr, lab);
+                    cairo_set_source_rgba(cr, 0, 0, 0, 0.75);
+                    cairo_set_line_width(cr, fs * 0.3);
+                    cairo_stroke_preserve(cr);
+                    cairo_set_source_rgba(cr, rr, gg, bb, 1.0);
+                    cairo_fill(cr);
+                }
+            }
+            cairo_restore(cr);
+        }
+
+        /* Note */
+        {
+            char text[160], ago[24];
+            long m = (long)(t - best_t) / 60;
+            double rr = 1.0, gg = best < 10 ? 0.4 : best < 30 ? 0.7 : 0.9, bb = 0.35;
+            if (m < 1) snprintf(ago, sizeof(ago), "just now");
+            else snprintf(ago, sizeof(ago), "%ld min ago", m);
+            if (best < 1)
+                snprintf(text, sizeof(text), "Lightning overhead (%s)", ago);
+            else
+                snprintf(text, sizeof(text), "Lightning %.0f mi %s of home, %s",
+                         best, compass8(best_b), ago);
+            if (n10)
+                snprintf(text + strlen(text), sizeof(text) - strlen(text),
+                         " \xc2\xb7 %d strike%s within 10 mi (30 min)", n10, n10 == 1 ? "" : "s");
+            else if (n30)
+                snprintf(text + strlen(text), sizeof(text) - strlen(text),
+                         " \xc2\xb7 %d within 30 mi (30 min)", n30);
+            pic_draw_legend_line(cr, width, height, 0, text, rr, gg, bb);
+        }
+    }
 }

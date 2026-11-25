@@ -33,6 +33,7 @@
  */
 
 #include "layer.h"
+#include "feature.h"
 #include "config.h"
 #include "wind.h"
 #include <cairo/cairo.h>
@@ -387,13 +388,12 @@ void pic_layer_render_wind(cairo_t *cr, int width, int height,
     time_t ref;
     int need_redraw = 0;
 
-    (void)now;
-
     if (!data) return;
 
-    /* Check if we have valid wind data */
+    /* Check if we have valid wind data (and that the model run is
+     * recent: runs come every 6 h) */
     pthread_mutex_lock(&data->mutex);
-    if (!data->valid) {
+    if (!data->valid || pic_data_stale(data->ref_time, now, 18 * 3600)) {
         pthread_mutex_unlock(&data->mutex);
         return;
     }

@@ -20,7 +20,7 @@
 #include <cairo/cairo.h>
 #include <time.h>
 
-#define MAX_APPLETS 8
+#define MAX_APPLETS 24
 
 /* Screen side for applet positioning */
 #define APPLET_SIDE_RIGHT 0
@@ -84,6 +84,10 @@ int pic_applet_stack_add(pic_applet_stack_t *stack, const char *name,
  *   height - Display height
  *   now    - Current UTC time
  */
+/* Left [0] and right [1] panel stacks as {x0, y0, x1, y1} from the
+ * last frame (all 0 when that side is empty), for map labels to avoid */
+extern double pic_panel_rect[2][4];
+
 void pic_applet_stack_render(pic_applet_stack_t *stack, cairo_t *cr,
                              int width, int height, time_t now);
 

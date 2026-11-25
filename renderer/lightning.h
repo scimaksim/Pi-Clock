@@ -31,6 +31,9 @@
  * need to hold a few hundred at most. 512 is generous.
  */
 #define PIC_MAX_STRIKES 512
+#define PIC_NEAR_STRIKES 512
+#define PIC_NEAR_KM      161.0   /* 100 miles */
+#define PIC_NEAR_KEEP_S  1800    /* 30 minutes */
 
 /*
  * Default fade time in milliseconds — how long a strike stays
@@ -58,6 +61,11 @@ typedef struct {
     int          head;                       /* Next write position  */
     int          count;                      /* Total strikes stored */
     int          fade_ms;                    /* Display fade time    */
+    /* Strikes within ~100 mi of home, kept 30 min for the distance
+     * rings / "lightning 8 mi away" note (the main buffer only holds
+     * the last few seconds worldwide) */
+    pic_strike_t near[PIC_NEAR_STRIKES];
+    int          near_head, near_count;
     pthread_mutex_t mutex;
 } pic_lightning_t;
 

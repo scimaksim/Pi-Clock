@@ -42,6 +42,15 @@ typedef struct {
     double bstar;             /* B* drag term                        */
     int    tle_loaded;        /* Non-zero if TLE data is valid       */
 
+    /* SGP4 (near-Earth) constants from the elements, set when the
+     * TLE is parsed (satellite.c); sg_ok = 0 for high orbits, which
+     * use a simpler secular model instead */
+    int    sg_ok, sg_isimp;
+    double sg_no, sg_ao, sg_con41, sg_x1mth2, sg_x7thm1, sg_cc1, sg_cc4, sg_cc5,
+           sg_d2, sg_d3, sg_d4, sg_delmo, sg_eta, sg_sinmao, sg_mdot,
+           sg_argpdot, sg_nodedot, sg_omgcof, sg_xmcof, sg_nodecf, sg_t2cof,
+           sg_t3cof, sg_t4cof, sg_t5cof, sg_xlcof, sg_aycof;
+
     /* Current computed position */
     double lat;               /* Sub-satellite latitude (degrees)    */
     double lon;               /* Sub-satellite longitude (degrees)   */
@@ -90,5 +99,25 @@ void pic_sat_propagate(pic_satlist_t *list, time_t now);
  * File: /data/etc/pi-clock-satellites.conf, format: name=0|1
  */
 void pic_sat_load_config(pic_satlist_t *list);
+
+/*
+ * pic_sat_parse_tle - Load orbital elements from a two-line element set
+ * into `sat` (other fields untouched). Returns 0 on success.
+ */
+int pic_sat_parse_tle(pic_sat_t *sat, const char *line1, const char *line2);
+
+/*
+ * Catalog number from TLE line 1 (columns 3-7). Handles Alpha-5, used
+ * since the 5-digit numbers ran out: "A0983" = 100983 (A=10, B=11 ...
+ * Z=33, skipping I and O).
+ */
+int pic_tle_catnr(const char *line1);
+
+/*
+ * pic_sat_position_at - Sub-satellite point and altitude at time t,
+ * using the same simplified SGP4 as the tracker.
+ */
+void pic_sat_position_at(const pic_sat_t *sat, time_t t,
+                         double *lat, double *lon, double *alt_km);
 
 #endif /* PIC_SATELLITE_H */

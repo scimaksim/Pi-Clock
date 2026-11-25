@@ -165,7 +165,8 @@ void pic_layer_render_precip(cairo_t *cr, int width, int height,
         for (gy = 0; gy < PIC_WIND_NY; gy++) {
             for (gx = 0; gx < PIC_WIND_NX; gx++) {
                 pixels[gy * stride + gx] =
-                    radar_pixel(data->precip[gy][gx]);
+                    /* GFS grid starts at 0°E; surface at 180°W */
+                    radar_pixel(data->precip[gy][(gx + PIC_WIND_NX / 2) % PIC_WIND_NX]);
             }
         }
 
@@ -178,7 +179,7 @@ void pic_layer_render_precip(cairo_t *cr, int width, int height,
         cairo_paint(cc);
         cairo_set_operator(cc, CAIRO_OPERATOR_OVER);
 
-        pic_paint_viewport(cc, grid_surf, width, height);
+        pic_paint_viewport_grid(cc, grid_surf, width, height);
 
         cairo_destroy(cc);
         cairo_surface_destroy(grid_surf);

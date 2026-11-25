@@ -35,6 +35,8 @@
 
 #include "layer.h"
 #include "config.h"
+#include "localview.h"
+#include "season.h"
 
 /*
  * pic_viewport_pattern - Build the Cairo pattern + matrix used by
@@ -61,6 +63,23 @@ cairo_pattern_t *pic_viewport_pattern(cairo_surface_t *src,
     double span_lon, span_lat;
 
     if (!src) return NULL;
+
+    /* Local view: a high-resolution regional image may stand in for
+     * the world map (see localview.c). */
+    pattern = pic_regional_pattern(src, width, height);
+    if (pattern) return pattern;
+
+    /* Daytime map: the current-season composite, when built (season.c) */
+    {
+        cairo_surface_t *whole = NULL;
+        pattern = pic_season_pattern(src, width, height, &whole);
+        if (pattern) return pattern;
+        if (whole) {
+            pattern = pic_viewport_pattern(whole, width, height);
+            cairo_surface_destroy(whole);     /* the pattern holds a ref */
+            if (pattern) return pattern;
+        }
+    }
 
     src_w = cairo_image_surface_get_width(src);
     src_h = cairo_image_surface_get_height(src);
@@ -99,6 +118,51 @@ cairo_pattern_t *pic_viewport_pattern(cairo_surface_t *src,
     cairo_pattern_set_matrix(pattern, &m);
 
     return pattern;
+}
+
+/*
+ * pic_paint_viewport_grid - Paint a point grid of samples (column j =
+ * lon -180 + j*dlon, row i = lat 90 - i*dlat, e.g. a 360x181 1° model
+ * grid) through the viewport. Unlike an image whose pixels cover
+ * cells, each grid value sits exactly on its lat/lon, so the pixel
+ * centre (+0.5) is placed on the sample point; drawing it as an image
+ * would put everything half a cell east and off in latitude.
+ */
+void pic_paint_viewport_grid(cairo_t *cr, cairo_surface_t *src,
+                             int width, int height)
+{
+    cairo_pattern_t *pattern;
+    cairo_matrix_t m;
+    int src_w, src_h;
+    double span_lon, span_lat, dlon, dlat, lon0, lat1;
+
+    if (!src || !cr) return;
+    src_w = cairo_image_surface_get_width(src);
+    src_h = cairo_image_surface_get_height(src);
+    if (src_w <= 0 || src_h <= 1) return;
+    span_lon = pic_config.view_span_lon;
+    span_lat = pic_config.view_span_lat;
+    if (span_lon < 0.0001) span_lon = 360.0;
+    if (span_lat < 0.0001) span_lat = 180.0;
+    dlon = 360.0 / src_w;
+    dlat = 180.0 / (src_h - 1);
+    lon0 = pic_config.view_center_lon - span_lon / 2.0;
+    lat1 = pic_config.view_center_lat + span_lat / 2.0;
+
+    pattern = cairo_pattern_create_for_surface(src);
+    if (cairo_pattern_status(pattern) != CAIRO_STATUS_SUCCESS) {
+        cairo_pattern_destroy(pattern);
+        return;
+    }
+    cairo_pattern_set_extend(pattern, CAIRO_EXTEND_REPEAT);
+    cairo_pattern_set_filter(pattern, CAIRO_FILTER_BILINEAR);
+    cairo_matrix_init(&m, span_lon / width / dlon, 0.0, 0.0,
+                      span_lat / height / dlat,
+                      (lon0 + 180.0) / dlon + 0.5, (90.0 - lat1) / dlat + 0.5);
+    cairo_pattern_set_matrix(pattern, &m);
+    cairo_set_source(cr, pattern);
+    cairo_paint(cr);
+    cairo_pattern_destroy(pattern);
 }
 
 /*

@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
 
     fdata = malloc(fsize);
     if (!fdata) { fclose(f); munmap(fb_mem, fb_size); close(fb_fd); return 1; }
-    fread(fdata, 1, fsize, f);
+    if (fread(fdata, 1, fsize, f) == 0) { /* blank splash is fine */ }
     fclose(f);
 
     img_data = stbi_load_from_memory(fdata, fsize, &img_w, &img_h, &img_ch, 3);

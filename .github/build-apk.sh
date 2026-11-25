@@ -19,7 +19,7 @@ echo "=== Building Pi-Clock APKs v${PKG_VERSION} ==="
 # python3/imagemagick/curl only needed if REBUILD_MAPS=1
 apk update
 apk add \
-  build-base cairo-dev sdl2-dev openssl-dev pkgconf \
+  build-base cairo-dev sdl2-dev libdrm-dev openssl-dev pkgconf \
   openssl abuild sudo
 
 # Maps tools needed if rebuilding OR if no cached maps APK exists on gh-pages
@@ -151,6 +151,9 @@ package() {
         "\$pkgdir"/usr/bin/pi-clock
     install -Dm755 /home/builder/renderer-src/pi-clock-splash \
         "\$pkgdir"/usr/bin/pi-clock-splash
+    install -Dm644 /home/builder/renderer-src/geodata/localmap.dat \
+        "\$pkgdir"/usr/share/pi-clock/localmap.dat
+    cp -R /home/builder/renderer-src/worlds "\$pkgdir"/usr/share/pi-clock/
     install -Dm755 "\$startdir"/pi-clock-renderer.initd \
         "\$pkgdir"/etc/init.d/pi-clock-renderer
     install -Dm755 "\$startdir"/pi-clock-splash.initd \

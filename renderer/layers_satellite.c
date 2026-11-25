@@ -13,8 +13,11 @@
  */
 
 #include "layer.h"
+#include "labels.h"
+#include "features_all.h"
 #include "config.h"
 #include "satellite.h"
+#include "sat_icons.h"
 #include <cairo/cairo.h>
 #include <math.h>
 #include <string.h>
@@ -150,53 +153,29 @@ void pic_layer_render_satellite(cairo_t *cr, int width, int height,
             cairo_set_dash(cr, NULL, 0, 0);
         }
 
-        /* Satellite icon — body + two solar panel wings */
+        /* Satellite icon: ISS / Tiangong / Hubble silhouettes, or a
+         * generic body-and-panels satellite tinted with its colour */
+        pic_draw_sat_icon(cr, sat->name[0] ? sat->name : sat->config_key,
+                          x, y, dot_r * 8.0, 0.35, cr_r, cr_g, cr_b);
+        /* People aboard the stations */
         {
-            double s = dot_r * 1.2;  /* Scale unit */
-            double angle = 0.4;      /* Slight tilt (radians) */
-
-            cairo_save(cr);
-            cairo_translate(cr, x, y);
-            cairo_rotate(cr, angle);
-
-            /* Solar panel left */
-            cairo_rectangle(cr, -s * 3.0, -s * 0.6, s * 1.8, s * 1.2);
-            cairo_set_source_rgba(cr, 0.2, 0.3, 0.7, 0.85);
-            cairo_fill(cr);
-
-            /* Solar panel right */
-            cairo_rectangle(cr, s * 1.2, -s * 0.6, s * 1.8, s * 1.2);
-            cairo_set_source_rgba(cr, 0.2, 0.3, 0.7, 0.85);
-            cairo_fill(cr);
-
-            /* Panel grid lines */
-            cairo_set_source_rgba(cr, 0.4, 0.5, 0.9, 0.5);
-            cairo_set_line_width(cr, s * 0.08);
-            cairo_move_to(cr, -s * 2.1, -s * 0.6);
-            cairo_line_to(cr, -s * 2.1, s * 0.6);
-            cairo_move_to(cr, s * 2.1, -s * 0.6);
-            cairo_line_to(cr, s * 2.1, s * 0.6);
-            cairo_stroke(cr);
-
-            /* Body (centre rectangle) */
-            cairo_rectangle(cr, -s * 1.0, -s * 0.7, s * 2.0, s * 1.4);
-            cairo_set_source_rgba(cr, cr_r, cr_g, cr_b, 0.9);
-            cairo_fill(cr);
-
-            /* Body outline */
-            cairo_rectangle(cr, -s * 1.0, -s * 0.7, s * 2.0, s * 1.4);
-            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.5);
-            cairo_set_line_width(cr, s * 0.12);
-            cairo_stroke(cr);
-
-            /* Antenna nub */
-            cairo_move_to(cr, 0, -s * 0.7);
-            cairo_line_to(cr, 0, -s * 1.4);
-            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.6);
-            cairo_set_line_width(cr, s * 0.15);
-            cairo_stroke(cr);
-
-            cairo_restore(cr);
+            const char *nm = sat->name[0] ? sat->name : sat->config_key;
+            int aboard = pic_sat_kind(nm) == PIC_SAT_ISS ? pic_crew_aboard("ISS") :
+                         pic_sat_kind(nm) == PIC_SAT_TIANGONG ? pic_crew_aboard("Tiangong") : -1;
+            if (aboard >= 0) {
+                /* above-right, or another corner when a planet, launch
+                 * or other label is already there */
+                static const double c[4][2] = { { 4.6, -3.6 }, { 4.6, 3.6 }, { -12.3, -3.6 }, { -12.3, 3.6 } };
+                double bh = dot_r * 3.2, bx = x + dot_r * c[0][0], by = y + dot_r * c[0][1];
+                int q;
+                for (q = 0; q < 4; q++) {
+                    double b[4];
+                    b[0] = x + dot_r * c[q][0]; b[1] = y + dot_r * c[q][1] - bh / 2;
+                    b[2] = b[0] + bh * 2.4;     b[3] = b[1] + bh;
+                    if (pic_labels_free(-1, b)) { bx = b[0]; by = y + dot_r * c[q][1]; break; }
+                }
+                pic_draw_crew_badge(cr, bx, by, bh, aboard, cr_r, cr_g, cr_b);
+            }
         }
 
         /* Name + altitude label */
@@ -216,6 +195,22 @@ void pic_layer_render_satellite(cairo_t *cr, int width, int height,
 
             lx = x + dot_r + 4;
             ly = y + font_size * 0.35;
+            {   /* The satellite passes over planets, launch sites and
+                 * storms on the map: put its name where no other label
+                 * is (right, left, below, above). It does not claim the
+                 * spot, so the fixed labels don't jump as it goes by. */
+                double cx[4], cy[4];
+                int q;
+                cx[0] = lx;                             cy[0] = ly;
+                cx[1] = x - dot_r - 4 - ext.width;      cy[1] = ly;
+                cx[2] = x - ext.width / 2;              cy[2] = y + dot_r * 4.5 + ext.height;
+                cx[3] = x - ext.width / 2;              cy[3] = y - dot_r * 4.5;
+                for (q = 0; q < 4; q++) {
+                    double b[4] = { cx[q] - 3, cy[q] - ext.height - 2, cx[q] + ext.width + 3, cy[q] + 3 };
+                    if (b[0] < 0 || b[2] > width || b[1] < 0 || b[3] > height) continue;
+                    if (pic_labels_free(-1, b)) { lx = cx[q]; ly = cy[q]; break; }
+                }
+            }
 
             /* Background pill */
             cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.7);

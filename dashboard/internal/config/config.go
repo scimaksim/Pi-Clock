@@ -19,14 +19,13 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 )
 
-const (
-	rendererConfPath = "/data/etc/pi-clock-renderer.conf"
-)
+var rendererConfPath = "/data/etc/pi-clock-renderer.conf"
 
 // RendererConfig holds the display and station settings.
 // Always used as a pointer. The mutex protects all fields from
@@ -35,9 +34,9 @@ const (
 // MapZoom is a 0-100 percent slider controlling how far the
 // viewport is zoomed and panned toward the QTH — see pic_config
 // in renderer/config.h for the full semantics.
-type RendererConfig struct {
-	mu sync.RWMutex // guards all fields below
-
+// RendererValues are the plain fields of RendererConfig, safe to copy
+// and serialise (RendererConfig itself carries a mutex).
+type RendererValues struct {
 	CenterLon         string `json:"center_lon"`
 	QthLat            string `json:"qth_lat"`
 	QthLon            string `json:"qth_lon"`
@@ -48,9 +47,14 @@ type RendererConfig struct {
 	DisplayRotate     string `json:"display_rotate"` // "0" or "180"
 }
 
+type RendererConfig struct {
+	mu sync.RWMutex // guards all fields below
+	RendererValues
+}
+
 // Load reads the renderer config file and returns a RendererConfig.
 func Load() *RendererConfig {
-	cfg := &RendererConfig{
+	cfg := &RendererConfig{RendererValues: RendererValues{
 		CenterLon:         "0",
 		QthLat:            "0",
 		QthLon:            "0",
@@ -59,7 +63,7 @@ func Load() *RendererConfig {
 		DisplayResolution: "1080p",
 		MapZoom:           "0",
 		DisplayRotate:     "0",
-	}
+	}}
 
 	cfg.Reload()
 	return cfg
@@ -124,15 +128,21 @@ func (c *RendererConfig) Reload() {
 // saving QTH settings would silently erase DX filter settings.
 //
 // Caller MUST hold c.mu (write lock) before calling.
-func (c *RendererConfig) saveUnlocked() error {
+func (c RendererValues) saveUnlocked() error {
 	managed := map[string]bool{
 		"CENTER_LON": true, "QTH_LAT": true, "QTH_LON": true,
 		"CALLSIGN": true, "GRID_SQUARE": true, "DISPLAY_RESOLUTION": true,
 		"MAP_ZOOM": true, "DISPLAY_ROTATE": true,
 	}
 
+	// A read error other than "no file yet" must stop the save: writing
+	// on would drop every setting this function does not manage.
 	var extra []string
-	if data, err := os.ReadFile(rendererConfPath); err == nil {
+	data, err := os.ReadFile(rendererConfPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", rendererConfPath, err)
+	}
+	if err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -165,7 +175,19 @@ DISPLAY_ROTATE=%s
 	/* Atomic write: write to temp file then rename. Prevents corrupt
 	 * config if power is lost mid-write (common on Pi appliances). */
 	tmp := rendererConfPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(content); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil { // on the card before the rename
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, rendererConfPath)
@@ -187,10 +209,10 @@ func (c *RendererConfig) Unlock() { c.mu.Unlock() }
 // Snapshot returns a copy of the config fields under the read lock.
 // Safe to pass to template rendering or JSON serialisation without
 // holding the lock — the copy is independent of the original.
-func (c *RendererConfig) Snapshot() RendererConfig {
+func (c *RendererConfig) Snapshot() RendererValues {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return RendererConfig{
+	return RendererValues{
 		CenterLon:         c.CenterLon,
 		QthLat:            c.QthLat,
 		QthLon:            c.QthLon,
@@ -205,42 +227,56 @@ func (c *RendererConfig) Snapshot() RendererConfig {
 // Update applies new values from a map and saves atomically.
 // Holds the write lock through both the field update and the
 // file write to prevent TOCTOU races.
+var gridSquareRe = regexp.MustCompile(`^([A-Ra-r]{2}[0-9]{2}([A-Xa-x]{2})?)?$`)
+
 func (c *RendererConfig) Update(values map[string]string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Reject values containing newlines — they would inject extra
 	// KEY=VALUE lines into the config file.
+	// Cap the length too: the renderer reads lines into 256-byte
+	// buffers, so an over-long value would spill into a "second line"
+	// and be parsed as another setting.
 	for _, v := range values {
-		if strings.ContainsAny(v, "\n\r") {
+		if strings.ContainsAny(v, "\n\r\x00") {
 			return fmt.Errorf("invalid characters in config value")
+		}
+		if len(v) > 64 {
+			return fmt.Errorf("config value too long")
 		}
 	}
 
+	next := c.RendererValues
 	if v, ok := values["center_lon"]; ok {
-		c.CenterLon = v
+		next.CenterLon = v
 	}
 	if v, ok := values["qth_lat"]; ok {
-		c.QthLat = v
+		next.QthLat = v
 	}
 	if v, ok := values["qth_lon"]; ok {
-		c.QthLon = v
+		next.QthLon = v
 	}
 	if v, ok := values["callsign"]; ok {
-		c.Callsign = v
+		next.Callsign = v
 	}
 	if v, ok := values["grid_square"]; ok {
-		c.GridSquare = v
+		// The same locator rule the settings import uses: field A-R,
+		// square 0-9, optional subsquare a-x
+		if !gridSquareRe.MatchString(v) {
+			return fmt.Errorf("grid square must be a Maidenhead locator like FM05pq")
+		}
+		next.GridSquare = v
 	}
 	if v, ok := values["display_resolution"]; ok {
-		c.DisplayResolution = v
+		next.DisplayResolution = v
 	}
 	if v, ok := values["display_rotate"]; ok {
 		// Software 180 flip only (0 or 180); reject anything else.
 		if v != "180" {
 			v = "0"
 		}
-		c.DisplayRotate = v
+		next.DisplayRotate = v
 	}
 	if v, ok := values["map_zoom"]; ok {
 		// Validate as 0..100 integer — the renderer parses MAP_ZOOM
@@ -257,8 +293,12 @@ func (c *RendererConfig) Update(values map[string]string) error {
 		if n > 100 {
 			n = 100
 		}
-		c.MapZoom = strconv.Itoa(n)
+		next.MapZoom = strconv.Itoa(n)
 	}
 
-	return c.saveUnlocked()
+	if err := next.saveUnlocked(); err != nil {
+		return err
+	}
+	c.RendererValues = next
+	return nil
 }

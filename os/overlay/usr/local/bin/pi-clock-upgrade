@@ -33,6 +33,13 @@ fi
 # shellcheck disable=SC1090
 . "$OS_CONF"
 
+# The fork's dashboard suppresses stock upgrades. Apply the same check
+# when the installer is invoked directly on an existing fork image.
+if grep -q '^Version: fork-' /etc/pi-clock-os-release 2>/dev/null &&
+   [ "${UPDATE_URL%/}" = "https://github.com/MW0MWZ/Pi-Clock/releases/latest/download" ]; then
+	die "this is a fork image; the stock OS image would replace it. Update in place instead (see the fork release notes)"
+fi
+
 # Determine inactive slot
 case "$ACTIVE_SLOT" in
 	A) INACTIVE_SLOT="B"; INACTIVE_PART="3" ;;
@@ -84,6 +91,17 @@ check_update() {
 }
 
 install_update() {
+	[ "$PENDING" != "true" ] || die "the previous upgrade is still pending boot validation"
+	# slot.conf switches to the target before reboot. Check the actual
+	# mounted root as well, including after a staged manual rollback.
+	case "$ACTIVE_SLOT" in
+		A) active_part=2 ;;
+		B) active_part=3 ;;
+	esac
+	active_dev=$(cat "/sys/class/block/mmcblk0p${active_part}/dev") || die "cannot identify the active partition"
+	root_dev=$(awk '$5 == "/" { dev = $3 } END { print dev }' /proc/self/mountinfo)
+	[ -n "$root_dev" ] && [ "$root_dev" = "$active_dev" ] || die "mounted root disagrees with slot.conf; check the boot slot"
+
 	# STAGE markers are read by the dashboard to show live progress.
 	# Each "STAGE:name" line advances the progress indicator.
 	echo "STAGE:manifest"
@@ -123,6 +141,9 @@ install_update() {
 	MOUNT_DIR="/mnt/inactive"
 	mkdir -p "$MOUNT_DIR"
 	mount "$INACTIVE_DEV" "$MOUNT_DIR"
+	# A failure from here on must not leave the slot mounted: the next
+	# attempt would then fail at mkfs until a reboot.
+	trap 'umount "$MOUNT_DIR" 2>/dev/null || true' EXIT
 
 	echo "Extracting rootfs to slot $INACTIVE_SLOT..."
 	tar -xJf "$TMP_DIR/$ROOTFS_FILE" -C "$MOUNT_DIR"
