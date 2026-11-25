@@ -35,7 +35,7 @@
 
 /* ── 1. View manager ───────────────────────────────────────────── */
 
-enum { VIEW_GLOBAL, VIEW_LOCAL, VIEW_CYCLE, VIEW_WORLD };
+enum { VIEW_GLOBAL, VIEW_LOCAL, VIEW_CYCLE, VIEW_WORLD, VIEW_PHOTO };
 
 static int    view_mode = VIEW_GLOBAL;
 /*
@@ -182,7 +182,8 @@ void pic_view_reload(time_t now)
     char m[16] = "";
     pic_conf_str("VIEW_MODE", m, sizeof(m));
     view_mode = !strcmp(m, "local") ? VIEW_LOCAL :
-                !strcmp(m, "cycle") ? VIEW_CYCLE : VIEW_GLOBAL;
+                !strcmp(m, "cycle") ? VIEW_CYCLE :
+                !strcmp(m, "photo") ? VIEW_PHOTO : VIEW_GLOBAL;
     fixed_world = pic_world_by_name(m);
     if (fixed_world) view_mode = VIEW_WORLD;
     {
@@ -256,6 +257,23 @@ void pic_view_reload(time_t now)
             for (k = 0; k < nworlds; k++) still |= worlds[k] == showing_world;
             if (!still) { showing_world = 0; showing_local = 0; switch_at = now; }
         }
+    } else if (view_mode == VIEW_PHOTO) {
+        showing_local = 0;
+        showing_world = 0;
+        showing_closeup = 0;
+        cycle_started = 0;
+        if (photo_ready && photo_ready(now)) {
+            int dur = photo_min > 0 ? photo_min : 1;
+            time_t max_at = now + (time_t)dur * 60;
+            if (!showing_photo) {
+                show_photo(now);
+                switch_at = max_at;
+            } else if (switch_at > max_at) {
+                switch_at = max_at;
+            }
+        } else {
+            showing_photo = 0;
+        }
     } else {
         showing_local = view_mode == VIEW_LOCAL;
         showing_world = view_mode == VIEW_WORLD ? fixed_world : 0;
@@ -265,7 +283,8 @@ void pic_view_reload(time_t now)
     if (view_mode != VIEW_CYCLE) showing_closeup = 0;
     pic_config.local_zoom = showing_closeup ? closeup_zoom_v : showing_local ? local_zoom : 0;
     printf("view: mode=%s local_zoom=%.0fx global=%dmin local=%dmin closeup=%dmin (%.2f deg)\n",
-           view_mode == VIEW_LOCAL ? "local" : view_mode == VIEW_CYCLE ? "cycle" : "global",
+           view_mode == VIEW_LOCAL ? "local" : view_mode == VIEW_CYCLE ? "cycle" :
+           view_mode == VIEW_PHOTO ? "photo" : view_mode == VIEW_WORLD ? "world" : "global",
            local_zoom, global_min, local_min, closeup_min, 360.0 / closeup_zoom_v);
 }
 
@@ -300,6 +319,24 @@ static int local_interest(time_t now, char *why, size_t n)
 
 int pic_view_update(time_t now)
 {
+    if (view_mode == VIEW_PHOTO) {
+        int dur = photo_min > 0 ? photo_min : 1;
+        if (!photo_ready || !photo_ready(now)) {
+            if (showing_photo) { showing_photo = 0; return 1; }
+            return 0;
+        }
+        if (!showing_photo) {
+            show_photo(now);
+            switch_at = now + (time_t)dur * 60;
+            return 1;
+        }
+        if (now >= switch_at) {
+            if (photo_next) photo_next();
+            switch_at = now + (time_t)dur * 60;
+            return 1;
+        }
+        return 0;
+    }
     if (view_mode != VIEW_CYCLE) return 0;
     if (smart_hold) {
         char why[64];

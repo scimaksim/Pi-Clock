@@ -215,5 +215,28 @@ int main(void)
         unlink("/tmp/pic_test_photoday.conf");
         unlink("/tmp/pic_test_photoday_worlds");
     }
+    {   /* VIEW_MODE=photo: rotating photos only without Geochron map */
+        FILE *f = fopen("/tmp/pic_test_photoonly.conf", "w");
+        time_t t0 = 1794000000, t;
+        int prev_nexts;
+        fprintf(f, "VIEW_MODE=photo\nVIEW_PHOTO_MIN=2\nPIDASH_URL=http://127.0.0.1:9\n");
+        fclose(f);
+        setenv("PIC_RENDERER_CONF", "/tmp/pic_test_photoonly.conf", 1);
+        pic_view_set_photo_source(fake_ready, fake_next);
+        ready_n = 1;
+        prev_nexts = nexts;
+        pic_view_reload(t0);
+        CHECK(pic_view_photo() && pic_view_offworld() && !pic_view_is_local() && !pic_view_world(),
+              "photo-only starts in photo view");
+        for (t = t0; t <= t0 + 5 * 60; t += 30) {
+            pic_view_update(t);
+            CHECK(pic_view_photo(), "photo-only stays in photo view while ready");
+        }
+        CHECK(nexts - prev_nexts >= 3, "photo-only advances pictures on schedule (%d)", nexts - prev_nexts);
+        ready_n = 0;
+        pic_view_update(t);
+        CHECK(!pic_view_photo(), "photo-only drops photo view when no picture is ready");
+        unlink("/tmp/pic_test_photoonly.conf");
+    }
     return CHECK_DONE("test_photoday");
 }

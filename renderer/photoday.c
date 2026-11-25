@@ -603,8 +603,10 @@ static void pd_reload(pic_feature_t *f)
 
 static int pd_wanted(pic_feature_t *f)
 {
+    char m[16] = "";
     (void)f;
-    return pic_conf_int("VIEW_PHOTO_MIN", 0) > 0;
+    pic_conf_str("VIEW_MODE", m, sizeof(m));
+    return pic_conf_int("VIEW_PHOTO_MIN", 0) > 0 || !strcmp(m, "photo");
 }
 
 /* View hooks: is there a current picture, and move to the next one */
